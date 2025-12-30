@@ -1,0 +1,589 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ============================================
+       RAW TAILWIND COLOR REFERENCES
+       Full palette - all families and shades
+       ============================================ */
+    
+    /* Grayscale Families */
+    --color-slate-50: 210 40% 98%;
+    --color-slate-100: 210 40% 96%;
+    --color-slate-200: 214 32% 91%;
+    --color-slate-300: 213 27% 84%;
+    --color-slate-400: 215 20% 65%;
+    --color-slate-500: 215 16% 47%;
+    --color-slate-600: 215 19% 35%;
+    --color-slate-700: 215 25% 27%;
+    --color-slate-800: 217 33% 17%;
+    --color-slate-900: 222 47% 11%;
+    --color-slate-950: 229 84% 5%;
+    
+    --color-gray-50: 210 20% 98%;
+    --color-gray-100: 220 14% 96%;
+    --color-gray-200: 220 13% 91%;
+    --color-gray-300: 216 12% 84%;
+    --color-gray-400: 218 11% 65%;
+    --color-gray-500: 220 9% 46%;
+    --color-gray-600: 215 14% 34%;
+    --color-gray-700: 217 19% 27%;
+    --color-gray-800: 215 28% 17%;
+    --color-gray-900: 221 39% 11%;
+    --color-gray-950: 224 71% 4%;
+    
+    --color-zinc-50: 0 0% 98%;
+    --color-zinc-100: 240 5% 96%;
+    --color-zinc-200: 240 6% 90%;
+    --color-zinc-300: 240 5% 84%;
+    --color-zinc-400: 240 5% 65%;
+    --color-zinc-500: 240 4% 46%;
+    --color-zinc-600: 240 5% 34%;
+    --color-zinc-700: 240 5% 26%;
+    --color-zinc-800: 240 4% 16%;
+    --color-zinc-900: 240 6% 10%;
+    --color-zinc-950: 240 10% 4%;
+    
+    --color-neutral-50: 0 0% 98%;
+    --color-neutral-100: 0 0% 96%;
+    --color-neutral-200: 0 0% 90%;
+    --color-neutral-300: 0 0% 83%;
+    --color-neutral-400: 0 0% 64%;
+    --color-neutral-500: 0 0% 45%;
+    --color-neutral-600: 0 0% 32%;
+    --color-neutral-700: 0 0% 25%;
+    --color-neutral-800: 0 0% 15%;
+    --color-neutral-900: 0 0% 9%;
+    --color-neutral-950: 0 0% 4%;
+    
+    --color-stone-50: 60 9% 98%;
+    --color-stone-100: 60 5% 96%;
+    --color-stone-200: 20 6% 90%;
+    --color-stone-300: 24 6% 83%;
+    --color-stone-400: 24 5% 64%;
+    --color-stone-500: 25 5% 45%;
+    --color-stone-600: 33 5% 32%;
+    --color-stone-700: 30 6% 25%;
+    --color-stone-800: 12 6% 15%;
+    --color-stone-900: 24 10% 10%;
+    --color-stone-950: 20 14% 4%;
+    
+    /* Red Family */
+    --color-red-50: 0 86% 97%;
+    --color-red-100: 0 93% 94%;
+    --color-red-200: 0 96% 89%;
+    --color-red-300: 0 94% 82%;
+    --color-red-400: 0 91% 71%;
+    --color-red-500: 0 84% 60%;
+    --color-red-600: 0 72% 51%;
+    --color-red-700: 0 74% 42%;
+    --color-red-800: 0 70% 35%;
+    --color-red-900: 0 63% 31%;
+    --color-red-950: 0 75% 15%;
+    
+    /* Orange Family */
+    --color-orange-50: 33 100% 96%;
+    --color-orange-100: 34 100% 92%;
+    --color-orange-200: 32 98% 83%;
+    --color-orange-300: 31 97% 72%;
+    --color-orange-400: 27 96% 61%;
+    --color-orange-500: 25 95% 53%;
+    --color-orange-600: 21 90% 48%;
+    --color-orange-700: 17 88% 40%;
+    --color-orange-800: 15 79% 34%;
+    --color-orange-900: 15 75% 28%;
+    --color-orange-950: 13 81% 15%;
+    
+    /* Amber Family */
+    --color-amber-50: 48 100% 96%;
+    --color-amber-100: 48 96% 89%;
+    --color-amber-200: 48 97% 77%;
+    --color-amber-300: 46 97% 65%;
+    --color-amber-400: 43 96% 56%;
+    --color-amber-500: 38 92% 50%;
+    --color-amber-600: 32 95% 44%;
+    --color-amber-700: 26 90% 37%;
+    --color-amber-800: 23 83% 31%;
+    --color-amber-900: 22 78% 26%;
+    --color-amber-950: 21 92% 14%;
+    
+    /* Yellow Family */
+    --color-yellow-50: 55 92% 95%;
+    --color-yellow-100: 55 97% 88%;
+    --color-yellow-200: 53 98% 77%;
+    --color-yellow-300: 50 98% 64%;
+    --color-yellow-400: 48 96% 53%;
+    --color-yellow-500: 45 93% 47%;
+    --color-yellow-600: 41 96% 40%;
+    --color-yellow-700: 35 92% 33%;
+    --color-yellow-800: 32 81% 29%;
+    --color-yellow-900: 28 73% 26%;
+    --color-yellow-950: 26 83% 14%;
+    
+    /* Lime Family */
+    --color-lime-50: 78 92% 95%;
+    --color-lime-100: 80 89% 89%;
+    --color-lime-200: 81 88% 80%;
+    --color-lime-300: 82 85% 67%;
+    --color-lime-400: 83 78% 55%;
+    --color-lime-500: 84 81% 44%;
+    --color-lime-600: 85 85% 35%;
+    --color-lime-700: 86 78% 27%;
+    --color-lime-800: 86 69% 23%;
+    --color-lime-900: 88 61% 20%;
+    --color-lime-950: 89 80% 10%;
+    
+    /* Green Family */
+    --color-green-50: 138 76% 97%;
+    --color-green-100: 141 84% 93%;
+    --color-green-200: 141 79% 85%;
+    --color-green-300: 142 77% 73%;
+    --color-green-400: 142 69% 58%;
+    --color-green-500: 142 71% 45%;
+    --color-green-600: 142 76% 36%;
+    --color-green-700: 142 72% 29%;
+    --color-green-800: 143 64% 24%;
+    --color-green-900: 144 61% 20%;
+    --color-green-950: 145 80% 10%;
+    
+    /* Emerald Family */
+    --color-emerald-50: 152 81% 96%;
+    --color-emerald-100: 149 80% 90%;
+    --color-emerald-200: 152 76% 80%;
+    --color-emerald-300: 156 72% 67%;
+    --color-emerald-400: 158 64% 52%;
+    --color-emerald-500: 160 84% 39%;
+    --color-emerald-600: 161 94% 30%;
+    --color-emerald-700: 163 94% 24%;
+    --color-emerald-800: 163 88% 20%;
+    --color-emerald-900: 164 86% 16%;
+    --color-emerald-950: 166 91% 9%;
+    
+    /* Teal Family */
+    --color-teal-50: 166 76% 97%;
+    --color-teal-100: 167 85% 89%;
+    --color-teal-200: 168 84% 78%;
+    --color-teal-300: 171 77% 64%;
+    --color-teal-400: 172 66% 50%;
+    --color-teal-500: 173 80% 40%;
+    --color-teal-600: 175 84% 32%;
+    --color-teal-700: 175 77% 26%;
+    --color-teal-800: 176 69% 22%;
+    --color-teal-900: 176 61% 19%;
+    --color-teal-950: 179 84% 10%;
+    
+    /* Cyan Family */
+    --color-cyan-50: 183 100% 96%;
+    --color-cyan-100: 185 96% 90%;
+    --color-cyan-200: 186 94% 82%;
+    --color-cyan-300: 187 92% 69%;
+    --color-cyan-400: 188 86% 53%;
+    --color-cyan-500: 189 94% 43%;
+    --color-cyan-600: 192 91% 36%;
+    --color-cyan-700: 193 82% 31%;
+    --color-cyan-800: 194 70% 27%;
+    --color-cyan-900: 196 64% 24%;
+    --color-cyan-950: 197 79% 15%;
+    
+    /* Sky Family */
+    --color-sky-50: 204 100% 97%;
+    --color-sky-100: 204 94% 94%;
+    --color-sky-200: 201 94% 86%;
+    --color-sky-300: 199 95% 74%;
+    --color-sky-400: 198 93% 60%;
+    --color-sky-500: 199 89% 48%;
+    --color-sky-600: 200 98% 39%;
+    --color-sky-700: 201 96% 32%;
+    --color-sky-800: 201 90% 27%;
+    --color-sky-900: 202 80% 24%;
+    --color-sky-950: 204 80% 16%;
+    
+    /* Blue Family */
+    --color-blue-50: 214 100% 97%;
+    --color-blue-100: 214 95% 93%;
+    --color-blue-200: 213 97% 87%;
+    --color-blue-300: 212 96% 78%;
+    --color-blue-400: 213 94% 68%;
+    --color-blue-500: 217 91% 60%;
+    --color-blue-600: 221 83% 53%;
+    --color-blue-700: 224 76% 48%;
+    --color-blue-800: 226 71% 40%;
+    --color-blue-900: 224 64% 33%;
+    --color-blue-950: 226 57% 21%;
+    
+    /* Indigo Family */
+    --color-indigo-50: 226 100% 97%;
+    --color-indigo-100: 226 100% 94%;
+    --color-indigo-200: 228 96% 89%;
+    --color-indigo-300: 230 94% 82%;
+    --color-indigo-400: 234 89% 74%;
+    --color-indigo-500: 239 84% 67%;
+    --color-indigo-600: 243 75% 59%;
+    --color-indigo-700: 245 58% 51%;
+    --color-indigo-800: 244 55% 41%;
+    --color-indigo-900: 242 47% 34%;
+    --color-indigo-950: 244 47% 20%;
+    
+    /* Violet Family */
+    --color-violet-50: 250 100% 98%;
+    --color-violet-100: 251 91% 95%;
+    --color-violet-200: 251 95% 92%;
+    --color-violet-300: 252 95% 85%;
+    --color-violet-400: 255 92% 76%;
+    --color-violet-500: 258 90% 66%;
+    --color-violet-600: 262 83% 58%;
+    --color-violet-700: 263 70% 50%;
+    --color-violet-800: 263 69% 42%;
+    --color-violet-900: 264 67% 35%;
+    --color-violet-950: 261 73% 23%;
+    
+    /* Purple Family */
+    --color-purple-50: 270 100% 98%;
+    --color-purple-100: 269 100% 95%;
+    --color-purple-200: 269 100% 92%;
+    --color-purple-300: 269 97% 85%;
+    --color-purple-400: 270 95% 75%;
+    --color-purple-500: 271 91% 65%;
+    --color-purple-600: 271 81% 56%;
+    --color-purple-700: 272 72% 47%;
+    --color-purple-800: 273 67% 39%;
+    --color-purple-900: 274 66% 32%;
+    --color-purple-950: 274 87% 21%;
+    
+    /* Fuchsia Family */
+    --color-fuchsia-50: 289 100% 98%;
+    --color-fuchsia-100: 287 100% 95%;
+    --color-fuchsia-200: 288 96% 91%;
+    --color-fuchsia-300: 291 93% 83%;
+    --color-fuchsia-400: 292 91% 73%;
+    --color-fuchsia-500: 292 84% 61%;
+    --color-fuchsia-600: 293 69% 49%;
+    --color-fuchsia-700: 295 72% 40%;
+    --color-fuchsia-800: 295 70% 33%;
+    --color-fuchsia-900: 297 64% 28%;
+    --color-fuchsia-950: 297 90% 16%;
+    
+    /* Pink Family */
+    --color-pink-50: 327 73% 97%;
+    --color-pink-100: 326 78% 95%;
+    --color-pink-200: 326 85% 90%;
+    --color-pink-300: 327 87% 82%;
+    --color-pink-400: 329 86% 70%;
+    --color-pink-500: 330 81% 60%;
+    --color-pink-600: 333 71% 51%;
+    --color-pink-700: 335 78% 42%;
+    --color-pink-800: 336 74% 35%;
+    --color-pink-900: 336 69% 30%;
+    --color-pink-950: 336 84% 17%;
+    
+    /* Rose Family */
+    --color-rose-50: 356 100% 97%;
+    --color-rose-100: 356 100% 95%;
+    --color-rose-200: 353 96% 90%;
+    --color-rose-300: 353 96% 82%;
+    --color-rose-400: 351 95% 71%;
+    --color-rose-500: 350 89% 60%;
+    --color-rose-600: 347 77% 50%;
+    --color-rose-700: 345 83% 41%;
+    --color-rose-800: 343 80% 35%;
+    --color-rose-900: 342 75% 30%;
+    --color-rose-950: 343 88% 16%;
+    
+    /* Black & White */
+    --color-black: 0 0% 0%;
+    --color-white: 0 0% 100%;
+    
+    /* Black Transparency Ramp */
+    --color-black-950: rgba(0, 0, 0, 0.95);
+    --color-black-900: rgba(0, 0, 0, 0.90);
+    --color-black-800: rgba(0, 0, 0, 0.80);
+    --color-black-700: rgba(0, 0, 0, 0.70);
+    --color-black-600: rgba(0, 0, 0, 0.60);
+    --color-black-500: rgba(0, 0, 0, 0.50);
+    --color-black-400: rgba(0, 0, 0, 0.40);
+    --color-black-300: rgba(0, 0, 0, 0.30);
+    --color-black-200: rgba(0, 0, 0, 0.20);
+    --color-black-100: rgba(0, 0, 0, 0.10);
+    --color-black-50: rgba(0, 0, 0, 0.05);
+    
+    /* White Transparency Ramp */
+    --color-white-950: rgba(255, 255, 255, 0.95);
+    --color-white-900: rgba(255, 255, 255, 0.90);
+    --color-white-800: rgba(255, 255, 255, 0.80);
+    --color-white-700: rgba(255, 255, 255, 0.70);
+    --color-white-600: rgba(255, 255, 255, 0.60);
+    --color-white-500: rgba(255, 255, 255, 0.50);
+    --color-white-400: rgba(255, 255, 255, 0.40);
+    --color-white-300: rgba(255, 255, 255, 0.30);
+    --color-white-200: rgba(255, 255, 255, 0.20);
+    --color-white-100: rgba(255, 255, 255, 0.10);
+    --color-white-50: rgba(255, 255, 255, 0.05);
+    
+    /* ============================================
+       SEMANTIC COLOR TOKENS
+       Reference raw colors above - easy to update
+       ============================================ */
+    
+    /* Base Surface Colors */
+    --color-background: var(--color-slate-100);
+    --color-foreground: var(--color-slate-950);
+    
+    /* Surface Variants */
+    --color-surface: var(--color-slate-50);
+    --color-surface-elevated: var(--color-slate-100);
+    --color-surface-overlay: var(--color-white);
+    --color-surface-low: var(--color-slate-50);
+    --color-surface-mid: var(--color-slate-200);
+    --color-surface-high: var(--color-slate-300);
+    --color-surface-transparent-mid: rgba(0, 0, 0, 0.08);
+    
+    /* Interactive Colors */
+    --color-primary: var(--color-blue-600);
+    --color-primary-hover: var(--color-blue-700);
+    --color-primary-active: var(--color-blue-800);
+    --color-primary-foreground: var(--color-white);
+    
+    --color-secondary: var(--color-slate-200);
+    --color-secondary-hover: var(--color-slate-300);
+    --color-secondary-active: var(--color-slate-400);
+    --color-secondary-foreground: var(--color-slate-900);
+    
+    --color-accent: var(--color-blue-100);
+    --color-accent-foreground: var(--color-blue-900);
+    
+    /* Feedback Colors */
+    --color-success: var(--color-green-600);
+    --color-success-foreground: var(--color-white);
+    --color-warning: var(--color-amber-500);
+    --color-warning-foreground: var(--color-slate-900);
+    --color-error: var(--color-red-600);
+    --color-error-foreground: var(--color-white);
+    --color-info: var(--color-blue-500);
+    --color-info-foreground: var(--color-white);
+    
+    /* Neutral Colors */
+    --color-muted: var(--color-slate-100);
+    --color-muted-foreground: var(--color-slate-600);
+    --color-subtle: var(--color-slate-50);
+    --color-subtle-foreground: var(--color-slate-500);
+    
+    /* Border & Divider */
+    --color-border: var(--color-slate-200);
+    --color-border-subtle: var(--color-slate-100);
+    --color-border-strong: var(--color-slate-300);
+    --color-divider: var(--color-slate-200);
+    
+    /* Input & Form */
+    --color-input: var(--color-slate-200);
+    --color-input-focus: var(--color-blue-500);
+    --color-input-error: var(--color-red-500);
+    
+    /* Focus Ring */
+    --color-ring: var(--color-blue-500);
+    --color-ring-offset: var(--color-white);
+    
+    /* Card & Popover */
+    --color-card: var(--color-white);
+    --color-card-foreground: var(--color-slate-950);
+    --color-popover: var(--color-white);
+    --color-popover-foreground: var(--color-slate-950);
+    
+    /* Progress Bar Gradient */
+    --gradient-progress-bar: linear-gradient(to right, #efb100 0%, #00c951 944.44%);
+    
+    /* Chart Colors */
+    --color-chart-1: var(--color-blue-500);
+    --color-chart-2: var(--color-green-500);
+    --color-chart-3: var(--color-amber-500);
+    --color-chart-4: var(--color-red-500);
+    --color-chart-5: var(--color-slate-500);
+    
+    /* Typography Colors */
+    --color-text-strong: var(--color-slate-950);
+    --color-text-moderate: var(--color-slate-700);
+    --color-text-subdued: var(--color-slate-500);
+    --color-text-weak: var(--color-slate-300);
+    
+    /* ============================================
+       SPACING TOKENS
+       ============================================ */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-6: 1.5rem;
+    --spacing-xl: 2rem;
+    --spacing-2xl: 3rem;
+    --spacing-3xl: 4rem;
+    --spacing-4xl: 6rem;
+    
+    /* ============================================
+       TYPOGRAPHY TOKENS
+       ============================================ */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    --font-size-3xl: 1.875rem;
+    --font-size-4xl: 2.25rem;
+    --font-size-5xl: 3rem;
+    
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    
+    --line-height-tight: 1.25;
+    --line-height-normal: 1.5;
+    --line-height-relaxed: 1.75;
+    
+    --letter-spacing-tight: -0.025em;
+    --letter-spacing-normal: 0;
+    --letter-spacing-wide: 0.025em;
+    
+    /* ============================================
+       SHADOW & ELEVATION TOKENS
+       ============================================ */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+    --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+    --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+    --shadow-game-cover: 0px 66px 19px 0 rgba(0,0,0,0), 0px 42px 17px 0 rgba(0,0,0,0.04), 0px 24px 14px 0 rgba(0,0,0,0.08), 0px 11px 11px 0 rgba(0,0,0,0.16), 0px 3px 6px 0 rgba(0,0,0,0.08);
+    
+    /* ============================================
+       BORDER RADIUS TOKENS
+       ============================================ */
+    --radius-none: 0;
+    --radius-sm: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --radius-2xl: 1rem;
+    --radius-full: 9999px;
+    --radius: var(--radius-lg);
+    
+    /* ============================================
+       ANIMATION & TRANSITION TOKENS
+       ============================================ */
+    --duration-fast: 150ms;
+    --duration-base: 200ms;
+    --duration-slow: 300ms;
+    --duration-slower: 500ms;
+    
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    
+    /* ============================================
+       Z-INDEX LAYERING
+       ============================================ */
+    --z-base: 0;
+    --z-dropdown: 1000;
+    --z-sticky: 1020;
+    --z-fixed: 1030;
+    --z-modal-backdrop: 1040;
+    --z-modal: 1050;
+    --z-popover: 1060;
+    --z-tooltip: 1070;
+    --z-toast: 1080;
+  }
+
+  .dark {
+    /* ============================================
+       DARK MODE - SEMANTIC TOKENS
+       Reference darker variants of raw colors
+       ============================================ */
+    --color-background: var(--color-slate-950);
+    --color-foreground: var(--color-slate-50);
+    
+    --color-surface: var(--color-slate-950);
+    --color-surface-elevated: var(--color-slate-900);
+    --color-surface-overlay: var(--color-slate-900);
+    --color-surface-low: var(--color-slate-900);
+    --color-surface-mid: var(--color-slate-800);
+    --color-surface-high: var(--color-slate-700);
+    --color-surface-transparent-mid: rgba(255, 255, 255, 0.1);
+    
+    --color-primary: var(--color-blue-500);
+    --color-primary-hover: var(--color-blue-400);
+    --color-primary-active: var(--color-blue-600);
+    --color-primary-foreground: var(--color-slate-950);
+    
+    --color-secondary: var(--color-slate-800);
+    --color-secondary-hover: var(--color-slate-700);
+    --color-secondary-active: var(--color-slate-600);
+    --color-secondary-foreground: var(--color-slate-50);
+    
+    --color-accent: var(--color-blue-900);
+    --color-accent-foreground: var(--color-blue-50);
+    
+    --color-success: var(--color-green-500);
+    --color-success-foreground: var(--color-slate-950);
+    --color-warning: var(--color-amber-500);
+    --color-warning-foreground: var(--color-slate-950);
+    --color-error: var(--color-red-500);
+    --color-error-foreground: var(--color-slate-50);
+    --color-info: var(--color-blue-400);
+    --color-info-foreground: var(--color-slate-950);
+    
+    --color-muted: var(--color-slate-800);
+    --color-muted-foreground: var(--color-slate-400);
+    --color-subtle: var(--color-slate-900);
+    --color-subtle-foreground: var(--color-slate-400);
+    
+    --color-border: var(--color-slate-800);
+    --color-border-subtle: var(--color-slate-900);
+    --color-border-strong: var(--color-slate-700);
+    --color-divider: var(--color-slate-800);
+    
+    --color-input: var(--color-slate-800);
+    --color-input-focus: var(--color-blue-500);
+    --color-input-error: var(--color-red-500);
+    
+    --color-ring: var(--color-blue-400);
+    --color-ring-offset: var(--color-slate-950);
+    
+    --color-card: var(--color-slate-800);
+    --color-card-foreground: var(--color-slate-50);
+    --color-popover: var(--color-slate-900);
+    --color-popover-foreground: var(--color-slate-50);
+    
+    --color-chart-1: var(--color-blue-400);
+    --color-chart-2: var(--color-green-400);
+    --color-chart-3: var(--color-amber-400);
+    --color-chart-4: var(--color-red-400);
+    --color-chart-5: var(--color-slate-400);
+    
+    /* Typography Colors */
+    --color-text-strong: var(--color-slate-50);
+    --color-text-moderate: var(--color-slate-200);
+    --color-text-subdued: var(--color-slate-300);
+    --color-text-weak: var(--color-slate-400);
+    
+    /* Darker shadows for dark mode */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+    --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

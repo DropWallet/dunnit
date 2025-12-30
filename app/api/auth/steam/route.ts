@@ -1,0 +1,40 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
+
+const STEAM_OPENID_URL = 'https://steamcommunity.com/openid/login';
+
+export async function GET(request: NextRequest) {
+  try {
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const returnUrl = `${baseUrl}/api/auth/steam/callback`;
+    
+    // Generate a nonce for security
+    const nonce = randomBytes(16).toString('hex');
+    
+    // Store nonce in a cookie for verification
+    const response = NextResponse.redirect(
+      `${STEAM_OPENID_URL}?` +
+      `openid.ns=http://specs.openid.net/auth/2.0&` +
+      `openid.mode=checkid_setup&` +
+      `openid.return_to=${encodeURIComponent(returnUrl)}&` +
+      `openid.realm=${encodeURIComponent(baseUrl)}&` +
+      `openid.identity=http://specs.openid.net/auth/2.0/identifier_select&` +
+      `openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`
+    );
+    
+    response.cookies.set('steam_openid_nonce', nonce, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 5, // 5 minutes
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Steam auth error:', error);
+    return NextResponse.json(
+      { error: 'Failed to initiate Steam authentication' },
+      { status: 500 }
+    );
+  }
+}
