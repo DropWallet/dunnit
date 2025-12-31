@@ -5,7 +5,9 @@ const STEAM_OPENID_URL = 'https://steamcommunity.com/openid/login';
 
 export async function GET(request: NextRequest) {
   try {
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    // Derive baseUrl from the request URL instead of relying on env var
+    const url = new URL(request.url);
+    const baseUrl = process.env.NEXTAUTH_URL || `${url.protocol}//${url.host}`;
     const returnUrl = `${baseUrl}/api/auth/steam/callback`;
     
     // Generate a nonce for security
