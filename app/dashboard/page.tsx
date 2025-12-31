@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
-import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import { getCountryFlag } from "@/lib/utils/country";
 import { DotSeparator } from "@/components/dot-separator";
 import { GameCard } from "@/components/game-card";
@@ -132,10 +132,6 @@ export default function DashboardPage() {
     loadGames();
   }, [router, showAllGames]);
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
-  };
 
   if (isLoading) {
     return (
@@ -151,36 +147,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navbar */}
-      <nav className="flex flex-col justify-center items-stretch overflow-hidden gap-2 px-8 py-3 bg-background">
-        <div className="flex justify-between items-center">
-          {/* Logo */}
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 32 32"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="flex-shrink-0"
-            preserveAspectRatio="xMidYMid meet"
-          >
-            <circle cx="16" cy="16" r="16" fill="#FB64B6" />
-          </svg>
-          
-          {/* Right side: Logout and Theme Toggle */}
-          <div className="flex justify-center items-center gap-4">
-            <Button
-              onClick={handleLogout}
-              variant="ghost"
-              size="sm"
-              className="text-text-moderate"
-            >
-              Log out
-            </Button>
-            <ThemeToggleButton />
-          </div>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* Main Content */}
       <div className="p-4 md:p-8">
@@ -294,6 +261,7 @@ export default function DashboardPage() {
                       totalAchievements={total}
                       coverImageUrl={game.coverImageUrl}
                       logoUrl={game.logoUrl}
+                      iconUrl={game.iconUrl}
                       achievementIcons={achievementIcons}
                     />
                   );

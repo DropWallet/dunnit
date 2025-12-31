@@ -126,6 +126,86 @@ export class SteamAPIClient {
       throw error;
     }
   }
+
+  /**
+   * Get global achievement percentages for a game
+   * Note: This endpoint doesn't require an API key
+   */
+  async getGlobalAchievementPercentages(appId: number): Promise<Map<string, number>> {
+    try {
+      const url = `${STEAM_API_BASE}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appId}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const percentages = new Map<string, number>();
+      
+      if (data.achievementpercentages?.achievements) {
+        data.achievementpercentages.achievements.forEach((ach: { name: string; percent: number }) => {
+          percentages.set(ach.name, ach.percent);
+        });
+      }
+      
+      return percentages;
+    } catch (error) {
+      console.error('Error fetching global achievement percentages:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get player achievements from Steam's legacy XML API
+   * This often includes descriptions for hidden achievements that the JSON API doesn't provide
+   */
+  async getPlayerAchievementsXML(
+    steamId: string,
+    appId: number
+  ): Promise<Map<string, { description: string; unlocktime: number }>> {
+    try {
+      const url = `https://steamcommunity.com/profiles/${steamId}/stats/${appId}/?xml=1`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam XML API error: ${response.status}`);
+      }
+
+      const xmlText = await response.text();
+      const achievementMap = new Map<string, { description: string; unlocktime: number }>();
+      
+      // Parse XML to extract achievement data - use pattern that works with attributes
+      const achievementRegex = /<achievement\s+[^>]*>[\s\S]*?<\/achievement>/g;
+      const achievements = xmlText.match(achievementRegex) || [];
+      
+      // Helper function to extract CDATA or regular content
+      function extractXmlValue(xml: string, tagName: string): string {
+        const regex = new RegExp(`<${tagName}>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))</${tagName}>`, 'i');
+        const match = xml.match(regex);
+        if (match) {
+          return (match[1] || match[2] || '').trim();
+        }
+        return '';
+      }
+      
+      for (const achievementXml of achievements) {
+        const apiname = extractXmlValue(achievementXml, 'apiname');
+        const description = extractXmlValue(achievementXml, 'description');
+        const unlockTimestampStr = extractXmlValue(achievementXml, 'unlockTimestamp');
+        const unlocktime = unlockTimestampStr ? parseInt(unlockTimestampStr, 10) : 0;
+        
+        if (apiname && description) {
+          achievementMap.set(apiname, { description, unlocktime });
+        }
+      }
+      
+      return achievementMap;
+    } catch (error) {
+      console.error('Error fetching achievements from XML API:', error);
+      throw error;
+    }
+  }
 }
 
 // Singleton instance

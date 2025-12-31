@@ -13,6 +13,11 @@ const config: Config = {
     'bg-blue-500', 'bg-blue-600', 'bg-blue-700', 'bg-blue-800', 'bg-blue-900', 'bg-blue-950',
     // Surface variants
     'bg-surface-low', 'bg-surface-mid', 'bg-surface-high',
+    // Text inverted variants
+    'text-inverted-strong', 'text-inverted-subdued',
+    // Rarity colors
+    'bg-rarity-legendary', 'bg-rarity-rare', 'bg-rarity-uncommon', 'bg-rarity-common',
+    'border-rarity-legendary', 'border-rarity-rare', 'border-rarity-uncommon', 'border-rarity-common',
   ],
   theme: {
     extend: {
@@ -30,6 +35,7 @@ const config: Config = {
           mid: "hsl(var(--color-surface-mid))",
           high: "hsl(var(--color-surface-high))",
           "transparent-mid": "var(--color-surface-transparent-mid)",
+          "transparent-high": "var(--color-surface-transparent-high)",
         },
         
         // Interactive colors
@@ -86,6 +92,11 @@ const config: Config = {
         border: "hsl(var(--color-border))",
         "border-subtle": "hsl(var(--color-border-subtle))",
         "border-strong": "hsl(var(--color-border-strong))",
+        "border-inverted-moderate": "var(--color-border-inverted-moderate)",
+        "border-rarity-legendary": "hsl(var(--color-rarity-legendary))",
+        "border-rarity-rare": "hsl(var(--color-rarity-rare))",
+        "border-rarity-uncommon": "hsl(var(--color-rarity-uncommon))",
+        "border-rarity-common": "hsl(var(--color-rarity-common))",
         divider: "hsl(var(--color-divider))",
         
         // Input
@@ -121,6 +132,19 @@ const config: Config = {
         "text-moderate": "hsl(var(--color-text-moderate))",
         "text-subdued": "hsl(var(--color-text-subdued))",
         "text-weak": "hsl(var(--color-text-weak))",
+        "text-inverted-strong": "hsl(var(--color-text-inverted-strong))",
+        "text-inverted-subdued": "hsl(var(--color-text-inverted-subdued))",
+        
+        // Translucent colors
+        "translucent-weakest": "var(--color-translucent-weakest)",
+        
+        // Achievement rarity colors
+        rarity: {
+          legendary: "hsl(var(--color-rarity-legendary))",
+          rare: "hsl(var(--color-rarity-rare))",
+          uncommon: "hsl(var(--color-rarity-uncommon))",
+          common: "hsl(var(--color-rarity-common))",
+        },
         
         // Black & White transparency ramps
         black: {
