@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const mode = url.searchParams.get('openid.mode');
     
     if (mode !== 'id_res') {
-      return NextResponse.redirect(new URL('/?error=invalid_mode', request.url));
+      return NextResponse.redirect(new URL('/?error=invalid_mode', url.origin));
     }
 
     const claimedId = url.searchParams.get('openid.claimed_id');
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const signature = url.searchParams.get('openid.sig');
 
     if (!claimedId || !identity) {
-      return NextResponse.redirect(new URL('/?error=auth_failed', request.url));
+      return NextResponse.redirect(new URL('/?error=auth_failed', url.origin));
     }
 
     // Verify the authentication with Steam
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     const isValid = verifyText.includes('is_valid:true');
 
     if (!isValid) {
-      return NextResponse.redirect(new URL('/?error=invalid_signature', request.url));
+      return NextResponse.redirect(new URL('/?error=invalid_signature', url.origin));
     }
 
     // Extract Steam ID from the identity URL
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     const steamId = identity.split('/').pop() || '';
 
     if (!steamId || !/^\d+$/.test(steamId)) {
-      return NextResponse.redirect(new URL('/?error=no_steam_id', request.url));
+      return NextResponse.redirect(new URL('/?error=no_steam_id', url.origin));
     }
 
     // Fetch user data from Steam API
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     const playerSummary = await steamClient.getPlayerSummary(steamId);
 
     if (!playerSummary) {
-      return NextResponse.redirect(new URL('/?error=no_profile', request.url));
+      return NextResponse.redirect(new URL('/?error=no_profile', url.origin));
     }
 
     // Save user to data store
@@ -123,6 +123,8 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('Steam callback error:', error);
-    return NextResponse.redirect(new URL('/?error=callback_failed', request.url));
+    // Use url.origin if available, otherwise fall back to request.url
+    const origin = url?.origin || new URL(request.url).origin;
+    return NextResponse.redirect(new URL('/?error=callback_failed', origin));
   }
 }
