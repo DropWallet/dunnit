@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
 
     // Verify the authentication with Steam
     // Derive baseUrl from the request URL instead of relying on env var
-    const url = new URL(request.url);
     const baseUrl = process.env.NEXTAUTH_URL || `${url.protocol}//${url.host}`;
     const verifyParams = new URLSearchParams({
       'openid.ns': 'http://specs.openid.net/auth/2.0',
