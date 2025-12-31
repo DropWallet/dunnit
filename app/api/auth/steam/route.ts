@@ -22,9 +22,14 @@ export async function GET(request: NextRequest) {
       `openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`
     );
     
+    // Always use secure in production (Vercel uses HTTPS)
+    const isProduction = process.env.VERCEL_ENV === 'production' || 
+                         process.env.NODE_ENV === 'production' ||
+                         request.url.startsWith('https://');
+    
     response.cookies.set('steam_openid_nonce', nonce, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       maxAge: 60 * 5, // 5 minutes
     });

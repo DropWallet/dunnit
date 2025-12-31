@@ -103,9 +103,14 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(new URL('/dashboard', request.url));
     
     // Set session cookie with Steam ID
+    // Always use secure in production (Vercel uses HTTPS)
+    const isProduction = process.env.VERCEL_ENV === 'production' || 
+                         process.env.NODE_ENV === 'production' ||
+                         request.url.startsWith('https://');
+    
     response.cookies.set('steam_id', steamId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',
