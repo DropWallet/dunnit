@@ -26,22 +26,40 @@ export async function GET(request: NextRequest) {
       const response = await steamClient.getOwnedGames(steamId, true);
 
       // Transform Steam API response to our Game format
-      games = (response.response.games || []).map((steamGame) => ({
-        appId: steamGame.appid,
-        name: steamGame.name,
-        playtimeMinutes: steamGame.playtime_forever || 0,
-        playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
-        iconUrl: steamGame.img_icon_url 
-          ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
-          : undefined,
-        logoUrl: steamGame.img_logo_url
-          ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
-          : undefined,
-        coverImageUrl: `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`,
-        lastPlayed: steamGame.rtime_last_played 
-          ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
-          : undefined,
-      }));
+      // Fetch header images from Store API for better reliability
+      games = await Promise.all(
+        (response.response.games || []).map(async (steamGame) => {
+          // Try to get header image from Store API
+          let coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+          
+          try {
+            const gameDetails = await steamClient.getGameDetails(steamGame.appid);
+            if (gameDetails?.data?.header_image) {
+              coverImageUrl = gameDetails.data.header_image;
+            }
+          } catch (error) {
+            // Fallback to default URL if Store API fails
+            console.warn(`Failed to fetch store details for ${steamGame.appid}, using default header URL`);
+          }
+
+          return {
+            appId: steamGame.appid,
+            name: steamGame.name,
+            playtimeMinutes: steamGame.playtime_forever || 0,
+            playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
+            iconUrl: steamGame.img_icon_url 
+              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
+              : undefined,
+            logoUrl: steamGame.img_logo_url
+              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
+              : undefined,
+            coverImageUrl,
+            lastPlayed: steamGame.rtime_last_played 
+              ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
+              : undefined,
+          };
+        })
+      );
 
       // Save to cache
       await dataAccess.saveUserGames(steamId, games);

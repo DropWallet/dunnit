@@ -20,9 +20,12 @@ export interface DataAccess {
     userId: string,
     appId: number,
     achievements: Achievement[],
-    unlockedAchievements: string[]
+    unlockedAchievements: string[],
+    unlockTimes?: Map<string, number>, // apiName -> unlocktime (Unix timestamp)
+    globalPercentages?: Map<string, number> // apiName -> percentage
   ): Promise<void>;
   getUserAchievements(userId: string, appId: number): Promise<UserAchievement[]>;
+  clearUserAchievements(userId: string, appId: number): Promise<void>;
 }
 
 class InMemoryDataAccess implements DataAccess {
@@ -70,7 +73,9 @@ class InMemoryDataAccess implements DataAccess {
     userId: string,
     appId: number,
     achievements: Achievement[],
-    unlockedAchievements: string[]
+    unlockedAchievements: string[],
+    unlockTimes?: Map<string, number>,
+    globalPercentages?: Map<string, number>
   ): Promise<void> {
     if (!this.userAchievements.has(userId)) {
       this.userAchievements.set(userId, new Map());
@@ -84,12 +89,28 @@ class InMemoryDataAccess implements DataAccess {
 
     achievements.forEach((achievement) => {
       const isUnlocked = unlockedAchievements.includes(achievement.apiName);
+      
+      // Get unlock time from the map if available
+      let unlockedAt: Date | undefined = undefined;
+      if (isUnlocked && unlockTimes) {
+        const unlockTime = unlockTimes.get(achievement.apiName);
+        if (unlockTime) {
+          unlockedAt = new Date(unlockTime * 1000); // Convert Unix timestamp to Date
+        }
+      }
+      
+      // Get global percentage if available
+      const achievementWithPercentage: Achievement = {
+        ...achievement,
+        globalPercentage: globalPercentages?.get(achievement.apiName),
+      };
+      
       const userAchievement: UserAchievement = {
         userId,
         appId,
-        achievement,
+        achievement: achievementWithPercentage,
         unlocked: isUnlocked,
-        unlockedAt: isUnlocked ? new Date() : undefined,
+        unlockedAt,
       };
       achievementMap.set(achievement.apiName, userAchievement);
     });
@@ -105,6 +126,13 @@ class InMemoryDataAccess implements DataAccess {
       return [];
     }
     return Array.from(achievementMap.values());
+  }
+
+  async clearUserAchievements(userId: string, appId: number): Promise<void> {
+    const appMap = this.userAchievements.get(userId);
+    if (appMap) {
+      appMap.delete(appId);
+    }
   }
 }
 

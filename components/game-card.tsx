@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   Tooltip,
@@ -17,6 +17,7 @@ interface GameCardProps {
   totalAchievements: number;
   coverImageUrl?: string;
   logoUrl?: string; // Fallback image
+  iconUrl?: string; // Additional fallback
   achievementIcons?: Array<{ iconUrl: string; iconGrayUrl: string; unlocked: boolean }>;
 }
 
@@ -28,12 +29,22 @@ export function GameCard({
   totalAchievements,
   coverImageUrl,
   logoUrl,
+  iconUrl,
   achievementIcons = [],
 }: GameCardProps) {
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
+  const [iconError, setIconError] = useState(false);
   const [skewX, setSkewX] = useState(0);
+  const [skewY, setSkewY] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
+  
+  // Reset error states when image URLs change
+  useEffect(() => {
+    setImageError(false);
+    setFallbackError(false);
+    setIconError(false);
+  }, [coverImageUrl, logoUrl, iconUrl]);
   
   // Debug: Log image errors
   const handleImageError = () => {
@@ -45,6 +56,11 @@ export function GameCard({
     console.warn(`Failed to load fallback logo for "${title}":`, logoUrl);
     setFallbackError(true);
   };
+  
+  const handleIconError = () => {
+    console.warn(`Failed to load icon for "${title}":`, iconUrl);
+    setIconError(true);
+  };
 
   // Mouse move handler for skew effect
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -52,25 +68,49 @@ export function GameCard({
     
     const rect = cardRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
     const offsetX = (x - centerX) / centerX; // -1 to 1
+    const offsetY = (y - centerY) / centerY; // -1 to 1
     
     // Calculate skew: max 3 degrees, based on mouse position
     const maxSkew = 3;
     setSkewX(offsetX * maxSkew);
+    setSkewY(offsetY * maxSkew);
   };
 
   const handleMouseLeave = () => {
     setSkewX(0);
+    setSkewY(0);
   };
   
   // Determine which image to show
   const showCoverImage = coverImageUrl && !imageError;
   const showLogo = !showCoverImage && logoUrl && !fallbackError;
-  const showPlaceholder = !showCoverImage && !showLogo;
+  const showIcon = !showCoverImage && !showLogo && iconUrl && !iconError;
+  const showPlaceholder = !showCoverImage && !showLogo && !showIcon;
   const completionRate = totalAchievements > 0 
     ? Math.round((unlockedAchievements / totalAchievements) * 100)
     : 0;
+  
+  // Debug logging for Ball x Pit (remove after fixing)
+  useEffect(() => {
+    if (title === "Ball x Pit") {
+      console.log("Ball x Pit image state:", {
+        coverImageUrl,
+        logoUrl,
+        iconUrl,
+        imageError,
+        fallbackError,
+        iconError,
+        showCoverImage,
+        showLogo,
+        showIcon,
+        showPlaceholder,
+      });
+    }
+  }, [title, coverImageUrl, logoUrl, iconUrl, imageError, fallbackError, iconError, showCoverImage, showLogo, showIcon, showPlaceholder]);
 
   // Get first 5 unlocked achievements
   const unlocked = achievementIcons.filter(a => a.unlocked).slice(0, 5);
@@ -121,7 +161,7 @@ export function GameCard({
               src={coverImageUrl}
               alt={title}
               className="flex-grow w-full h-auto rounded-md object-cover shadow-game-cover transition-transform duration-300 ease-out"
-              style={{ transform: `skewX(${skewX}deg)` }}
+              style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
               onError={handleImageError}
             />
           ) : showLogo ? (
@@ -129,11 +169,19 @@ export function GameCard({
               src={logoUrl}
               alt={title}
               className="flex-grow w-full h-auto rounded object-cover shadow-game-cover transition-transform duration-300 ease-out"
-              style={{ transform: `skewX(${skewX}deg)` }}
+              style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
               onError={handleFallbackError}
             />
+          ) : showIcon ? (
+            <img
+              src={iconUrl}
+              alt={title}
+              className="flex-grow w-full h-auto rounded object-cover shadow-game-cover transition-transform duration-300 ease-out"
+              style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
+              onError={handleIconError}
+            />
           ) : (
-            <div className="flex-grow w-full h-auto rounded object-cover shadow-game-cover bg-surface-mid flex items-center justify-center transition-transform duration-300 ease-out" style={{ aspectRatio: '460/215', transform: `skewX(${skewX}deg)` }}>
+            <div className="flex-grow w-full h-auto rounded object-cover shadow-game-cover bg-surface-mid flex items-center justify-center transition-transform duration-300 ease-out" style={{ aspectRatio: '460/215', transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}>
               <span className="text-text-subdued text-sm">Game Cover</span>
             </div>
           )}

@@ -338,6 +338,7 @@
     --color-surface-mid: var(--color-slate-200);
     --color-surface-high: var(--color-slate-300);
     --color-surface-transparent-mid: rgba(0, 0, 0, 0.08);
+    --color-surface-transparent-high: rgba(0, 0, 0, 0.6);
     
     /* Interactive Colors */
     --color-primary: var(--color-blue-600);
@@ -373,6 +374,7 @@
     --color-border: var(--color-slate-200);
     --color-border-subtle: var(--color-slate-100);
     --color-border-strong: var(--color-slate-300);
+    --color-border-inverted-moderate: var(--color-black-200);
     --color-divider: var(--color-slate-200);
     
     /* Input & Form */
@@ -402,9 +404,20 @@
     
     /* Typography Colors */
     --color-text-strong: var(--color-slate-950);
-    --color-text-moderate: var(--color-slate-700);
-    --color-text-subdued: var(--color-slate-500);
-    --color-text-weak: var(--color-slate-300);
+    --color-text-moderate: var(--color-slate-800);
+    --color-text-subdued: var(--color-slate-600);
+    --color-text-weak: var(--color-slate-500);
+    --color-text-inverted-strong: var(--color-slate-50);
+    --color-text-inverted-subdued: var(--color-slate-400);
+    
+    /* Translucent Colors */
+    --color-translucent-weakest: var(--color-black-50);
+    
+    /* Achievement Rarity Colors - Light Mode */
+    --color-rarity-legendary: var(--color-purple-600);
+    --color-rarity-rare: var(--color-blue-600);
+    --color-rarity-uncommon: var(--color-green-600);
+    --color-rarity-common: var(--color-slate-600);
     
     /* ============================================
        SPACING TOKENS
@@ -511,6 +524,7 @@
     --color-surface-mid: var(--color-slate-800);
     --color-surface-high: var(--color-slate-700);
     --color-surface-transparent-mid: rgba(255, 255, 255, 0.1);
+    --color-surface-transparent-high: rgba(255, 255, 255, 0.5);
     
     --color-primary: var(--color-blue-500);
     --color-primary-hover: var(--color-blue-400);
@@ -542,6 +556,7 @@
     --color-border: var(--color-slate-800);
     --color-border-subtle: var(--color-slate-900);
     --color-border-strong: var(--color-slate-700);
+    --color-border-inverted-moderate: var(--color-white-400);
     --color-divider: var(--color-slate-800);
     
     --color-input: var(--color-slate-800);
@@ -567,6 +582,17 @@
     --color-text-moderate: var(--color-slate-200);
     --color-text-subdued: var(--color-slate-300);
     --color-text-weak: var(--color-slate-400);
+    --color-text-inverted-strong: var(--color-slate-950);
+    --color-text-inverted-subdued: var(--color-slate-700);
+    
+    /* Translucent Colors */
+    --color-translucent-weakest: var(--color-white-50);
+    
+    /* Achievement Rarity Colors - Dark Mode */
+    --color-rarity-legendary: var(--color-purple-400);
+    --color-rarity-rare: var(--color-blue-500);
+    --color-rarity-uncommon: var(--color-teal-500);
+    --color-rarity-common: var(--color-slate-400);
     
     /* Darker shadows for dark mode */
     --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);

@@ -33,16 +33,23 @@ export async function GET(request: NextRequest) {
 
     // Check if we have cached achievements
     const dataAccess = getDataAccess();
+    const forceRefresh = searchParams.get('refresh') === 'true';
     let userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
 
-    // If no cached achievements, fetch from Steam
-    if (userAchievements.length === 0) {
+    // If no cached achievements or force refresh, fetch from Steam
+    if (userAchievements.length === 0 || forceRefresh) {
+      if (forceRefresh) {
+        // Clear cache for this game
+        await dataAccess.clearUserAchievements(steamId, appIdNum);
+      }
       const steamClient = getSteamClient();
 
-      // Fetch both player achievements and game schema
-      const [playerAchievementsResponse, gameSchemaResponse] = await Promise.all([
+      // Fetch player achievements, game schema, global percentages, and XML achievements
+      const [playerAchievementsResponse, gameSchemaResponse, globalPercentages, xmlAchievements] = await Promise.all([
         steamClient.getPlayerAchievements(steamId, appIdNum).catch(() => null),
         steamClient.getGameSchema(appIdNum).catch(() => null),
+        steamClient.getGlobalAchievementPercentages(appIdNum).catch(() => new Map<string, number>()),
+        steamClient.getPlayerAchievementsXML(steamId, appIdNum).catch(() => new Map()),
       ]);
 
       if (!playerAchievementsResponse || !gameSchemaResponse) {
@@ -52,30 +59,53 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // Extract unlocked achievement API names
-      const unlockedAchievements = playerAchievementsResponse.playerstats.achievements
-        .filter((ach) => ach.achieved === 1)
-        .map((ach) => ach.apiname);
+      // Extract unlocked achievement API names, unlock times, and descriptions
+      const unlockedAchievements: string[] = [];
+      const unlockTimes = new Map<string, number>();
+      const achievementDescriptions = new Map<string, string>();
+      
+      playerAchievementsResponse.playerstats.achievements.forEach((ach) => {
+        if (ach.achieved === 1) {
+          unlockedAchievements.push(ach.apiname);
+          if (ach.unlocktime > 0) {
+            unlockTimes.set(ach.apiname, ach.unlocktime);
+          }
+          // Get description from player achievements (often has descriptions for unlocked hidden achievements)
+          if (ach.description) {
+            achievementDescriptions.set(ach.apiname, ach.description);
+          }
+        }
+      });
 
       // Transform schema achievements to our format
       const achievements = (gameSchemaResponse.game.availableGameStats?.achievements || []).map(
-        (schemaAch) => ({
-          appId: appIdNum,
-          apiName: schemaAch.name,
-          name: schemaAch.displayName,
-          description: schemaAch.description || '',
-          iconUrl: schemaAch.icon,
-          iconGrayUrl: schemaAch.icongray,
-          hidden: schemaAch.hidden === 1,
-        })
+        (schemaAch) => {
+          // Check if we have a description from player achievements (for unlocked achievements)
+          const playerDescription = achievementDescriptions.get(schemaAch.name);
+          const xmlDescription = xmlAchievements.get(schemaAch.name)?.description || '';
+          const schemaDescription = schemaAch.description || '';
+          const finalDescription = playerDescription || xmlDescription || schemaDescription || '';
+          
+          return {
+            appId: appIdNum,
+            apiName: schemaAch.name,
+            name: schemaAch.displayName,
+            description: finalDescription,
+            iconUrl: schemaAch.icon,
+            iconGrayUrl: schemaAch.icongray,
+            hidden: schemaAch.hidden === 1,
+          };
+        }
       );
 
-      // Save to cache
+      // Save to cache with unlock times and global percentages
       await dataAccess.saveUserAchievements(
         steamId,
         appIdNum,
         achievements,
-        unlockedAchievements
+        unlockedAchievements,
+        unlockTimes,
+        globalPercentages
       );
 
       // Fetch again to get the formatted data
