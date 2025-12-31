@@ -101,7 +101,9 @@ export async function GET(request: NextRequest) {
     console.log('User saved:', savedUser ? 'Yes' : 'No', steamId);
 
     // Create session (using cookies for now - can upgrade to proper session management later)
-    const response = NextResponse.redirect(new URL('/dashboard', request.url));
+    // Use absolute URL with correct origin to prevent localhost redirects
+    const redirectUrl = new URL('/dashboard', url.origin);
+    const response = NextResponse.redirect(redirectUrl);
     
     // Set session cookie with Steam ID
     // Always use secure in production (Vercel uses HTTPS)
