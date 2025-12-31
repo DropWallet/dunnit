@@ -123,8 +123,8 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('Steam callback error:', error);
-    // Use url.origin if available, otherwise fall back to request.url
-    const origin = url?.origin || new URL(request.url).origin;
+    // Derive origin from request URL for error redirect
+    const origin = new URL(request.url).origin;
     return NextResponse.redirect(new URL('/?error=callback_failed', origin));
   }
 }
