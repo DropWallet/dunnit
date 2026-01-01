@@ -1,10 +1,11 @@
-export type AchievementRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
+export type AchievementRarity = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
 
 /**
  * Calculate achievement rarity based on global percentage
- * - < 1% = legendary
- * - < 10% = rare
- * - < 50% = uncommon
+ * - < 2% = legendary
+ * - 2% - 9.9% = very-rare
+ * - 10% - 24.9% = rare
+ * - 25% - 49.9% = uncommon
  * - >= 50% = common
  */
 export function calculateRarity(percentage?: number): AchievementRarity {
@@ -12,9 +13,11 @@ export function calculateRarity(percentage?: number): AchievementRarity {
     return 'common'; // Default if percentage not available
   }
   
-  if (percentage < 1) {
+  if (percentage < 2) {
     return 'legendary';
   } else if (percentage < 10) {
+    return 'very-rare';
+  } else if (percentage < 25) {
     return 'rare';
   } else if (percentage < 50) {
     return 'uncommon';
@@ -30,6 +33,8 @@ export function getRarityBorderClass(rarity: AchievementRarity): string {
   switch (rarity) {
     case 'legendary':
       return 'border-rarity-legendary';
+    case 'very-rare':
+      return 'border-rarity-very-rare';
     case 'rare':
       return 'border-rarity-rare';
     case 'uncommon':

@@ -414,10 +414,11 @@
     --color-translucent-weakest: var(--color-black-50);
     
     /* Achievement Rarity Colors - Light Mode */
-    --color-rarity-legendary: var(--color-purple-600);
-    --color-rarity-rare: var(--color-blue-600);
-    --color-rarity-uncommon: var(--color-green-600);
-    --color-rarity-common: var(--color-slate-600);
+    --color-rarity-legendary: var(--color-orange-500);
+    --color-rarity-very-rare: var(--color-purple-500);
+    --color-rarity-rare: var(--color-blue-500);
+    --color-rarity-uncommon: var(--color-emerald-500);
+    --color-rarity-common: var(--color-slate-400);
     
     /* ============================================
        SPACING TOKENS
@@ -589,9 +590,10 @@
     --color-translucent-weakest: var(--color-white-50);
     
     /* Achievement Rarity Colors - Dark Mode */
-    --color-rarity-legendary: var(--color-purple-400);
+    --color-rarity-legendary: var(--color-orange-500);
+    --color-rarity-very-rare: var(--color-purple-500);
     --color-rarity-rare: var(--color-blue-500);
-    --color-rarity-uncommon: var(--color-teal-500);
+    --color-rarity-uncommon: var(--color-emerald-500);
     --color-rarity-common: var(--color-slate-400);
     
     /* Darker shadows for dark mode */

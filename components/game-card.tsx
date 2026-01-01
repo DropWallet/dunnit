@@ -112,13 +112,13 @@ export function GameCard({
     }
   }, [title, coverImageUrl, logoUrl, iconUrl, imageError, fallbackError, iconError, showCoverImage, showLogo, showIcon, showPlaceholder]);
 
-  // Get first 5 unlocked achievements
-  const unlocked = achievementIcons.filter(a => a.unlocked).slice(0, 5);
+  // Get first 4 unlocked achievements (changed from 5)
+  const unlocked = achievementIcons.filter(a => a.unlocked).slice(0, 4);
   const remainingUnlocked = unlockedAchievements - unlocked.length;
   
-  // Fill remaining slots (always show 6 total)
+  // Fill remaining slots (always show 5 total, changed from 6)
   const displayIcons = [];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 5; i++) {
     if (i < unlocked.length) {
       // Show unlocked achievement
       displayIcons.push(
@@ -132,16 +132,28 @@ export function GameCard({
     } else if (i === unlocked.length && remainingUnlocked > 0) {
       // Show "+X" indicator
       displayIcons.push(
-        <div key={i} className="flex-grow w-0 aspect-square flex items-center justify-center bg-surface-transparent-mid">
-          <p className="text-xs font-semibold text-center text-text-subdued">
+        <div key={i} className="flex-grow w-0 aspect-square flex items-center justify-center bg-surface-low">
+          <p className="text-[10px] sm:text-xs font-semibold text-center text-text-subdued">
             +{remainingUnlocked}
           </p>
         </div>
       );
     } else {
-      // Show empty placeholder
+      // Show empty placeholder with achievement icon (new star icon)
       displayIcons.push(
-        <div key={i} className="flex-grow w-0 aspect-square bg-surface-transparent-mid" />
+        <div key={i} className="flex-grow w-0 aspect-square bg-surface-low flex items-center justify-center">
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-4 h-4"
+            style={{ color: 'var(--color-surface-transparent-mid)' }}
+          >
+            <path d="M13.5098 3.139C12.8578 1.954 11.1418 1.954 10.4888 3.139C9.63009 4.69939 8.92221 6.33815 8.3748 8.033C8.34899 8.09931 8.30357 8.15618 8.24462 8.19602C8.18566 8.23586 8.11596 8.25678 8.0448 8.256C6.57777 8.29413 5.11551 8.43986 3.6698 8.692C2.3328 8.925 1.7438 10.529 2.7598 11.522C2.8878 11.6473 3.01714 11.772 3.1478 11.896C4.12662 12.8228 5.16301 13.6869 6.2508 14.483C6.30022 14.5158 6.33766 14.5638 6.3575 14.6197C6.37733 14.6756 6.37849 14.7364 6.3608 14.793C5.81164 16.4407 5.41924 18.1366 5.1888 19.858C4.9988 21.282 6.5068 22.156 7.6838 21.552C9.11268 20.8197 10.4789 19.9712 11.7688 19.015C11.8364 18.9672 11.9171 18.9416 11.9998 18.9416C12.0825 18.9416 12.1633 18.9672 12.2308 19.015C13.5199 19.9723 14.8863 20.8209 16.3158 21.552C17.4928 22.156 19.0008 21.282 18.8108 19.858C18.5807 18.1366 18.1886 16.4407 17.6398 14.793C17.6221 14.7364 17.6233 14.6756 17.6431 14.6197C17.6629 14.5638 17.7004 14.5158 17.7498 14.483C18.9823 13.5809 20.1486 12.5917 21.2398 11.523C22.2558 10.529 21.6668 8.925 20.3298 8.692C18.8838 8.43981 17.4212 8.29408 15.9538 8.256C15.8828 8.25658 15.8133 8.23556 15.7546 8.19573C15.6958 8.1559 15.6506 8.09915 15.6248 8.033C15.0791 6.3375 14.3702 4.69857 13.5098 3.139Z" fill="currentColor"/>
+          </svg>
+        </div>
       );
     }
   }
@@ -160,7 +172,7 @@ export function GameCard({
             <img
               src={coverImageUrl}
               alt={title}
-              className="flex-grow w-full h-auto rounded-md object-cover shadow-game-cover transition-transform duration-300 ease-out"
+              className="flex-grow w-full h-auto object-cover shadow-game-cover transition-transform duration-300 ease-out"
               style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
               onError={handleImageError}
             />
@@ -194,7 +206,7 @@ export function GameCard({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <p className="text-lg text-left font-semibold text-text-strong truncate w-full">
+                <p className="text-md md:text-lg text-left font-semibold text-text-strong truncate w-full">
                   {title}
                 </p>
               </TooltipTrigger>
@@ -214,7 +226,7 @@ export function GameCard({
         {/* Achievements Section */}
         <div className="flex flex-col justify-start items-start self-stretch gap-3 px-2 pt-2.5 pb-2 rounded-bl rounded-br bg-surface-transparent-mid">
           {/* Achievement Icons */}
-          <div className="flex justify-start items-center self-stretch relative gap-2">
+          <div className="flex justify-start items-center self-stretch relative gap-2 md:gap-3">
             {displayIcons}
           </div>
 
@@ -222,7 +234,7 @@ export function GameCard({
           <div className="flex flex-col justify-start items-start self-stretch gap-1.5">
             {/* Progress Text */}
             <div className="flex justify-center items-center self-stretch relative gap-2">
-              <p className="flex-grow text-xs text-left text-text-subdued">
+              <p className="flex-grow text-xs text-left text-text-subdued truncate">
                 <span className="text-xs font-bold text-left text-text-subdued">
                   {unlockedAchievements} of {totalAchievements}
                 </span>
