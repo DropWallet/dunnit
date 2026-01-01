@@ -27,6 +27,10 @@ export interface DataAccess {
   ): Promise<void>;
   getUserAchievements(userId: string, appId: number): Promise<UserAchievement[]>;
   clearUserAchievements(userId: string, appId: number): Promise<void>;
+
+  // Statistics operations
+  getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null>;
+  saveUserStatistics(userId: string, statistics: any): Promise<void>;
 }
 
 class InMemoryDataAccess implements DataAccess {
@@ -134,6 +138,15 @@ class InMemoryDataAccess implements DataAccess {
     if (appMap) {
       appMap.delete(appId);
     }
+  }
+
+  async getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null> {
+    // In-memory doesn't cache statistics
+    return null;
+  }
+
+  async saveUserStatistics(userId: string, statistics: any): Promise<void> {
+    // In-memory doesn't cache statistics
   }
 }
 

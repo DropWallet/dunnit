@@ -318,4 +318,55 @@ export class SupabaseDataAccess implements DataAccess {
       throw error;
     }
   }
+
+  async getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null> {
+    const { data, error } = await this.supabase
+      .from('user_statistics')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      console.error('Error getting user statistics:', error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      statistics: {
+        totalGames: data.total_games,
+        startedGames: data.started_games,
+        totalAchievements: data.total_achievements,
+        unlockedAchievements: data.unlocked_achievements,
+        averageCompletionRate: data.average_completion_rate,
+      },
+      calculatedAt: new Date(data.calculated_at),
+    };
+  }
+
+  async saveUserStatistics(userId: string, statistics: any): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_statistics')
+      .upsert({
+        user_id: userId,
+        total_games: statistics.totalGames,
+        started_games: statistics.startedGames,
+        total_achievements: statistics.totalAchievements,
+        unlocked_achievements: statistics.unlockedAchievements,
+        average_completion_rate: statistics.averageCompletionRate,
+        calculated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id',
+      });
+
+    if (error) {
+      console.error('Error saving user statistics:', error);
+      throw error;
+    }
+  }
 }

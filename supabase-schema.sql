@@ -57,6 +57,19 @@ CREATE TABLE IF NOT EXISTS user_achievements (
   FOREIGN KEY (app_id, achievement_api_name) REFERENCES achievements(app_id, api_name) ON DELETE CASCADE
 );
 
+-- User statistics table (cached calculated statistics)
+-- NOTE: If you already ran the schema before, run this CREATE TABLE statement separately
+CREATE TABLE IF NOT EXISTS user_statistics (
+  user_id TEXT PRIMARY KEY,
+  total_games INTEGER NOT NULL DEFAULT 0,
+  started_games INTEGER NOT NULL DEFAULT 0,
+  total_achievements INTEGER NOT NULL DEFAULT 0,
+  unlocked_achievements INTEGER NOT NULL DEFAULT 0,
+  average_completion_rate NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (user_id) REFERENCES users(steam_id) ON DELETE CASCADE
+);
+
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_user_games_user_id ON user_games(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_games_app_id ON user_games(app_id);
