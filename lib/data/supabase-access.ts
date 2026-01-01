@@ -1,9 +1,18 @@
 import { getSupabaseAdmin } from '@/lib/supabase/client';
 import type { DataAccess } from './access';
 import type { User, Game, Achievement, UserAchievement } from './types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseDataAccess implements DataAccess {
-  private supabase = getSupabaseAdmin();
+  private _supabase: SupabaseClient | null = null;
+
+  // Lazy initialization - only create client when needed
+  private get supabase(): SupabaseClient {
+    if (!this._supabase) {
+      this._supabase = getSupabaseAdmin();
+    }
+    return this._supabase;
+  }
 
   async saveUser(user: User): Promise<void> {
     const { error } = await this.supabase
