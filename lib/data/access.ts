@@ -1,8 +1,9 @@
 import type { User, Game, UserGame, Achievement, UserAchievement } from './types';
+import { SupabaseDataAccess } from './supabase-access';
 
 /**
- * Data Access Layer - In-memory implementation
- * This can be easily swapped for a database implementation later
+ * Data Access Layer - Supabase implementation
+ * Falls back to in-memory for local development if Supabase is not configured
  */
 export interface DataAccess {
   // User operations
@@ -143,6 +144,13 @@ declare global {
 }
 
 export function getDataAccess(): DataAccess {
+  // Use Supabase if environment variables are set
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return new SupabaseDataAccess();
+  }
+  
+  // Fallback to in-memory for local development
+  console.warn('Supabase not configured, using in-memory data access. Data will not persist.');
   if (!globalThis.__dunnit_dataAccess) {
     globalThis.__dunnit_dataAccess = new InMemoryDataAccess();
   }
