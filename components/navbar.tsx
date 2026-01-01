@@ -14,7 +14,7 @@ export function Navbar() {
   };
 
   return (
-    <nav className="flex flex-col justify-center items-stretch overflow-hidden gap-2 px-8 py-3 bg-surface-low">
+    <nav className="flex flex-col justify-center items-stretch overflow-hidden gap-2 px-4 md:px-8 py-3 bg-surface-low">
       <div className="flex justify-between items-center">
         {/* Logo - Link to Dashboard */}
         <Link href="/dashboard" className="flex-shrink-0">

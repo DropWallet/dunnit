@@ -16,8 +16,8 @@ const config: Config = {
     // Text inverted variants
     'text-inverted-strong', 'text-inverted-subdued',
     // Rarity colors
-    'bg-rarity-legendary', 'bg-rarity-rare', 'bg-rarity-uncommon', 'bg-rarity-common',
-    'border-rarity-legendary', 'border-rarity-rare', 'border-rarity-uncommon', 'border-rarity-common',
+    'bg-rarity-legendary', 'bg-rarity-very-rare', 'bg-rarity-rare', 'bg-rarity-uncommon', 'bg-rarity-common',
+    'border-rarity-legendary', 'border-rarity-very-rare', 'border-rarity-rare', 'border-rarity-uncommon', 'border-rarity-common',
   ],
   theme: {
     extend: {
@@ -94,6 +94,7 @@ const config: Config = {
         "border-strong": "hsl(var(--color-border-strong))",
         "border-inverted-moderate": "var(--color-border-inverted-moderate)",
         "border-rarity-legendary": "hsl(var(--color-rarity-legendary))",
+        "border-rarity-very-rare": "hsl(var(--color-rarity-very-rare))",
         "border-rarity-rare": "hsl(var(--color-rarity-rare))",
         "border-rarity-uncommon": "hsl(var(--color-rarity-uncommon))",
         "border-rarity-common": "hsl(var(--color-rarity-common))",
@@ -141,6 +142,7 @@ const config: Config = {
         // Achievement rarity colors
         rarity: {
           legendary: "hsl(var(--color-rarity-legendary))",
+          "very-rare": "hsl(var(--color-rarity-very-rare))",
           rare: "hsl(var(--color-rarity-rare))",
           uncommon: "hsl(var(--color-rarity-uncommon))",
           common: "hsl(var(--color-rarity-common))",
