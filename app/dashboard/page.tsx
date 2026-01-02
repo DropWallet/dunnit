@@ -23,6 +23,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
+import { Trophy } from "@/components/trophy";
+import { calculateRarity } from "@/lib/utils/achievements";
 
 interface User {
   steamId: string;
@@ -68,6 +71,13 @@ export default function DashboardPage() {
   const [allGames, setAllGames] = useState<any[]>([]);
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  
+  // Achievement tab state
+  const [achievementSortBy, setAchievementSortBy] = useState<string>("rarity");
+  const [allAchievementsList, setAllAchievementsList] = useState<any[]>([]);
+  const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
+  const [isLoadingAllAchievements, setIsLoadingAllAchievements] = useState(false);
+  const achievementLoadMoreObserverRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
     fetch("/api/user")
@@ -173,6 +183,28 @@ export default function DashboardPage() {
     
     loadGames();
   }, [router, sortBy]);
+
+  // Fetch all achievements for Achievements tab
+  useEffect(() => {
+    async function loadAllAchievements() {
+      setIsLoadingAllAchievements(true);
+      try {
+        const res = await fetch("/api/achievements/all");
+        if (res.ok) {
+          const data = await res.json();
+          setAllAchievementsList(data.achievements || []);
+        } else {
+          console.error("Failed to fetch achievements:", res.status);
+        }
+      } catch (error) {
+        console.error("Error loading achievements:", error);
+      } finally {
+        setIsLoadingAllAchievements(false);
+      }
+    }
+    
+    loadAllAchievements();
+  }, []);
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -343,6 +375,101 @@ export default function DashboardPage() {
   useEffect(() => {
     sessionStorage.setItem('dashboard-show-unplayed', String(showUnplayed));
   }, [showUnplayed]);
+
+  // Sort and filter achievements - only show unlocked achievements
+  const sortedAndFilteredAchievements = useMemo(() => {
+    // Filter to only unlocked achievements
+    const filtered = allAchievementsList.filter((a: any) => a.unlocked);
+    
+    const sorted = [...filtered].sort((a: any, b: any) => {
+      switch (achievementSortBy) {
+        case "rarity": {
+          const aPercent = a.achievement?.globalPercentage ?? 100;
+          const bPercent = b.achievement?.globalPercentage ?? 100;
+          if (aPercent !== bPercent) return aPercent - bPercent;
+          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
+        }
+        case "unlock-date": {
+          const aDate = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+          const bDate = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+          if (aDate !== bDate) return bDate - aDate;
+          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
+        }
+        case "name": {
+          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
+        }
+        default:
+          return 0;
+      }
+    });
+    
+    return sorted;
+  }, [allAchievementsList, achievementSortBy]);
+
+  // Limit displayed achievements
+  const achievementsToDisplay = useMemo(() => {
+    return sortedAndFilteredAchievements.slice(0, displayedAchievementsCount);
+  }, [sortedAndFilteredAchievements, displayedAchievementsCount]);
+
+  // Detect current breakpoint to calculate columns per row
+  const [columnsPerRow, setColumnsPerRow] = useState(2);
+  
+  useEffect(() => {
+    const updateColumns = () => {
+      const width = window.innerWidth;
+      if (width >= 1280) {
+        setColumnsPerRow(6); // xl
+      } else if (width >= 1024) {
+        setColumnsPerRow(5); // lg
+      } else if (width >= 768) {
+        setColumnsPerRow(4); // md
+      } else if (width >= 640) {
+        setColumnsPerRow(3); // sm
+      } else {
+        setColumnsPerRow(2); // default
+      }
+    };
+    
+    updateColumns();
+    window.addEventListener('resize', updateColumns);
+    return () => window.removeEventListener('resize', updateColumns);
+  }, []);
+
+  // Group achievements into rows based on current breakpoint
+  const achievementRows = useMemo(() => {
+    const rows: any[][] = [];
+    for (let i = 0; i < achievementsToDisplay.length; i += columnsPerRow) {
+      rows.push(achievementsToDisplay.slice(i, i + columnsPerRow));
+    }
+    return rows;
+  }, [achievementsToDisplay, columnsPerRow]);
+
+
+  // Callback ref for achievement load more sentinel
+  const achievementLoadMoreRef = useCallback((node: HTMLDivElement | null) => {
+    // Cleanup previous observer
+    if (achievementLoadMoreObserverRef.current) {
+      achievementLoadMoreObserverRef.current.disconnect();
+      achievementLoadMoreObserverRef.current = null;
+    }
+
+    if (node) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting && displayedAchievementsCount < sortedAndFilteredAchievements.length) {
+            setDisplayedAchievementsCount(prev => Math.min(prev + 30, sortedAndFilteredAchievements.length));
+          }
+        },
+        { 
+          rootMargin: '200px',
+          threshold: 0.1
+        }
+      );
+      
+      observer.observe(node);
+      achievementLoadMoreObserverRef.current = observer;
+    }
+  }, [displayedAchievementsCount, sortedAndFilteredAchievements.length]);
 
   // Reset displayed games count when sorting or filtering changes
   useEffect(() => {
@@ -575,8 +702,28 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Filters, Sort Controls, and Games Grid */}
-          <div className="flex flex-col gap-5 mt-8">
+          {/* Tabs */}
+          <TabGroup className="mt-10">
+            <TabList className="flex gap-1.5">
+              <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
+                Games
+              </Tab>
+              <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
+                Achievements
+              </Tab>
+              <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
+                Friends
+              </Tab>
+            </TabList>
+
+            {/* Separator line between tabs and content */}
+            <div className="border-b border-border-subdued mt-4"></div>
+
+            <TabPanels>
+              {/* Games Tab */}
+              <TabPanel>
+                {/* Filters, Sort Controls, and Games Grid */}
+                <div className="flex flex-col gap-4 mt-4">
             {/* Filters and Sort Controls */}
             <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
               {/* Sort Dropdown */}
@@ -701,7 +848,104 @@ export default function DashboardPage() {
                 )}
               </>
             )}
-          </div>
+                </div>
+              </TabPanel>
+
+              {/* Achievements Tab */}
+              <TabPanel>
+                <div className="flex flex-col gap-4 mt-4">
+                  {/* Filters and Sort Controls */}
+                  <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
+                    {/* Sort Dropdown */}
+                    <div className="flex items-center gap-2">
+                      <Select value={achievementSortBy} onValueChange={setAchievementSortBy}>
+                        <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
+                          <SelectValue placeholder="Sort by" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-surface-low border-border-strong">
+                          <SelectItem value="rarity" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                            Rarity
+                          </SelectItem>
+                          <SelectItem value="unlock-date" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                            Unlock date
+                          </SelectItem>
+                          <SelectItem value="name" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                            Name
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Achievements Display */}
+                  {isLoadingAllAchievements ? (
+                    <div className="flex justify-center items-center py-12">
+                      <p className="text-text-subdued">Loading achievements...</p>
+                    </div>
+                  ) : achievementsToDisplay.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg bg-surface-mid border border-border-strong">
+                      <p className="text-text-moderate text-lg mb-2">No achievements found</p>
+                      <p className="text-text-subdued text-sm text-center">
+                        No unlocked achievements to display
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col justify-start items-center self-stretch px-4 md:px-8 py-8 md:py-4 rounded-lg bg-surface-low border border-border-weak">
+                      <div className="flex flex-col gap-0 w-full">
+                        {achievementRows.map((row, rowIndex) => (
+                          <div key={rowIndex} className="flex flex-col items-center w-full">
+                            <div className="grid pt-8 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 md:gap-x-6 lg:gap-x-10 w-full justify-items-center">
+                              {row.map((achievement: any, index: number) => {
+                                const rarity = calculateRarity(achievement.achievement?.globalPercentage);
+                                const percentage = achievement.achievement?.globalPercentage ?? 0;
+                                
+                                return (
+                                  <Trophy
+                                    key={`trophy-${achievement.appId}-${achievement.achievement?.apiName}-${rowIndex}-${index}`}
+                                    rarity={rarity}
+                                    percentage={percentage}
+                                    iconUrl={achievement.unlocked ? achievement.achievement?.iconUrl : achievement.achievement?.iconGrayUrl}
+                                    name={achievement.achievement?.name || 'Unknown'}
+                                    unlockedAt={achievement.unlockedAt ? new Date(achievement.unlockedAt) : undefined}
+                                    unlocked={achievement.unlocked}
+                                  />
+                                );
+                              })}
+                            </div>
+                            {/* Shelf - flush with trophies above */}
+                            <div className="w-full h-2 bg-shelf-gradient border border-border-strong shadow-shelf dark:shadow-shelf-dark"></div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Load more sentinel */}
+                      {displayedAchievementsCount < sortedAndFilteredAchievements.length && (
+                        <div 
+                          ref={achievementLoadMoreRef} 
+                          className="h-4 w-full mt-10" 
+                          aria-hidden="true"
+                          style={{ minHeight: '1px' }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </TabPanel>
+
+              {/* Friends Tab */}
+              <TabPanel>
+                <div className="flex flex-col gap-5 mt-8">
+                  {/* Stub Content */}
+                  <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg bg-surface-mid border border-border-strong">
+                    <p className="text-text-moderate text-lg mb-2">Friends</p>
+                    <p className="text-text-subdued text-sm text-center">
+                      Friends list will be displayed here
+                    </p>
+                  </div>
+                </div>
+              </TabPanel>
+            </TabPanels>
+          </TabGroup>
         </div>
       </div>
     </div>

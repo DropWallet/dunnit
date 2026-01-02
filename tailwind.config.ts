@@ -18,6 +18,9 @@ const config: Config = {
     // Rarity colors
     'bg-rarity-legendary', 'bg-rarity-very-rare', 'bg-rarity-rare', 'bg-rarity-uncommon', 'bg-rarity-common',
     'border-rarity-legendary', 'border-rarity-very-rare', 'border-rarity-rare', 'border-rarity-uncommon', 'border-rarity-common',
+    // Shelf shadows
+    'shadow-shelf',
+    'dark:shadow-shelf-dark',
   ],
   theme: {
     extend: {
@@ -228,6 +231,8 @@ const config: Config = {
         "2xl": "var(--shadow-2xl)",
         inner: "var(--shadow-inner)",
         "game-cover": "var(--shadow-game-cover)",
+        shelf: "var(--shadow-shelf)",
+        "shelf-dark": "var(--shadow-shelf-dark)",
       },
       borderRadius: {
         // Semantic radius tokens
