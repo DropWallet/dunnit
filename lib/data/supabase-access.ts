@@ -202,27 +202,86 @@ export class SupabaseDataAccess implements DataAccess {
     }
 
     // Then, upsert user achievements
+    const now = new Date().toISOString();
     const userAchievementRecords = achievements.map(ach => {
       const isUnlocked = unlockedAchievements.includes(ach.apiName);
       const unlockTime = unlockTimes?.get(ach.apiName);
       
-      return {
+      const record: any = {
         user_id: userId,
         app_id: appId,
         achievement_api_name: ach.apiName,
         unlocked: isUnlocked,
         unlocked_at: unlockTime ? new Date(unlockTime * 1000).toISOString() : null,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       };
+      
+      // Try to include last_synced_at (will work after migration)
+      // If column doesn't exist, we'll retry without it
+      record.last_synced_at = now;
+      
+      return record;
     });
 
-    const { error: userAchievementsError } = await this.supabase
+    let { error: userAchievementsError } = await this.supabase
       .from('user_achievements')
       .upsert(userAchievementRecords, { onConflict: 'user_id,app_id,achievement_api_name' });
 
-    if (userAchievementsError) {
+    // If error is about missing last_synced_at column, retry without it
+    if (userAchievementsError && (
+      userAchievementsError.message?.includes('last_synced_at') ||
+      userAchievementsError.code === 'PGRST204'
+    )) {
+      console.warn('last_synced_at column not found - migration may be needed. Retrying without it.');
+      
+      // Retry without last_synced_at
+      const recordsWithoutLastSynced = userAchievementRecords.map(({ last_synced_at, ...rest }) => rest);
+      
+      const { error: retryError } = await this.supabase
+        .from('user_achievements')
+        .upsert(recordsWithoutLastSynced, { onConflict: 'user_id,app_id,achievement_api_name' });
+
+      if (retryError) {
+        console.error('Error saving user achievements (retry without last_synced_at):', retryError);
+        throw retryError;
+      }
+    } else if (userAchievementsError) {
       console.error('Error saving user achievements:', userAchievementsError);
       throw userAchievementsError;
+    }
+  }
+
+  async getAchievementLastSyncedAt(userId: string, appId: number): Promise<Date | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('user_achievements')
+        .select('last_synced_at')
+        .eq('user_id', userId)
+        .eq('app_id', appId)
+        .not('last_synced_at', 'is', null)
+        .order('last_synced_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // If column doesn't exist, return null (migration not run yet)
+      if (error && (
+        error.message?.includes('last_synced_at') ||
+        error.code === 'PGRST204'
+      )) {
+        return null;
+      }
+
+      if (error || !data || !data.last_synced_at) {
+        return null;
+      }
+
+      return new Date(data.last_synced_at);
+    } catch (error: any) {
+      // Column doesn't exist yet - migration not run
+      if (error?.message?.includes('last_synced_at') || error?.code === 'PGRST204') {
+        return null;
+      }
+      return null;
     }
   }
 

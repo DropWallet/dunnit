@@ -36,8 +36,13 @@ export async function GET(request: NextRequest) {
     const forceRefresh = searchParams.get('refresh') === 'true';
     let userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
 
-    // If no cached achievements or force refresh, fetch from Steam
-    if (userAchievements.length === 0 || forceRefresh) {
+    // Check if cache is stale (older than 1 hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const lastSyncedAt = await dataAccess.getAchievementLastSyncedAt(steamId, appIdNum);
+    const isStale = !lastSyncedAt || lastSyncedAt < oneHourAgo;
+
+    // If no cached achievements, stale cache, or force refresh, fetch from Steam
+    if (userAchievements.length === 0 || isStale || forceRefresh) {
       if (forceRefresh) {
         // Clear cache for this game
         await dataAccess.clearUserAchievements(steamId, appIdNum);
@@ -52,11 +57,14 @@ export async function GET(request: NextRequest) {
         steamClient.getPlayerAchievementsXML(steamId, appIdNum).catch(() => new Map()),
       ]);
 
+      // If Steam API fails, check if we have cached data to return
       if (!playerAchievementsResponse || !gameSchemaResponse) {
-        return NextResponse.json(
-          { error: 'Failed to fetch achievements or game schema' },
-          { status: 500 }
-        );
+        // If we have cached data, return it even if Steam fetch failed
+        if (userAchievements.length > 0) {
+          return NextResponse.json({ achievements: userAchievements });
+        }
+        // If no cached data and Steam fails, return empty array (game might not have achievements)
+        return NextResponse.json({ achievements: [] });
       }
 
       // Extract unlocked achievement API names, unlock times, and descriptions

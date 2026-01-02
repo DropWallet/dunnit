@@ -19,6 +19,7 @@ interface GameCardProps {
   logoUrl?: string; // Fallback image
   iconUrl?: string; // Additional fallback
   achievementIcons?: Array<{ iconUrl: string; iconGrayUrl: string; unlocked: boolean }>;
+  isLoadingAchievements?: boolean;
 }
 
 export function GameCard({
@@ -31,6 +32,7 @@ export function GameCard({
   logoUrl,
   iconUrl,
   achievementIcons = [],
+  isLoadingAchievements = false,
 }: GameCardProps) {
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
@@ -227,33 +229,59 @@ export function GameCard({
         <div className="flex flex-col justify-start items-start self-stretch gap-3 px-2 pt-2.5 pb-2 rounded-bl rounded-br bg-surface-transparent-mid">
           {/* Achievement Icons */}
           <div className="flex justify-start items-center self-stretch relative gap-2 md:gap-3">
-            {displayIcons}
+            {isLoadingAchievements ? (
+              // Skeleton loading state - 5 placeholder squares with pulse animation
+              Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-grow w-0 aspect-square bg-surface-low animate-pulse rounded"
+                />
+              ))
+            ) : (
+              displayIcons
+            )}
           </div>
 
           {/* Achievement Progress */}
           <div className="flex flex-col justify-start items-start self-stretch gap-1.5">
-            {/* Progress Text */}
-            <div className="flex justify-center items-center self-stretch relative gap-2">
-              <p className="flex-grow text-xs text-left text-text-subdued truncate">
-                <span className="text-xs font-bold text-left text-text-subdued">
-                  {unlockedAchievements} of {totalAchievements}
-                </span>
-                <span className="text-xs text-left text-text-subdued"> achievements</span>
-              </p>
-              <p className="flex-shrink-0 text-xs font-bold text-center text-text-subdued">
-                {completionRate}%
-              </p>
-            </div>
+            {isLoadingAchievements ? (
+              // Skeleton for progress text and bar
+              <>
+                <div className="flex justify-center items-center self-stretch relative gap-2">
+                  <div className="flex-grow h-4 bg-surface-low animate-pulse rounded" />
+                  <div className="flex-shrink-0 w-12 h-4 bg-surface-low animate-pulse rounded" />
+                </div>
+                <div className="flex flex-col justify-start items-start self-stretch relative overflow-hidden gap-2 p-0.5 rounded-full bg-background">
+                  <div className="flex-shrink-0 h-[5px] w-0 rounded-tl-full rounded-bl-full bg-surface-low animate-pulse" />
+                </div>
+              </>
+            ) : (
+              // Existing progress display
+              <>
+                {/* Progress Text */}
+                <div className="flex justify-center items-center self-stretch relative gap-2">
+                  <p className="flex-grow text-xs text-left text-text-subdued truncate">
+                    <span className="text-xs font-bold text-left text-text-subdued">
+                      {unlockedAchievements} of {totalAchievements}
+                    </span>
+                    <span className="text-xs text-left text-text-subdued"> achievements</span>
+                  </p>
+                  <p className="flex-shrink-0 text-xs font-bold text-center text-text-subdued">
+                    {completionRate}%
+                  </p>
+                </div>
 
-            {/* Progress Bar */}
-            <div className="flex flex-col justify-start items-start self-stretch relative overflow-hidden gap-2 p-0.5 rounded-full bg-background">
-              <div
-                className="flex-shrink-0 h-[5px] rounded-tl-full rounded-bl-full transition-all bg-primary"
-                style={{ 
-                  width: `${completionRate}%`
-                }}
-              />
-            </div>
+                {/* Progress Bar */}
+                <div className="flex flex-col justify-start items-start self-stretch relative overflow-hidden gap-2 p-0.5 rounded-full bg-background">
+                  <div
+                    className="flex-shrink-0 h-[5px] rounded-tl-full rounded-bl-full transition-all bg-primary"
+                    style={{ 
+                      width: `${completionRate}%`
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

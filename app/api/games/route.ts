@@ -16,10 +16,15 @@ export async function GET(request: NextRequest) {
 
     // Check if we have cached games
     const dataAccess = getDataAccess();
+    const user = await dataAccess.getUser(steamId);
     let games = await dataAccess.getUserGames(steamId);
 
-    // If no cached games or cache is stale (older than 1 hour), fetch from Steam
-    const shouldRefresh = games.length === 0;
+    // Check if we should refresh: no games, no user, or cache is stale (older than 1 hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const shouldRefresh = games.length === 0 || 
+      !user?.lastSyncAt || 
+      user.lastSyncAt < oneHourAgo ||
+      request.nextUrl.searchParams.get('refresh') === 'true';
     
     if (shouldRefresh) {
       const steamClient = getSteamClient();
@@ -34,12 +39,26 @@ export async function GET(request: NextRequest) {
           
           try {
             const gameDetails = await steamClient.getGameDetails(steamGame.appid);
-            if (gameDetails?.data?.header_image) {
+            // Check if Store API call was successful and has data
+            if (gameDetails?.success && gameDetails?.data?.header_image) {
               coverImageUrl = gameDetails.data.header_image;
+            } else if (gameDetails?.success && gameDetails?.data) {
+              // Try alternative image sources if header_image doesn't exist
+              // Some games might have capsule images or other image fields
+              if (gameDetails.data.capsule_image) {
+                coverImageUrl = gameDetails.data.capsule_image;
+              } else if (gameDetails.data.background) {
+                coverImageUrl = gameDetails.data.background;
+              }
+              // If still no image, try library_hero.jpg as fallback
+              if (coverImageUrl === `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`) {
+                coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/library_hero.jpg`;
+              }
             }
           } catch (error) {
-            // Fallback to default URL if Store API fails
-            console.warn(`Failed to fetch store details for ${steamGame.appid}, using default header URL`);
+            // Fallback to library_hero.jpg if Store API fails
+            console.warn(`Failed to fetch store details for ${steamGame.appid}, trying library_hero.jpg`);
+            coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/library_hero.jpg`;
           }
 
           return {

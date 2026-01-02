@@ -260,7 +260,7 @@ export default function GamePage() {
               {/* Sort Dropdown */}
               <div className="flex items-center gap-2">
                 <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[180px] border-border-strong bg-surface-low text-text-strong">
+                  <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
                   <SelectContent className="bg-surface-low border-border-strong">

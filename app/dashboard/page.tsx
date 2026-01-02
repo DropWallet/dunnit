@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { RefreshCw } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface User {
   steamId: string;
@@ -39,12 +46,12 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
-  const [games, setGames] = useState<any[]>([]);
   const [gameAchievements, setGameAchievements] = useState<Map<number, any[]>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingGames, setIsLoadingGames] = useState(true);
-  const [showAllGames, setShowAllGames] = useState(false);
+  const [displayedGamesCount, setDisplayedGamesCount] = useState(15);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [sortBy, setSortBy] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('dashboard-sort-by') || 'last-played';
@@ -59,6 +66,8 @@ export default function DashboardPage() {
     return true;
   });
   const [allGames, setAllGames] = useState<any[]>([]);
+  const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/user")
@@ -111,24 +120,50 @@ export default function DashboardPage() {
         // Store all games
         setAllGames(gamesData.games);
         
-        // Fetch achievements for all games in parallel (needed for achievement progress sorting)
-        const achievementPromises = gamesData.games.map(async (game: any) => {
+        // Fetch achievements for displayed games only (first batch of 15)
+        // This is needed for GameCard display regardless of sort option
+        const initialBatch = gamesData.games.slice(0, 15);
+        
+        // If sorting by achievement progress, fetch for all games
+        const gamesNeedingAchievements = sortBy === 'achievement-progress' 
+          ? gamesData.games 
+          : initialBatch;
+        
+        // Mark games as loading
+        const appIdsToLoad = gamesNeedingAchievements.map((g: any) => Number(g.appId));
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.add(id));
+          return newSet;
+        });
+        
+        const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
           try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
-            if (!achRes.ok) return { appId: game.appId, achievements: [] };
+            const appIdNum = Number(game.appId);
+            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
+            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
             const achData = await achRes.json();
-            return { appId: game.appId, achievements: achData.achievements || [] };
+            return { appId: appIdNum, achievements: achData.achievements || [] };
           } catch {
-            return { appId: game.appId, achievements: [] };
+            return { appId: Number(game.appId), achievements: [] };
           }
         });
         
         const achievementsData = await Promise.all(achievementPromises);
-        const achievementsMap = new Map();
+        const achievementsMap = new Map<number, any[]>();
         achievementsData.forEach(({ appId, achievements }) => {
-          achievementsMap.set(appId, achievements);
+          const appIdNum = Number(appId);
+          achievementsMap.set(appIdNum, achievements);
         });
         setGameAchievements(achievementsMap);
+        
+        // Remove from loading set
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.delete(id));
+          return newSet;
+        });
+        
         setIsLoadingGames(false);
       } catch (error) {
         console.error("Error loading games:", error);
@@ -137,7 +172,7 @@ export default function DashboardPage() {
     }
     
     loadGames();
-  }, [router]);
+  }, [router, sortBy]);
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -182,8 +217,8 @@ export default function DashboardPage() {
           return b.name.localeCompare(a.name);
         }
         case "achievement-progress": {
-          const aAchievements = gameAchievements.get(a.appId) || [];
-          const bAchievements = gameAchievements.get(b.appId) || [];
+          const aAchievements = gameAchievements.get(Number(a.appId)) || [];
+          const bAchievements = gameAchievements.get(Number(b.appId)) || [];
           const aUnlocked = aAchievements.filter((ach: any) => ach.unlocked).length;
           const bUnlocked = bAchievements.filter((ach: any) => ach.unlocked).length;
           const aTotal = aAchievements.length;
@@ -202,14 +237,102 @@ export default function DashboardPage() {
     return sorted;
   }, [allGames, sortBy, showUnplayed, gameAchievements]);
 
-  // Limit games based on showAllGames
+  // Limit games based on displayedGamesCount (infinite scroll)
   const gamesToDisplay = useMemo(() => {
-    return showAllGames ? sortedAndFilteredGames : sortedAndFilteredGames.slice(0, 15);
-  }, [sortedAndFilteredGames, showAllGames]);
+    return sortedAndFilteredGames.slice(0, displayedGamesCount);
+  }, [sortedAndFilteredGames, displayedGamesCount]);
 
+  // Load achievements for newly displayed games when gamesToDisplay changes
   useEffect(() => {
-    setGames(gamesToDisplay);
-  }, [gamesToDisplay]);
+    if (gamesToDisplay.length > 0) {
+      const gamesNeedingAchievements = gamesToDisplay.filter(
+        (game: any) => !gameAchievements.has(Number(game.appId))
+      );
+      
+      if (gamesNeedingAchievements.length > 0) {
+        // Mark games as loading
+        const appIdsToLoad = gamesNeedingAchievements.map((g: any) => Number(g.appId));
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.add(id));
+          return newSet;
+        });
+
+        const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
+          try {
+            const appIdNum = Number(game.appId);
+            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
+            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achData = await achRes.json();
+            return { appId: appIdNum, achievements: achData.achievements || [] };
+          } catch {
+            return { appId: Number(game.appId), achievements: [] };
+          }
+        });
+        
+        Promise.all(achievementPromises).then((achievementsData) => {
+          const newMap = new Map(gameAchievements);
+          achievementsData.forEach(({ appId, achievements }) => {
+            newMap.set(Number(appId), achievements);
+          });
+          setGameAchievements(newMap);
+          
+          // Remove from loading set
+          setLoadingAchievements(prev => {
+            const newSet = new Set(prev);
+            appIdsToLoad.forEach((id: number) => newSet.delete(id));
+            return newSet;
+          });
+        });
+      }
+    }
+  }, [gamesToDisplay, gameAchievements]);
+
+  // Lazy-load achievements for all games when sorting by achievement progress
+  useEffect(() => {
+    if (sortBy === 'achievement-progress' && allGames.length > 0) {
+      const needsLoading = allGames.some((game: any) => !gameAchievements.has(Number(game.appId)));
+      
+      if (needsLoading) {
+        const gamesToLoad = allGames.filter((game: any) => !gameAchievements.has(Number(game.appId)));
+        
+        // Mark games as loading
+        const appIdsToLoad = gamesToLoad.map((g: any) => Number(g.appId));
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.add(id));
+          return newSet;
+        });
+        
+        const achievementPromises = gamesToLoad.map(async (game: any) => {
+          try {
+            const appIdNum = Number(game.appId);
+            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
+            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achData = await achRes.json();
+            return { appId: appIdNum, achievements: achData.achievements || [] };
+          } catch {
+            return { appId: Number(game.appId), achievements: [] };
+          }
+        });
+        
+        Promise.all(achievementPromises).then((achievementsData) => {
+          const newMap = new Map(gameAchievements);
+          achievementsData.forEach(({ appId, achievements }) => {
+            newMap.set(Number(appId), achievements);
+          });
+          setGameAchievements(newMap);
+          
+          // Remove from loading set
+          setLoadingAchievements(prev => {
+            const newSet = new Set(prev);
+            appIdsToLoad.forEach((id: number) => newSet.delete(id));
+            return newSet;
+          });
+        });
+      }
+    }
+  }, [sortBy, allGames, gameAchievements]);
 
   // Save sortBy to sessionStorage when it changes
   useEffect(() => {
@@ -220,6 +343,140 @@ export default function DashboardPage() {
   useEffect(() => {
     sessionStorage.setItem('dashboard-show-unplayed', String(showUnplayed));
   }, [showUnplayed]);
+
+  // Reset displayed games count when sorting or filtering changes
+  useEffect(() => {
+    setDisplayedGamesCount(15);
+  }, [sortBy, showUnplayed]);
+
+  // Infinite scroll: Load more games when user scrolls near bottom
+  const loadMoreGames = useCallback(async () => {
+    if (isLoadingMore || isLoadingGames) return;
+    
+    const hasMore = displayedGamesCount < sortedAndFilteredGames.length;
+    if (!hasMore) return;
+
+    setIsLoadingMore(true);
+    
+    // Load next batch (15 more games)
+    const nextBatchCount = displayedGamesCount + 15;
+    setDisplayedGamesCount(nextBatchCount);
+    
+    // Fetch achievements for newly displayed games
+    const newlyDisplayedGames = sortedAndFilteredGames.slice(displayedGamesCount, nextBatchCount);
+    const gamesNeedingAchievements = newlyDisplayedGames.filter(
+      (game: any) => !gameAchievements.has(Number(game.appId))
+    );
+
+    if (gamesNeedingAchievements.length > 0) {
+      // Mark games as loading
+      const appIdsToLoad = gamesNeedingAchievements.map(g => Number(g.appId));
+      setLoadingAchievements(prev => {
+        const newSet = new Set(prev);
+        appIdsToLoad.forEach((id: number) => newSet.add(id));
+        return newSet;
+      });
+
+      const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
+        try {
+          const appIdNum = Number(game.appId);
+          const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
+          if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+          const achData = await achRes.json();
+          return { appId: appIdNum, achievements: achData.achievements || [] };
+        } catch {
+          return { appId: Number(game.appId), achievements: [] };
+        }
+      });
+
+      const achievementsData = await Promise.all(achievementPromises);
+      const newMap = new Map(gameAchievements);
+      achievementsData.forEach(({ appId, achievements }) => {
+        newMap.set(Number(appId), achievements);
+      });
+      setGameAchievements(newMap);
+      
+      // Remove from loading set
+      setLoadingAchievements(prev => {
+        const newSet = new Set(prev);
+        appIdsToLoad.forEach((id: number) => newSet.delete(id));
+        return newSet;
+      });
+    }
+
+    setIsLoadingMore(false);
+  }, [displayedGamesCount, sortedAndFilteredGames, gameAchievements, isLoadingMore, isLoadingGames]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (firstEntry?.isIntersecting) {
+          loadMoreGames();
+        }
+      },
+      {
+        rootMargin: '200px', // Start loading when 200px away from bottom
+      }
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMoreGames]);
+
+  // Manual refresh handler
+  const handleRefresh = () => {
+    setIsLoadingGames(true);
+    setDisplayedGamesCount(15); // Reset to initial batch
+    const refreshGames = async () => {
+      try {
+        const gamesRes = await fetch("/api/games?refresh=true");
+        if (!gamesRes.ok) {
+          setIsLoadingGames(false);
+          return;
+        }
+        
+        const gamesData = await gamesRes.json();
+        setAllGames(gamesData.games);
+        
+        // Refresh achievements for displayed games only
+        const gamesToDisplay = gamesData.games.slice(0, displayedGamesCount);
+        const achievementPromises = gamesToDisplay.map(async (game: any) => {
+          try {
+            const appIdNum = Number(game.appId);
+            const achRes = await fetch(`/api/achievements?appId=${appIdNum}&refresh=true`);
+            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achData = await achRes.json();
+            return { appId: appIdNum, achievements: achData.achievements || [] };
+          } catch {
+            return { appId: Number(game.appId), achievements: [] };
+          }
+        });
+        
+        const achievementsData = await Promise.all(achievementPromises);
+        const achievementsMap = new Map<number, any[]>();
+        achievementsData.forEach(({ appId, achievements }) => {
+          achievementsMap.set(Number(appId), achievements);
+        });
+        setGameAchievements(achievementsMap);
+        
+        setIsLoadingGames(false);
+      } catch (error) {
+        console.error("Error refreshing games:", error);
+        setIsLoadingGames(false);
+      }
+    };
+    refreshGames();
+  };
 
 
   if (isLoading) {
@@ -321,11 +578,11 @@ export default function DashboardPage() {
           {/* Filters, Sort Controls, and Games Grid */}
           <div className="flex flex-col gap-5 mt-8">
             {/* Filters and Sort Controls */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
               {/* Sort Dropdown */}
               <div className="flex items-center gap-2">
                 <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[180px] border-border-strong bg-surface-low text-text-strong">
+                  <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
                   <SelectContent className="bg-surface-low border-border-strong">
@@ -354,8 +611,27 @@ export default function DashboardPage() {
                 </Select>
               </div>
 
-              {/* Show Unplayed Toggle */}
+              {/* Refresh Button and Show Unplayed Toggle */}
               <div className="flex items-center gap-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={handleRefresh}
+                        variant="outline"
+                        size="sm"
+                        className="w-9"
+                        disabled={isLoadingGames}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        <span className="sr-only">Refresh games</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Refresh games</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <Switch
                   id="show-unplayed"
                   checked={showUnplayed}
@@ -372,16 +648,17 @@ export default function DashboardPage() {
 
             {/* Games Grid */}
             {isLoadingGames ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
                 {Array.from({ length: 15 }).map((_, i) => (
-                  <div key={i} className="h-[583px] bg-card rounded-md animate-pulse" />
+                  <div key={i} className="h-[300px] bg-card rounded-md animate-pulse" />
                 ))}
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 md:gap-6">
-                  {games.map((game) => {
-                    const achievements = gameAchievements.get(game.appId) || [];
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 md:gap-6">
+                  {gamesToDisplay.map((game) => {
+                    const appIdNum = Number(game.appId);
+                    const achievements = gameAchievements.get(appIdNum) || [];
                     const unlocked = achievements.filter((a: any) => a.unlocked);
                     const total = achievements.length;
                     
@@ -404,15 +681,22 @@ export default function DashboardPage() {
                         logoUrl={game.logoUrl}
                         iconUrl={game.iconUrl}
                         achievementIcons={achievementIcons}
+                        isLoadingAchievements={loadingAchievements.has(appIdNum) && achievements.length === 0}
                       />
                     );
                   })}
                 </div>
-                {!showAllGames && sortedAndFilteredGames.length > 15 && (
-                  <div className="mt-8 text-center">
-                    <Button onClick={() => setShowAllGames(true)} variant="outline">
-                      View All Games
-                    </Button>
+                {/* Infinite scroll sentinel and loading indicator */}
+                {displayedGamesCount < sortedAndFilteredGames.length && (
+                  <div ref={loadMoreRef} className="mt-8 flex justify-center items-center py-4">
+                    {isLoadingMore && (
+                      <div className="text-text-subdued text-sm">Loading more games...</div>
+                    )}
+                  </div>
+                )}
+                {displayedGamesCount >= sortedAndFilteredGames.length && sortedAndFilteredGames.length > 0 && (
+                  <div className="mt-8 text-center text-text-subdued text-sm">
+                    All games loaded
                   </div>
                 )}
               </>

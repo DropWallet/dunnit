@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS user_achievements (
   unlocked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_synced_at TIMESTAMPTZ,
   PRIMARY KEY (user_id, app_id, achievement_api_name),
   FOREIGN KEY (app_id, achievement_api_name) REFERENCES achievements(app_id, api_name) ON DELETE CASCADE
 );

@@ -27,6 +27,7 @@ export interface DataAccess {
   ): Promise<void>;
   getUserAchievements(userId: string, appId: number): Promise<UserAchievement[]>;
   clearUserAchievements(userId: string, appId: number): Promise<void>;
+  getAchievementLastSyncedAt(userId: string, appId: number): Promise<Date | null>;
 
   // Statistics operations
   getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null>;
@@ -131,6 +132,11 @@ class InMemoryDataAccess implements DataAccess {
       return [];
     }
     return Array.from(achievementMap.values());
+  }
+
+  async getAchievementLastSyncedAt(userId: string, appId: number): Promise<Date | null> {
+    // In-memory doesn't track sync timestamps
+    return null;
   }
 
   async clearUserAchievements(userId: string, appId: number): Promise<void> {
