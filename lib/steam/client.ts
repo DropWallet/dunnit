@@ -206,6 +206,31 @@ export class SteamAPIClient {
       throw error;
     }
   }
+
+  /**
+   * Get friend list for a user
+   */
+  async getFriendList(steamId: string): Promise<string[]> {
+    try {
+      const url = `${STEAM_API_BASE}/ISteamUser/GetFriendList/v0001/?key=${this.apiKey}&steamid=${steamId}&relationship=friend`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.friendslist?.friends) {
+        return data.friendslist.friends.map((friend: { steamid: string }) => friend.steamid);
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error fetching friend list:', error);
+      throw error;
+    }
+  }
 }
 
 // Singleton instance
