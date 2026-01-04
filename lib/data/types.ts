@@ -8,6 +8,7 @@ export interface User {
   countryCode?: string; // ISO 3166-1 alpha-2 country code (e.g., "GB")
   countryName?: string; // Full country name (e.g., "United Kingdom")
   joinDate?: Date; // Steam account creation date
+  communityVisibilityState?: number; // 1 = Private, 3 = Public
   createdAt: Date;
   updatedAt: Date;
   lastSyncAt?: Date;

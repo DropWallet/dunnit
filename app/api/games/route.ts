@@ -30,31 +30,28 @@ export async function GET(request: NextRequest) {
       const response = await steamClient.getOwnedGames(steamId, true);
 
       // Transform Steam API response to our Game format
-      // Fetch header images from Store API for better reliability (some games don't have header.jpg on CDN)
-      // Use cached coverImageUrl when available to avoid unnecessary Store API calls
+      // Use cached coverImageUrl when available, otherwise use default header.jpg
+      // Store API images are fetched on-demand when header.jpg fails to load (see /api/games/[appId]/image)
       const gamesBatch = response.response.games || [];
-      
-      // First, check which games need Store API calls (don't have cached coverImageUrl or have default header.jpg)
       const defaultHeaderPattern = /\/steam\/apps\/\d+\/header\.jpg$/;
-      const gamesNeedingStoreAPI: typeof gamesBatch = [];
       const cachedImageMap = new Map<number, string>(); // appId -> coverImageUrl
       
-      // Check cache for all games first
+      // Check cache for all games - use cached non-default images if available
       for (const steamGame of gamesBatch) {
         const cachedGame = await dataAccess.getUserGame(steamId, steamGame.appid);
         if (cachedGame?.coverImageUrl && !defaultHeaderPattern.test(cachedGame.coverImageUrl)) {
-          // We have a cached non-default image, use it
+          // We have a cached non-default image from Store API, use it
           cachedImageMap.set(steamGame.appid, cachedGame.coverImageUrl);
-        } else {
-          // Need to fetch from Store API (or use default header.jpg)
-          gamesNeedingStoreAPI.push(steamGame);
         }
       }
       
-      // Process games with cached images first (no API calls needed)
-      games = gamesBatch
-        .filter((steamGame) => cachedImageMap.has(steamGame.appid))
-        .map((steamGame) => ({
+      // Process all games - use cached images or default header.jpg
+      games = gamesBatch.map((steamGame) => {
+        // Use cached non-default image if available, otherwise use default header.jpg
+        const coverImageUrl = cachedImageMap.get(steamGame.appid) || 
+          `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+
+        return {
           appId: steamGame.appid,
           name: steamGame.name,
           playtimeMinutes: steamGame.playtime_forever || 0,
@@ -65,68 +62,12 @@ export async function GET(request: NextRequest) {
           logoUrl: steamGame.img_logo_url
             ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
             : undefined,
-          coverImageUrl: cachedImageMap.get(steamGame.appid)!,
+          coverImageUrl,
           lastPlayed: steamGame.rtime_last_played 
-            ? new Date(steamGame.rtime_last_played * 1000)
+            ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
             : undefined,
-        }));
-      
-      // Process games needing Store API calls in smaller batches with longer delays
-      const batchSize = 5; // Reduced from 10 to 5 for better rate limiting
-      const batchDelay = 300; // Increased from 100ms to 300ms for better rate limiting
-      
-      for (let i = 0; i < gamesNeedingStoreAPI.length; i += batchSize) {
-        const batch = gamesNeedingStoreAPI.slice(i, i + batchSize);
-        const batchGames = await Promise.all(
-          batch.map(async (steamGame) => {
-            // Default to header.jpg, but try Store API for better image coverage
-            let coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
-            
-            try {
-              const gameDetails = await steamClient.getGameDetails(steamGame.appid);
-              // Check if Store API call was successful and has data
-              if (gameDetails?.success && gameDetails?.data?.header_image) {
-                coverImageUrl = gameDetails.data.header_image;
-              } else if (gameDetails?.success && gameDetails?.data) {
-                // Try alternative image sources if header_image doesn't exist
-                // Some games might have capsule images or other image fields
-                if (gameDetails.data.capsule_image) {
-                  coverImageUrl = gameDetails.data.capsule_image;
-                } else if (gameDetails.data.background) {
-                  coverImageUrl = gameDetails.data.background;
-                }
-              }
-            } catch (error) {
-              // Silently fail - use default header.jpg URL
-              // Store API rate limiting or errors are expected, so we don't log every failure
-            }
-
-            return {
-              appId: steamGame.appid,
-              name: steamGame.name,
-              playtimeMinutes: steamGame.playtime_forever || 0,
-              playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
-              iconUrl: steamGame.img_icon_url 
-                ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
-                : undefined,
-              logoUrl: steamGame.img_logo_url
-                ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
-                : undefined,
-              coverImageUrl,
-              lastPlayed: steamGame.rtime_last_played 
-                ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
-                : undefined,
-            };
-          })
-        );
-        
-        games.push(...batchGames);
-        
-        // Add delay between batches to avoid rate limiting (except for the last batch)
-        if (i + batchSize < gamesNeedingStoreAPI.length) {
-          await new Promise(resolve => setTimeout(resolve, batchDelay));
-        }
-      }
+        };
+      });
 
       // Calculate derived_last_played for games without lastPlayed
       // This uses cached achievements to provide immediate sorting without fetching achievements

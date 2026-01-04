@@ -41,6 +41,8 @@ export function GameCard({
   const [iconError, setIconError] = useState(false);
   const [skewX, setSkewX] = useState(0);
   const [skewY, setSkewY] = useState(0);
+  const [storeApiImageUrl, setStoreApiImageUrl] = useState<string | null>(null);
+  const [isFetchingStoreImage, setIsFetchingStoreImage] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   
   // Reset error states when image URLs change
@@ -48,11 +50,37 @@ export function GameCard({
     setImageError(false);
     setFallbackError(false);
     setIconError(false);
+    setStoreApiImageUrl(null);
   }, [coverImageUrl, logoUrl, iconUrl]);
   
-  // Debug: Log image errors
-  const handleImageError = () => {
-    console.warn(`Failed to load cover image for "${title}":`, coverImageUrl);
+  // Handle image load error - try to fetch from Store API on-demand
+  const handleImageError = async () => {
+    // Only try Store API if this is a default header.jpg URL (not already a Store API image)
+    const isDefaultHeader = coverImageUrl?.includes('/steam/apps/') && coverImageUrl?.endsWith('/header.jpg');
+    
+    if (isDefaultHeader && !isFetchingStoreImage && !storeApiImageUrl) {
+      setIsFetchingStoreImage(true);
+      // Don't set imageError yet - we'll show loading state instead
+      try {
+        const response = await fetch(`/api/games/${appId}/image`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.coverImageUrl) {
+            // Use the Store API image
+            setStoreApiImageUrl(data.coverImageUrl);
+            setImageError(false); // Reset error so we can try loading the new image
+            setIsFetchingStoreImage(false);
+            return;
+          }
+        }
+      } catch (error) {
+        // Silently fail - will fall back to logo/icon
+      } finally {
+        setIsFetchingStoreImage(false);
+      }
+    }
+    
+    // If Store API fetch failed or not applicable, mark as error
     setImageError(true);
   };
   
@@ -90,10 +118,13 @@ export function GameCard({
   };
   
   // Determine which image to show
-  const showCoverImage = coverImageUrl && !imageError;
-  const showLogo = !showCoverImage && logoUrl && !fallbackError;
-  const showIcon = !showCoverImage && !showLogo && iconUrl && !iconError;
-  const showPlaceholder = !showCoverImage && !showLogo && !showIcon;
+  // Use Store API image if available, otherwise use original coverImageUrl
+  const effectiveCoverImageUrl = storeApiImageUrl || coverImageUrl;
+  const showCoverImage = effectiveCoverImageUrl && !imageError && !isFetchingStoreImage;
+  const showLogo = !showCoverImage && !isFetchingStoreImage && logoUrl && !fallbackError;
+  const showIcon = !showCoverImage && !showLogo && !isFetchingStoreImage && iconUrl && !iconError;
+  const showLoadingPlaceholder = isFetchingStoreImage;
+  const showPlaceholder = !showCoverImage && !showLogo && !showIcon && !showLoadingPlaceholder;
   const completionRate = totalAchievements > 0 
     ? Math.round((unlockedAchievements / totalAchievements) * 100)
     : 0;
@@ -177,11 +208,16 @@ export function GameCard({
         <div className="flex justify-start items-center self-stretch relative gap-2 px-2 pt-2">
           {showCoverImage ? (
             <img
-              src={coverImageUrl}
+              src={effectiveCoverImageUrl}
               alt={title}
               className="flex-grow w-full h-auto object-cover shadow-game-cover transition-transform duration-300 ease-out"
               style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
               onError={handleImageError}
+            />
+          ) : showLoadingPlaceholder ? (
+            <div 
+              className="flex-grow w-full h-auto rounded object-cover shadow-game-cover bg-surface-mid flex items-center justify-center transition-transform duration-300 ease-out animate-pulse" 
+              style={{ aspectRatio: '460/215', transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
             />
           ) : showLogo ? (
             <img

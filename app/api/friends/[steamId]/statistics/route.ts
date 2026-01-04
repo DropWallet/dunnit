@@ -17,16 +17,66 @@ export async function GET(
     }
 
     const dataAccess = getDataAccess();
+    const searchParams = request.nextUrl.searchParams;
+    const lightweight = searchParams.get('lightweight') === 'true';
 
-    // Get friend's games (fetch from Steam if not cached)
+    // Get friend's friends count (always fetch this)
+    let friendsCount = 0;
+    try {
+      const steamClient = getSteamClient();
+      const friendList = await steamClient.getFriendList(friendSteamId);
+      friendsCount = friendList.length;
+    } catch (error) {
+      console.error(`Error fetching friends count for ${friendSteamId}:`, error);
+      // If we can't get friends count, just use 0
+    }
+
+    // If lightweight mode, only return friends count
+    if (lightweight) {
+      return NextResponse.json(
+        {
+          statistics: {
+            totalGames: 0,
+            totalAchievements: 0,
+            unlockedAchievements: 0,
+            friendsCount,
+          },
+        },
+        {
+          headers: {
+            "Cache-Control": "private, max-age=300", // Browser cache for 5 minutes
+          },
+        }
+      );
+    }
+
+    // Get friend's games (only use cached games, don't fetch from Steam)
     let friendGames = await dataAccess.getUserGames(friendSteamId);
     const user = await dataAccess.getUser(friendSteamId);
     
-    // If no games cached, fetch from Steam API
+    // If no games cached, only return friends count (don't fetch from Steam)
+    if (friendGames.length === 0) {
+      return NextResponse.json(
+        {
+          statistics: {
+            totalGames: 0,
+            totalAchievements: 0,
+            unlockedAchievements: 0,
+            friendsCount,
+          },
+        },
+        {
+          headers: {
+            "Cache-Control": "private, max-age=300", // Browser cache for 5 minutes
+          },
+        }
+      );
+    }
+    
+    // Games are cached, so we can calculate statistics
+    // Check if we should refresh games from Steam API
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const shouldRefreshGames = friendGames.length === 0 || 
-      !user?.lastSyncAt || 
-      user.lastSyncAt < oneHourAgo;
+    const shouldRefreshGames = !user?.lastSyncAt || user.lastSyncAt < oneHourAgo;
     
     if (shouldRefreshGames) {
       try {
@@ -114,15 +164,25 @@ export async function GET(
     
     const gamesCount = friendGames?.length || 0;
     
-    // Get friend's statistics (calculate if not cached)
+    // Get friend's statistics (calculate if not cached or stale)
     let friendStats = await dataAccess.getUserStatistics(friendSteamId);
     let achievementsCount = friendStats?.statistics?.totalAchievements || 0;
+    let unlockedAchievementsCount = friendStats?.statistics?.unlockedAchievements || 0;
     
-    // If no cached stats or stats are stale, calculate them
-    // This ensures we have accurate achievement counts for friends
-    // Note: Only uses cached achievements (doesn't fetch from Steam for performance)
-    if (!friendStats || !friendStats.statistics || friendStats.statistics.totalAchievements === 0) {
+    // Check if we need to recalculate statistics
+    // Recalculate if: force refresh, no stats, stats are stale, or data has changed
+    const forceRefresh = searchParams.get('force') === 'true';
+    const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const shouldRecalculate = forceRefresh ||
+      !friendStats || 
+      !friendStats.statistics || 
+      !friendStats.calculatedAt ||
+      (Date.now() - friendStats.calculatedAt.getTime()) > MAX_CACHE_AGE_MS ||
+      (user?.lastSyncAt && friendStats.calculatedAt && user.lastSyncAt > friendStats.calculatedAt);
+    
+    if (shouldRecalculate) {
       // Fetch achievements for all games to calculate statistics (from cache only)
+      // Note: Only uses cached achievements (doesn't fetch from Steam for performance)
       if (friendGames.length > 0) {
         const achievementPromises = friendGames.map(async (game) => {
           try {
@@ -141,24 +201,104 @@ export async function GET(
           }
         });
         
-        // Calculate statistics
+        // Calculate statistics using the same logic as dashboard
         const calculatedStats = calculateStatistics(friendGames, allAchievements);
         achievementsCount = calculatedStats.totalAchievements;
+        unlockedAchievementsCount = calculatedStats.unlockedAchievements;
         
         // Save to cache for future use
-        await dataAccess.saveUserStatistics(friendSteamId, calculatedStats);
+        // Only save if user exists (to avoid foreign key constraint error)
+        if (user) {
+          try {
+            await dataAccess.saveUserStatistics(friendSteamId, calculatedStats);
+          } catch (error) {
+            // If user doesn't exist, log but don't fail - we can still return the stats
+            console.warn(`Could not save statistics for ${friendSteamId} (user may not exist):`, error);
+          }
+        }
+        
+        // Debug logging (only in development)
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[Friend Stats] Recalculated for ${friendSteamId}:`, {
+            gamesCount: friendGames.length,
+            gamesWithAchievements: allAchievements.size,
+            totalGames: calculatedStats.totalGames,
+            totalAchievements: calculatedStats.totalAchievements,
+            unlockedAchievements: calculatedStats.unlockedAchievements,
+            averageCompletionRate: calculatedStats.averageCompletionRate,
+            forceRefresh,
+          });
+        }
+      } else {
+        // No games, return empty stats
+        achievementsCount = 0;
+        unlockedAchievementsCount = 0;
+        // Only save if user exists
+        if (user) {
+          try {
+            await dataAccess.saveUserStatistics(friendSteamId, {
+              totalGames: 0,
+              startedGames: 0,
+              totalAchievements: 0,
+              unlockedAchievements: 0,
+              averageCompletionRate: 0,
+            });
+          } catch (error) {
+            console.warn(`Could not save empty statistics for ${friendSteamId} (user may not exist):`, error);
+          }
+        }
       }
-    }
-
-    // Get friend's friends count
-    let friendsCount = 0;
-    try {
-      const steamClient = getSteamClient();
-      const friendList = await steamClient.getFriendList(friendSteamId);
-      friendsCount = friendList.length;
-    } catch (error) {
-      console.error(`Error fetching friends count for ${friendSteamId}:`, error);
-      // If we can't get friends count, just use 0
+    } else {
+      // Use cached statistics (they're fresh and accurate)
+      achievementsCount = friendStats.statistics.totalAchievements || 0;
+      unlockedAchievementsCount = friendStats.statistics.unlockedAchievements ?? 0;
+      
+      // Safety check: if unlockedAchievements is missing from cached stats, recalculate
+      if (friendStats.statistics.unlockedAchievements === undefined) {
+        // Recalculate to ensure we have unlockedAchievements
+        if (friendGames.length > 0) {
+          const achievementPromises = friendGames.map(async (game) => {
+            try {
+              const achievements = await dataAccess.getUserAchievements(friendSteamId, game.appId);
+              return { appId: game.appId, achievements };
+            } catch (error) {
+              return { appId: game.appId, achievements: [] };
+            }
+          });
+          
+          const achievementResults = await Promise.all(achievementPromises);
+          const allAchievements = new Map<number, any[]>();
+          achievementResults.forEach(({ appId, achievements }) => {
+            if (achievements.length > 0) {
+              allAchievements.set(appId, achievements);
+            }
+          });
+          
+          const calculatedStats = calculateStatistics(friendGames, allAchievements);
+          achievementsCount = calculatedStats.totalAchievements;
+          unlockedAchievementsCount = calculatedStats.unlockedAchievements;
+          
+          // Update cached statistics with unlockedAchievements
+          if (user) {
+            try {
+              await dataAccess.saveUserStatistics(friendSteamId, calculatedStats);
+            } catch (error) {
+              console.warn(`Could not save updated statistics for ${friendSteamId}:`, error);
+            }
+          }
+        }
+      }
+      
+      // Debug logging (only in development)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Friend Stats] Using cached stats for ${friendSteamId}:`, {
+          totalAchievements: achievementsCount,
+          unlockedAchievements: unlockedAchievementsCount,
+          calculatedAt: friendStats.calculatedAt,
+          forceRefresh,
+          shouldRecalculate,
+        });
+      }
     }
 
     return NextResponse.json(
@@ -166,6 +306,7 @@ export async function GET(
         statistics: {
           totalGames: gamesCount,
           totalAchievements: achievementsCount,
+          unlockedAchievements: unlockedAchievementsCount,
           friendsCount,
         },
       },

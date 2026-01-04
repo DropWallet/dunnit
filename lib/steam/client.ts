@@ -152,7 +152,10 @@ export class SteamAPIClient {
       const data = await response.json();
       return data[appId.toString()];
     } catch (error) {
-      console.error('Error fetching game details:', error);
+      // Only log unexpected errors (not HeadersOverflowError which is expected for some Steam responses)
+      if (error instanceof Error && !error.message.includes('HeadersOverflowError')) {
+        console.error('Error fetching game details:', error);
+      }
       throw error;
     }
   }

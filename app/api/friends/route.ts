@@ -100,10 +100,12 @@ export async function GET(request: NextRequest) {
         countryCode: friend.loccountrycode,
         countryName,
         joinDate: joinDate?.toISOString(),
+        communityVisibilityState: friend.communityvisibilitystate,
         // Statistics will be loaded separately via progressive loading
         statistics: {
           totalGames: 0,
           totalAchievements: 0,
+          unlockedAchievements: 0,
           friendsCount: 0,
         },
         // Flag to indicate stats need to be loaded

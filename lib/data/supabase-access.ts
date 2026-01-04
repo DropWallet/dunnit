@@ -25,6 +25,7 @@ export class SupabaseDataAccess implements DataAccess {
         country_code: user.countryCode,
         country_name: user.countryName,
         join_date: user.joinDate?.toISOString(),
+        community_visibility_state: user.communityVisibilityState,
         created_at: user.createdAt.toISOString(),
         updated_at: user.updatedAt.toISOString(),
         last_sync_at: user.lastSyncAt?.toISOString(),
@@ -62,6 +63,7 @@ export class SupabaseDataAccess implements DataAccess {
       countryCode: data.country_code,
       countryName: data.country_name,
       joinDate: data.join_date ? new Date(data.join_date) : undefined,
+      communityVisibilityState: data.community_visibility_state,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
       lastSyncAt: data.last_sync_at ? new Date(data.last_sync_at) : undefined,
@@ -79,6 +81,7 @@ export class SupabaseDataAccess implements DataAccess {
     if (updates.countryCode) updateData.country_code = updates.countryCode;
     if (updates.countryName) updateData.country_name = updates.countryName;
     if (updates.joinDate) updateData.join_date = updates.joinDate.toISOString();
+    if (updates.communityVisibilityState !== undefined) updateData.community_visibility_state = updates.communityVisibilityState;
     if (updates.lastSyncAt) updateData.last_sync_at = updates.lastSyncAt.toISOString();
 
     const { error } = await this.supabase
@@ -319,7 +322,14 @@ export class SupabaseDataAccess implements DataAccess {
       .in('api_name', achievementApiNames);
 
     if (achievementsError) {
-      console.error('Error getting achievements:', achievementsError);
+      // Only log unexpected errors (not HeadersOverflowError which is expected for some Steam responses)
+      const errorMessage = achievementsError instanceof Error 
+        ? achievementsError.message 
+        : (achievementsError as any)?.message || String(achievementsError);
+      
+      if (!errorMessage.includes('HeadersOverflowError')) {
+        console.error('Error getting achievements:', achievementsError);
+      }
       return [];
     }
 
