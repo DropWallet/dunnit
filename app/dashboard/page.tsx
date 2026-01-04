@@ -99,7 +99,7 @@ export default function DashboardPage() {
   });
   const [allGames, setAllGames] = useState<any[]>([]);
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
-  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const loadMoreObserverRef = useRef<IntersectionObserver | null>(null);
   
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
@@ -608,30 +608,30 @@ export default function DashboardPage() {
     setIsLoadingMore(false);
   }, [displayedGamesCount, sortedAndFilteredGames, gameAchievements, isLoadingMore, isLoadingGames]);
 
-  // Intersection Observer for infinite scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const firstEntry = entries[0];
-        if (firstEntry?.isIntersecting) {
-          loadMoreGames();
-        }
-      },
-      {
-        rootMargin: '200px', // Start loading when 200px away from bottom
-      }
-    );
-
-    const currentRef = loadMoreRef.current;
-    if (currentRef) {
-      observer.observe(currentRef);
+  // Intersection Observer for infinite scroll - use callback ref pattern
+  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
+    // Cleanup previous observer
+    if (loadMoreObserverRef.current) {
+      loadMoreObserverRef.current.disconnect();
+      loadMoreObserverRef.current = null;
     }
 
-    return () => {
-      if (currentRef) {
-        observer.unobserve(currentRef);
-      }
-    };
+    if (node) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const firstEntry = entries[0];
+          if (firstEntry?.isIntersecting) {
+            loadMoreGames();
+          }
+      },
+        {
+          rootMargin: '200px', // Start loading when 200px away from bottom
+        }
+      );
+      
+      observer.observe(node);
+      loadMoreObserverRef.current = observer;
+    }
   }, [loadMoreGames]);
 
   // Manual refresh handler
