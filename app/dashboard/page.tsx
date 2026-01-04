@@ -66,9 +66,11 @@ interface Friend {
   countryCode?: string;
   countryName?: string;
   joinDate?: string;
+  communityVisibilityState?: number; // 1 = Private, 3 = Public
   statistics: {
     totalGames: number;
     totalAchievements: number;
+    unlockedAchievements: number;
     friendsCount: number;
   };
   statsLoaded?: boolean;
@@ -111,9 +113,26 @@ export default function DashboardPage() {
   // Friends tab state
   const [friends, setFriends] = useState<Friend[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
-  const [friendsSortBy, setFriendsSortBy] = useState<string>("achievements");
   const [loadingFriendStats, setLoadingFriendStats] = useState<Set<string>>(new Set());
+  const [friendsRefreshKey, setFriendsRefreshKey] = useState(0);
   const friendsStatsLoadingRef = useRef<Set<string>>(new Set());
+  const friendsFullStatsAttemptedRef = useRef<Set<string>>(new Set());
+
+  // Tab state - remember last selected tab
+  const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('dashboard-selected-tab');
+      return saved !== null ? parseInt(saved, 10) : 0;
+    }
+    return 0;
+  });
+
+  // Save tab index to sessionStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('dashboard-selected-tab', selectedTabIndex.toString());
+    }
+  }, [selectedTabIndex]);
 
   useEffect(() => {
     fetch("/api/user")
@@ -268,23 +287,24 @@ export default function DashboardPage() {
   }, []);
 
   // Progressive loading: Load statistics for friends in batches
+  // Step 1: Load lightweight stats (friends count only) for all friends
   useEffect(() => {
     if (friends.length === 0) return;
 
-    // Find friends that need statistics loaded
-    const friendsNeedingStats = friends.filter(
+    // Find friends that need lightweight stats loaded
+    const friendsNeedingLightweightStats = friends.filter(
       (friend) => 
         !friend.statsLoaded &&
         !friendsStatsLoadingRef.current.has(friend.steamId)
     );
 
-    if (friendsNeedingStats.length === 0) return;
+    if (friendsNeedingLightweightStats.length === 0) return;
 
-    // Load stats in batches of 5
-    const batchSize = 5;
+    // Load lightweight stats in batches of 10 (faster since it's just friends count)
+    const batchSize = 10;
     const batches: Friend[][] = [];
-    for (let i = 0; i < friendsNeedingStats.length; i += batchSize) {
-      batches.push(friendsNeedingStats.slice(i, i + batchSize));
+    for (let i = 0; i < friendsNeedingLightweightStats.length; i += batchSize) {
+      batches.push(friendsNeedingLightweightStats.slice(i, i + batchSize));
     }
 
     // Process batches with a delay between them
@@ -300,24 +320,30 @@ export default function DashboardPage() {
           setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
 
           try {
-            const res = await fetch(`/api/friends/${friend.steamId}/statistics?t=${Date.now()}`);
+            // Fetch lightweight stats (only friends count)
+            const res = await fetch(`/api/friends/${friend.steamId}/statistics?lightweight=true&t=${Date.now()}`);
             if (res.ok) {
               const data = await res.json();
-              // Update friend with statistics
+              // Update friend with lightweight statistics
               setFriends((prevFriends) =>
                 prevFriends.map((f) =>
                   f.steamId === friend.steamId
                     ? {
                         ...f,
-                        statistics: data.statistics,
-                        statsLoaded: true,
+                        statistics: {
+                          totalGames: data.statistics.totalGames || 0,
+                          totalAchievements: data.statistics.totalAchievements || 0,
+                          unlockedAchievements: data.statistics.unlockedAchievements || 0,
+                          friendsCount: data.statistics.friendsCount || 0,
+                        },
+                        statsLoaded: true, // Mark as loaded so we can check for full stats next
                       }
                     : f
                 )
               );
             }
           } catch (error) {
-            console.error(`Error loading stats for friend ${friend.steamId}:`, error);
+            console.error(`Error loading lightweight stats for friend ${friend.steamId}:`, error);
             // Mark as loaded even on error to prevent retries
             setFriends((prevFriends) =>
               prevFriends.map((f) =>
@@ -335,6 +361,86 @@ export default function DashboardPage() {
             });
           }
         });
+      }, batchIndex * 200); // 200ms delay between batches (faster for lightweight)
+      timeouts.push(timeout);
+    });
+
+    // Cleanup timeouts on unmount or when friends change
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+    };
+  }, [friends.length, friendsRefreshKey]); // Include friendsRefreshKey to re-run when stats are reset
+
+  // Step 2: Load full stats (achievements) for friends that have games cached
+  useEffect(() => {
+    if (friends.length === 0) return;
+
+    // Find friends that have lightweight stats but haven't attempted full stats yet
+    // We'll try to fetch full stats - the API will only calculate if games are cached
+    const friendsNeedingFullStats = friends.filter(
+      (friend) => 
+        friend.statsLoaded && // Has lightweight stats
+        friend.statistics.friendsCount !== undefined && // Friends count is loaded
+        !friendsFullStatsAttemptedRef.current.has(friend.steamId) && // Haven't attempted full stats yet
+        !friendsStatsLoadingRef.current.has(`${friend.steamId}-full`) // Not already loading full stats
+    );
+
+    if (friendsNeedingFullStats.length === 0) return;
+
+    // Load full stats in batches of 5 (slower since it calculates achievements)
+    const batchSize = 5;
+    const batches: Friend[][] = [];
+    for (let i = 0; i < friendsNeedingFullStats.length; i += batchSize) {
+      batches.push(friendsNeedingFullStats.slice(i, i + batchSize));
+    }
+
+    // Process batches with a delay between them
+    const timeouts: NodeJS.Timeout[] = [];
+    batches.forEach((batch, batchIndex) => {
+      const timeout = setTimeout(() => {
+        batch.forEach(async (friend) => {
+          // Skip if already loading
+          if (friendsStatsLoadingRef.current.has(`${friend.steamId}-full`)) return;
+          
+          // Mark as attempted and loading
+          friendsFullStatsAttemptedRef.current.add(friend.steamId);
+          friendsStatsLoadingRef.current.add(`${friend.steamId}-full`);
+          setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
+
+          try {
+            // Fetch full stats (API will only calculate if games are cached)
+            const res = await fetch(`/api/friends/${friend.steamId}/statistics?t=${Date.now()}`);
+            if (res.ok) {
+              const data = await res.json();
+              // Update friend with full statistics (includes achievements if games are cached)
+              setFriends((prevFriends) =>
+                prevFriends.map((f) =>
+                  f.steamId === friend.steamId
+                    ? {
+                        ...f,
+                        statistics: {
+                          totalGames: data.statistics.totalGames || 0,
+                          totalAchievements: data.statistics.totalAchievements || 0,
+                          unlockedAchievements: data.statistics.unlockedAchievements || 0,
+                          friendsCount: data.statistics.friendsCount || 0,
+                        },
+                      }
+                    : f
+                )
+              );
+            }
+          } catch (error) {
+            console.error(`Error loading full stats for friend ${friend.steamId}:`, error);
+            // Don't mark as error - keep existing stats
+          } finally {
+            friendsStatsLoadingRef.current.delete(`${friend.steamId}-full`);
+            setLoadingFriendStats((prev) => {
+              const newSet = new Set(prev);
+              newSet.delete(friend.steamId);
+              return newSet;
+            });
+          }
+        });
       }, batchIndex * 500); // 500ms delay between batches
       timeouts.push(timeout);
     });
@@ -343,7 +449,7 @@ export default function DashboardPage() {
     return () => {
       timeouts.forEach((timeout) => clearTimeout(timeout));
     };
-  }, [friends.length]); // Only depend on length to avoid re-running when stats update
+  }, [friends]); // Re-run when friends change (after lightweight stats are loaded)
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -638,6 +744,26 @@ export default function DashboardPage() {
   const handleRefresh = () => {
     setIsLoadingGames(true);
     setDisplayedGamesCount(15); // Reset to initial batch
+    
+    // Reset friend stats so they reload with fresh data
+    setFriends((prevFriends) =>
+      prevFriends.map((f) => ({
+        ...f,
+        statsLoaded: false,
+        statistics: {
+          totalGames: 0,
+          totalAchievements: 0,
+          unlockedAchievements: 0,
+          friendsCount: 0,
+        },
+      }))
+    );
+    
+    // Clear loading refs and trigger progressive loading to re-run
+    friendsStatsLoadingRef.current.clear();
+    friendsFullStatsAttemptedRef.current.clear();
+    setFriendsRefreshKey(prev => prev + 1);
+    
     const refreshGames = async () => {
       try {
         const gamesRes = await fetch("/api/games?refresh=true");
@@ -711,7 +837,11 @@ export default function DashboardPage() {
           />
 
           {/* Tabs */}
-          <TabGroup className="mt-10">
+          <TabGroup 
+            className="mt-10"
+            selectedIndex={selectedTabIndex}
+            onChange={setSelectedTabIndex}
+          >
             <TabList className="flex gap-1.5">
               <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
                 Games
@@ -868,8 +998,6 @@ export default function DashboardPage() {
                 <FriendsList
                   friends={friends}
                   isLoading={isLoadingFriends}
-                  sortBy={friendsSortBy}
-                  onSortChange={setFriendsSortBy}
                   loadingFriendStats={loadingFriendStats}
                 />
               </TabPanel>

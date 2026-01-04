@@ -8,9 +8,11 @@ interface Friend {
   countryCode?: string;
   countryName?: string;
   joinDate?: string;
+  communityVisibilityState?: number; // 1 = Private, 2 = Friends Only, 3 = Public
   statistics: {
     totalGames: number;
     totalAchievements: number;
+    unlockedAchievements: number;
     friendsCount: number;
   };
   statsLoaded?: boolean;

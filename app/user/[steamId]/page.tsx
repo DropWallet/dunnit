@@ -44,7 +44,7 @@ export default function UserDashboardPage() {
 
   // Use hooks for data fetching
   const { user, isLoading: isLoadingUser, error: userError } = useUserData(steamId, false);
-  const { statistics, isLoading: isLoadingStats } = useUserStatistics(steamId);
+  const { statistics, isLoading: isLoadingStats, refetch: refetchStatistics } = useUserStatistics(steamId);
   const { games: allGames, isLoading: isLoadingGames } = useUserGames(steamId);
   const { achievements: allAchievementsList, isLoading: isLoadingAllAchievements } = useUserAchievements(steamId);
   const { friends: allFriends, isLoading: isLoadingFriends, error: friendsError } = useUserFriends(steamId);
@@ -57,6 +57,8 @@ export default function UserDashboardPage() {
   const [gameAchievements, setGameAchievements] = useState<Map<number, GameAchievement[]>>(new Map());
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const previousLoadingSizeRef = useRef<number>(0);
+  const hasRefetchedForThisCycleRef = useRef<boolean>(false);
 
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
@@ -65,9 +67,17 @@ export default function UserDashboardPage() {
 
   // Friends tab state
   const [friends, setFriends] = useState<typeof allFriends>([]);
-  const [friendsSortBy, setFriendsSortBy] = useState<string>("achievements");
   const [loadingFriendStats, setLoadingFriendStats] = useState<Set<string>>(new Set());
   const friendsStatsLoadingRef = useRef<Set<string>>(new Set());
+
+  // Tab state - remember last selected tab (per user)
+  const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem(`user-dashboard-selected-tab-${steamId}`);
+      return saved !== null ? parseInt(saved, 10) : 0;
+    }
+    return 0;
+  });
 
   // Detect current breakpoint to calculate columns per row
   const [columnsPerRow, setColumnsPerRow] = useState(2);
@@ -92,6 +102,19 @@ export default function UserDashboardPage() {
     window.addEventListener('resize', updateColumns);
     return () => window.removeEventListener('resize', updateColumns);
   }, []);
+
+  // Save tab index to sessionStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(`user-dashboard-selected-tab-${steamId}`, selectedTabIndex.toString());
+    }
+  }, [selectedTabIndex, steamId]);
+
+  // Reset refs when steamId changes
+  useEffect(() => {
+    previousLoadingSizeRef.current = 0;
+    hasRefetchedForThisCycleRef.current = false;
+  }, [steamId]);
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -154,6 +177,37 @@ export default function UserDashboardPage() {
       });
     }
   }, [allGames, gamesToDisplay, gameAchievements, steamId, sortBy]);
+
+  // Refetch statistics when achievements finish loading
+  useEffect(() => {
+    const currentLoadingSize = loadingAchievements.size;
+    const wasLoading = previousLoadingSizeRef.current > 0;
+    const isNowDone = currentLoadingSize === 0;
+
+    // Reset the refetch flag when we start loading a new batch
+    if (currentLoadingSize > 0 && previousLoadingSizeRef.current === 0) {
+      hasRefetchedForThisCycleRef.current = false;
+    }
+
+    // If we were loading and now we're done, refetch statistics
+    // We don't check hasAchievements here because achievements might be in the database
+    // even if they're not in the local map yet
+    if (wasLoading && isNowDone && !hasRefetchedForThisCycleRef.current) {
+      hasRefetchedForThisCycleRef.current = true;
+      
+      // Longer delay to ensure all database writes are complete
+      // With hundreds of concurrent achievement syncs, database writes can queue up
+      // and take several seconds to fully commit, even after API calls complete
+      const timer = setTimeout(() => {
+        refetchStatistics().catch(console.error);
+      }, 5000); // 5 seconds to allow queued database writes to complete
+      
+      return () => clearTimeout(timer);
+    }
+
+    // Update the ref for next comparison
+    previousLoadingSizeRef.current = currentLoadingSize;
+  }, [loadingAchievements.size]); // Only depend on loadingAchievements.size
 
   // Sort and filter achievements
   const sortedAndFilteredAchievements = useMemo(() => {
@@ -287,6 +341,7 @@ export default function UserDashboardPage() {
                           statistics: {
                             totalGames: data.statistics.totalGames || 0,
                             totalAchievements: data.statistics.totalAchievements || 0,
+                            unlockedAchievements: data.statistics.unlockedAchievements || 0,
                             friendsCount: data.statistics.friendsCount || 0,
                           },
                           statsLoaded: true,
@@ -393,7 +448,11 @@ export default function UserDashboardPage() {
           />
 
           {/* Tabs */}
-          <TabGroup className="mt-10">
+          <TabGroup 
+            className="mt-10"
+            selectedIndex={selectedTabIndex}
+            onChange={setSelectedTabIndex}
+          >
             <TabList className="flex gap-1.5">
               <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
                 Games
@@ -517,6 +576,8 @@ export default function UserDashboardPage() {
                                 );
                               })}
                             </div>
+                            {/* Shelf - flush with trophies above */}
+                            <div className="w-full h-2 bg-shelf-gradient border border-border-strong shadow-shelf dark:shadow-shelf-dark"></div>
                           </div>
                         ))}
                       </div>
@@ -533,8 +594,6 @@ export default function UserDashboardPage() {
                 <FriendsList
                   friends={friends}
                   isLoading={isLoadingFriends}
-                  sortBy={friendsSortBy}
-                  onSortChange={setFriendsSortBy}
                   loadingFriendStats={loadingFriendStats}
                 />
               </TabPanel>

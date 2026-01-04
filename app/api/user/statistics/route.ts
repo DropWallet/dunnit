@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
       return ApiErrors.userNotFound(steamId);
     }
 
+    // Get games early (needed for cache check)
+    const games = await dataAccess.getUserGames(steamId);
+    
     // Check for cached statistics
     if (!forceRefresh) {
       const cachedStats = await dataAccess.getUserStatistics(steamId);
@@ -38,8 +41,28 @@ export async function GET(request: NextRequest) {
           const dataChanged = user.lastSyncAt && 
             user.lastSyncAt.getTime() > cachedStats.calculatedAt.getTime();
           
-          // If data hasn't changed, return cached statistics
+          // Also check if any achievements were synced after stats were calculated
+          // This is more accurate than just checking user.lastSyncAt
+          // We sample a few games to avoid performance issues
+          let achievementsSyncedAfter = false;
           if (!dataChanged) {
+            // Sample games with playtime, as they're more likely to have achievements
+            const gamesToCheck = games
+              .filter(g => g.playtimeMinutes > 0)
+              .slice(0, 10); // Sample first 10 games with playtime
+            
+            // Check if any of these games had achievements synced after stats were calculated
+            for (const game of gamesToCheck) {
+              const lastSynced = await dataAccess.getAchievementLastSyncedAt(steamId, game.appId);
+              if (lastSynced && lastSynced.getTime() > cachedStats.calculatedAt.getTime()) {
+                achievementsSyncedAfter = true;
+                break;
+              }
+            }
+          }
+          
+          // If data hasn't changed and no achievements were synced, return cached statistics
+          if (!dataChanged && !achievementsSyncedAfter) {
             return NextResponse.json(
               { statistics: cachedStats.statistics },
               {
@@ -54,7 +77,6 @@ export async function GET(request: NextRequest) {
     }
     
     // Need to recalculate statistics
-    const games = await dataAccess.getUserGames(steamId);
     
     // If no games, return empty statistics
     if (games.length === 0) {

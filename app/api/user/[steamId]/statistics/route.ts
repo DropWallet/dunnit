@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
+import { getSteamClient } from '@/lib/steam/client';
 import { calculateStatistics } from '@/lib/utils/statistics';
 import { ApiErrors } from '@/lib/utils/api-errors';
 
@@ -32,9 +33,40 @@ export async function GET(
     const forceRefresh = searchParams.get('force') === 'true';
     
     // Get user to check lastSyncAt
-    const user = await dataAccess.getUser(targetSteamId);
+    let user = await dataAccess.getUser(targetSteamId);
+    
+    // If user not in database, try fetching from Steam API (same as user endpoint)
     if (!user) {
-      return ApiErrors.userNotFound(targetSteamId);
+      try {
+        const steamClient = getSteamClient();
+        const playerSummary = await steamClient.getPlayerSummary(targetSteamId);
+        
+        if (!playerSummary) {
+          return ApiErrors.userNotFound(targetSteamId);
+        }
+
+        // Transform Steam API response to our User format
+        const now = new Date();
+        const newUser = {
+          steamId: targetSteamId,
+          username: playerSummary.personaname || 'Unknown',
+          avatarUrl: playerSummary.avatarfull || playerSummary.avatar || '',
+          profileUrl: playerSummary.profileurl || '',
+          countryCode: playerSummary.loccountrycode || undefined,
+          countryName: undefined, // Steam API doesn't provide country name directly
+          joinDate: playerSummary.timecreated ? new Date(playerSummary.timecreated * 1000) : undefined,
+          communityVisibilityState: playerSummary.communityvisibilitystate,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        // Save to database for future use
+        await dataAccess.saveUser(newUser);
+        user = newUser;
+      } catch (error) {
+        console.error(`Error fetching user ${targetSteamId} from Steam API:`, error);
+        return ApiErrors.userNotFound(targetSteamId);
+      }
     }
 
     // Check for cached statistics
@@ -51,8 +83,29 @@ export async function GET(
           const dataChanged = user.lastSyncAt && 
             user.lastSyncAt.getTime() > cachedStats.calculatedAt.getTime();
           
-          // If data hasn't changed, return cached statistics
+          // Also check if any achievements were synced after stats were calculated
+          // This is more accurate than just checking user.lastSyncAt
+          // We sample a few games to avoid performance issues
+          let achievementsSyncedAfter = false;
           if (!dataChanged) {
+            // Get games to check (sample games with playtime, as they're more likely to have achievements)
+            const games = await dataAccess.getUserGames(targetSteamId);
+            const gamesToCheck = games
+              .filter(g => g.playtimeMinutes > 0)
+              .slice(0, 10); // Sample first 10 games with playtime
+            
+            // Check if any of these games had achievements synced after stats were calculated
+            for (const game of gamesToCheck) {
+              const lastSynced = await dataAccess.getAchievementLastSyncedAt(targetSteamId, game.appId);
+              if (lastSynced && lastSynced.getTime() > cachedStats.calculatedAt.getTime()) {
+                achievementsSyncedAfter = true;
+                break;
+              }
+            }
+          }
+          
+          // If data hasn't changed and no achievements were synced, return cached statistics
+          if (!dataChanged && !achievementsSyncedAfter) {
             return NextResponse.json(
               { statistics: cachedStats.statistics },
               {
