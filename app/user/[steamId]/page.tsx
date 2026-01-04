@@ -21,9 +21,11 @@ import { useUserData } from "@/hooks/useUserData";
 import { useUserStatistics } from "@/hooks/useUserStatistics";
 import { useUserGames } from "@/hooks/useUserGames";
 import { useUserAchievements } from "@/hooks/useUserAchievements";
+import { useUserFriends } from "@/hooks/useUserFriends";
 import { useGameAchievements } from "@/hooks/useGameAchievements";
 import { GameSortingControls } from "@/components/game-sorting-controls";
 import { AchievementSortingControls } from "@/components/achievement-sorting-controls";
+import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import type { Game } from "@/lib/data/types";
 import { 
@@ -45,6 +47,7 @@ export default function UserDashboardPage() {
   const { statistics, isLoading: isLoadingStats } = useUserStatistics(steamId);
   const { games: allGames, isLoading: isLoadingGames } = useUserGames(steamId);
   const { achievements: allAchievementsList, isLoading: isLoadingAllAchievements } = useUserAchievements(steamId);
+  const { friends: allFriends, isLoading: isLoadingFriends, error: friendsError } = useUserFriends(steamId);
 
   // Local state
   const [displayedGamesCount, setDisplayedGamesCount] = useState(15);
@@ -59,6 +62,12 @@ export default function UserDashboardPage() {
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
   const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
   const achievementLoadMoreObserverRef = useRef<IntersectionObserver | null>(null);
+
+  // Friends tab state
+  const [friends, setFriends] = useState<typeof allFriends>([]);
+  const [friendsSortBy, setFriendsSortBy] = useState<string>("achievements");
+  const [loadingFriendStats, setLoadingFriendStats] = useState<Set<string>>(new Set());
+  const friendsStatsLoadingRef = useRef<Set<string>>(new Set());
 
   // Detect current breakpoint to calculate columns per row
   const [columnsPerRow, setColumnsPerRow] = useState(2);
@@ -221,6 +230,109 @@ export default function UserDashboardPage() {
     }
   }, [displayedAchievementsCount, sortedAndFilteredAchievements.length]);
 
+  // Update friends when fetched
+  useEffect(() => {
+    if (allFriends) {
+      setFriends(allFriends);
+    }
+  }, [allFriends]);
+
+  // Progressive loading: Load statistics for friends in batches
+  useEffect(() => {
+    if (friends.length === 0) return;
+
+    // Find friends that need statistics loaded
+    const friendsNeedingStats = friends.filter(
+      (friend) =>
+        !friend.statsLoaded &&
+        !friendsStatsLoadingRef.current.has(friend.steamId)
+    );
+
+    if (friendsNeedingStats.length === 0) return;
+
+    // Load stats in batches of 5 with delays
+    const batchSize = 5;
+    const batches: typeof friendsNeedingStats[] = [];
+    for (let i = 0; i < friendsNeedingStats.length; i += batchSize) {
+      batches.push(friendsNeedingStats.slice(i, i + batchSize));
+    }
+
+    batches.forEach((batch, batchIndex) => {
+      const delay = batchIndex * 1000; // 1 second delay between batches
+
+      setTimeout(() => {
+        batch.forEach((friend) => {
+          // Skip if already loading
+          if (friendsStatsLoadingRef.current.has(friend.steamId)) return;
+
+          // Mark as loading
+          friendsStatsLoadingRef.current.add(friend.steamId);
+          setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
+
+          // Fetch statistics
+          fetch(`/api/friends/${friend.steamId}/statistics?t=${Date.now()}`)
+            .then((res) => {
+              if (res.ok) {
+                return res.json();
+              }
+              return null;
+            })
+            .then((data) => {
+              if (data) {
+                setFriends((prevFriends) =>
+                  prevFriends.map((f) =>
+                    f.steamId === friend.steamId
+                      ? {
+                          ...f,
+                          statistics: {
+                            totalGames: data.totalGames || 0,
+                            totalAchievements: data.totalAchievements || 0,
+                            friendsCount: data.friendsCount || 0,
+                          },
+                          statsLoaded: true,
+                        }
+                      : f
+                  )
+                );
+              } else {
+                // Mark as loaded even if fetch failed (to avoid retrying)
+                setFriends((prevFriends) =>
+                  prevFriends.map((f) =>
+                    f.steamId === friend.steamId
+                      ? { ...f, statsLoaded: true }
+                      : f
+                  )
+                );
+              }
+            })
+            .catch(() => {
+              // Mark as loaded even on error
+              setFriends((prevFriends) =>
+                prevFriends.map((f) =>
+                  f.steamId === friend.steamId
+                    ? { ...f, statsLoaded: true }
+                    : f
+                )
+              );
+            })
+            .finally(() => {
+              friendsStatsLoadingRef.current.delete(friend.steamId);
+              setLoadingFriendStats((prev) => {
+                const newSet = new Set(prev);
+                newSet.delete(friend.steamId);
+                return newSet;
+              });
+            });
+        });
+      }, delay);
+    });
+
+    // Cleanup timeouts on unmount or when friends change
+    return () => {
+      // Note: We can't easily cancel setTimeout, but this prevents state updates after unmount
+    };
+  }, [friends.length]); // Only depend on length to avoid re-running when stats update
+
   // Handle errors
   if (userError) {
     return (
@@ -288,6 +400,9 @@ export default function UserDashboardPage() {
               </Tab>
               <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
                 Achievements
+              </Tab>
+              <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
+                Friends
               </Tab>
             </TabList>
 
@@ -411,6 +526,17 @@ export default function UserDashboardPage() {
                     </div>
                   )}
                 </div>
+              </TabPanel>
+
+              {/* Friends Tab */}
+              <TabPanel>
+                <FriendsList
+                  friends={friends}
+                  isLoading={isLoadingFriends}
+                  sortBy={friendsSortBy}
+                  onSortChange={setFriendsSortBy}
+                  loadingFriendStats={loadingFriendStats}
+                />
               </TabPanel>
             </TabPanels>
           </TabGroup>
