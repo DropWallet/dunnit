@@ -4,8 +4,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
-import { getCountryFlag } from "@/lib/utils/country";
-import { DotSeparator } from "@/components/dot-separator";
 import { GameCard } from "@/components/game-card";
 import { ArrowLeft } from "lucide-react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
@@ -18,6 +16,7 @@ import { useUserAchievements } from "@/hooks/useUserAchievements";
 import { useGameAchievements } from "@/hooks/useGameAchievements";
 import { GameSortingControls } from "@/components/game-sorting-controls";
 import { AchievementSortingControls } from "@/components/achievement-sorting-controls";
+import { UserProfileHeader } from "@/components/user-profile-header";
 import type { Game } from "@/lib/data/types";
 import { 
   sortGames, 
@@ -255,75 +254,11 @@ export default function UserDashboardPage() {
           </Button>
 
           {/* User Profile Section */}
-          <div className="flex flex-col justify-start items-start gap-5 lg:flex-row lg:items-center lg:gap-10">
-            <img
-              src={user.avatarUrl}
-              alt={user.username}
-              className="flex-shrink-0 w-40 h-40 rounded object-cover border border-border-strong"
-            />
-            
-            <div className="flex flex-col justify-start items-start gap-5 w-full md:w-auto">
-              <div className="flex flex-col justify-start items-start gap-1.5">
-                <p className="text-3xl font-semibold text-center text-text-strong">
-                  {user.username}
-                </p>
-                <div className="flex justify-center items-center gap-2">
-                  {user.countryCode && (
-                    <>
-                      <span className="text-xs">{getCountryFlag(user.countryCode)}</span>
-                      <p className="text-xs text-center text-text-subdued">
-                        {user.countryName}
-                      </p>
-                      {user.joinDate && (
-                        <>
-                          <DotSeparator />
-                          <p className="text-xs text-center text-text-subdued">
-                            Joined {new Date(user.joinDate).toLocaleDateString('en-US', {
-                              month: 'long',
-                              year: 'numeric'
-                            })}
-                          </p>
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {isLoadingStats ? (
-                <div className="flex justify-start items-center gap-3 p-2 rounded-lg bg-surface-mid border border-border-strong w-full">
-                  <p className="text-text-moderate">Loading statistics...</p>
-                </div>
-              ) : statistics ? (
-                <div className="grid grid-cols-2 gap-0.5 p-1 rounded-lg bg-surface-mid border border-border-strong w-full md:w-full md:flex md:justify-start md:items-center">
-                  <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-                    <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                      {statistics.unlockedAchievements.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-center text-text-subdued">Achievements</p>
-                  </div>
-                  <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-                    <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                      {statistics.averageCompletionRate}%
-                    </p>
-                    <p className="text-xs text-center text-text-subdued">Avg completion rate</p>
-                  </div>
-                  <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-                    <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                      {statistics.totalGames.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-center text-text-subdued">Games</p>
-                  </div>
-                  <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-                    <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                      {statistics.startedGames.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-center text-text-subdued">Started games</p>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <UserProfileHeader
+            user={user}
+            statistics={statistics}
+            isLoadingStats={isLoadingStats}
+          />
 
           {/* Tabs */}
           <TabGroup className="mt-10">
