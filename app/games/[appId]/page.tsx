@@ -179,7 +179,7 @@ export default function GamePage() {
       {/* Hero Block */}
       <div className="max-w-6xl mx-auto">
         {/* Breadcrumb Navigation */}
-        <div className="p-4 md:p-8 pb-0">
+        <div className="p-4 md:py-5 md:px-8 pb-0">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -218,7 +218,7 @@ export default function GamePage() {
             </BreadcrumbList>
           </Breadcrumb>
         </div>
-        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 h-[448px] overflow-hidden gap-10 p-4 md:p-8">
+        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 h-[448px] overflow-hidden gap-10 p-4 md:py-4 md:px-8">
           <div className="flex flex-col justify-end items-start self-stretch flex-grow-0 flex-shrink-0 h-96 relative overflow-hidden gap-2 p-2 md:p-3 rounded-xl border border-border-strong">
             {/* Background Hero Image */}
             <img

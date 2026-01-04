@@ -130,7 +130,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ achievements: userAchievements });
   } catch (error) {
-    console.error('Error fetching achievements:', error);
+    // Only log unexpected errors (not network errors that are handled)
+    if (error instanceof Error && !error.message.includes('HeadersOverflowError')) {
+      console.error('Error fetching achievements:', error);
+    }
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return ApiErrors.internalError(
       'Failed to fetch achievements',

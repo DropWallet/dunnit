@@ -249,7 +249,7 @@ export default function UserDashboardPage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <div className="p-4 md:p-8">
+      <div className="p-4 md:px-8 md:py-5">
         <div className="max-w-6xl mx-auto">
           {/* Breadcrumb Navigation */}
           <Breadcrumb className="mb-4">
