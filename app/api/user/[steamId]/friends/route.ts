@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSteamClient } from "@/lib/steam/client";
 import { getDataAccess } from "@/lib/data/access";
 import { getCountryName } from "@/lib/utils/country";
-import { verifyIsFriend } from "@/lib/utils/authorization";
 import { ApiErrors } from "@/lib/utils/api-errors";
 
 // Cache duration for friend list (12 hours)
@@ -29,16 +28,10 @@ export async function GET(
       return ApiErrors.missingParameter("steamId");
     }
 
-    // Authorization check: Only allow if viewing own friends or if target is a friend
-    if (targetSteamId !== loggedInSteamId) {
-      const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
-      if (!isAuthorized) {
-        return ApiErrors.forbidden(
-          "You can only view your own friends or your friends' friends",
-          `Access denied for Steam ID: ${targetSteamId}`
-        );
-      }
-    }
+    // No authorization check needed - Steam API enforces privacy
+    // If profile is private, Steam API will return error/empty list
+    // If profile is public, Steam API will return friends list
+    // This matches Steam's behavior: public profiles = viewable friends list
 
     const steamClient = getSteamClient();
     const dataAccess = getDataAccess();
