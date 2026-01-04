@@ -188,7 +188,10 @@ export function GameCard({
               src={logoUrl}
               alt={title}
               className="flex-grow w-full h-auto rounded object-cover shadow-game-cover transition-transform duration-300 ease-out"
-              style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
+              style={{ 
+                aspectRatio: '460/215', // Match header.jpg aspect ratio
+                transform: `skewX(${skewX}deg) skewY(${skewY}deg)` 
+              }}
               onError={handleFallbackError}
             />
           ) : showIcon ? (
@@ -196,7 +199,10 @@ export function GameCard({
               src={iconUrl}
               alt={title}
               className="flex-grow w-full h-auto rounded object-cover shadow-game-cover transition-transform duration-300 ease-out"
-              style={{ transform: `skewX(${skewX}deg) skewY(${skewY}deg)` }}
+              style={{ 
+                aspectRatio: '460/215', // Match header.jpg aspect ratio
+                transform: `skewX(${skewX}deg) skewY(${skewY}deg)` 
+              }}
               onError={handleIconError}
             />
           ) : (

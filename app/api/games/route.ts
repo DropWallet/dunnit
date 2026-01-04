@@ -30,54 +30,103 @@ export async function GET(request: NextRequest) {
       const response = await steamClient.getOwnedGames(steamId, true);
 
       // Transform Steam API response to our Game format
-      // Fetch header images from Store API for better reliability
-      games = await Promise.all(
-        (response.response.games || []).map(async (steamGame) => {
-          // Try to get header image from Store API
-          let coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
-          
-          try {
-            const gameDetails = await steamClient.getGameDetails(steamGame.appid);
-            // Check if Store API call was successful and has data
-            if (gameDetails?.success && gameDetails?.data?.header_image) {
-              coverImageUrl = gameDetails.data.header_image;
-            } else if (gameDetails?.success && gameDetails?.data) {
-              // Try alternative image sources if header_image doesn't exist
-              // Some games might have capsule images or other image fields
-              if (gameDetails.data.capsule_image) {
-                coverImageUrl = gameDetails.data.capsule_image;
-              } else if (gameDetails.data.background) {
-                coverImageUrl = gameDetails.data.background;
+      // Fetch header images from Store API for better reliability (some games don't have header.jpg on CDN)
+      // Use cached coverImageUrl when available to avoid unnecessary Store API calls
+      const gamesBatch = response.response.games || [];
+      
+      // First, check which games need Store API calls (don't have cached coverImageUrl or have default header.jpg)
+      const defaultHeaderPattern = /\/steam\/apps\/\d+\/header\.jpg$/;
+      const gamesNeedingStoreAPI: typeof gamesBatch = [];
+      const cachedImageMap = new Map<number, string>(); // appId -> coverImageUrl
+      
+      // Check cache for all games first
+      for (const steamGame of gamesBatch) {
+        const cachedGame = await dataAccess.getUserGame(steamId, steamGame.appid);
+        if (cachedGame?.coverImageUrl && !defaultHeaderPattern.test(cachedGame.coverImageUrl)) {
+          // We have a cached non-default image, use it
+          cachedImageMap.set(steamGame.appid, cachedGame.coverImageUrl);
+        } else {
+          // Need to fetch from Store API (or use default header.jpg)
+          gamesNeedingStoreAPI.push(steamGame);
+        }
+      }
+      
+      // Process games with cached images first (no API calls needed)
+      games = gamesBatch
+        .filter((steamGame) => cachedImageMap.has(steamGame.appid))
+        .map((steamGame) => ({
+          appId: steamGame.appid,
+          name: steamGame.name,
+          playtimeMinutes: steamGame.playtime_forever || 0,
+          playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
+          iconUrl: steamGame.img_icon_url 
+            ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
+            : undefined,
+          logoUrl: steamGame.img_logo_url
+            ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
+            : undefined,
+          coverImageUrl: cachedImageMap.get(steamGame.appid)!,
+          lastPlayed: steamGame.rtime_last_played 
+            ? new Date(steamGame.rtime_last_played * 1000)
+            : undefined,
+        }));
+      
+      // Process games needing Store API calls in smaller batches with longer delays
+      const batchSize = 5; // Reduced from 10 to 5 for better rate limiting
+      const batchDelay = 300; // Increased from 100ms to 300ms for better rate limiting
+      
+      for (let i = 0; i < gamesNeedingStoreAPI.length; i += batchSize) {
+        const batch = gamesNeedingStoreAPI.slice(i, i + batchSize);
+        const batchGames = await Promise.all(
+          batch.map(async (steamGame) => {
+            // Default to header.jpg, but try Store API for better image coverage
+            let coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+            
+            try {
+              const gameDetails = await steamClient.getGameDetails(steamGame.appid);
+              // Check if Store API call was successful and has data
+              if (gameDetails?.success && gameDetails?.data?.header_image) {
+                coverImageUrl = gameDetails.data.header_image;
+              } else if (gameDetails?.success && gameDetails?.data) {
+                // Try alternative image sources if header_image doesn't exist
+                // Some games might have capsule images or other image fields
+                if (gameDetails.data.capsule_image) {
+                  coverImageUrl = gameDetails.data.capsule_image;
+                } else if (gameDetails.data.background) {
+                  coverImageUrl = gameDetails.data.background;
+                }
               }
-              // If still no image, try library_hero.jpg as fallback
-              if (coverImageUrl === `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`) {
-                coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/library_hero.jpg`;
-              }
+            } catch (error) {
+              // Silently fail - use default header.jpg URL
+              // Store API rate limiting or errors are expected, so we don't log every failure
             }
-          } catch (error) {
-            // Fallback to library_hero.jpg if Store API fails
-            console.warn(`Failed to fetch store details for ${steamGame.appid}, trying library_hero.jpg`);
-            coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/library_hero.jpg`;
-          }
 
-          return {
-            appId: steamGame.appid,
-            name: steamGame.name,
-            playtimeMinutes: steamGame.playtime_forever || 0,
-            playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
-            iconUrl: steamGame.img_icon_url 
-              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
-              : undefined,
-            logoUrl: steamGame.img_logo_url
-              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
-              : undefined,
-            coverImageUrl,
-            lastPlayed: steamGame.rtime_last_played 
-              ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
-              : undefined,
-          };
-        })
-      );
+            return {
+              appId: steamGame.appid,
+              name: steamGame.name,
+              playtimeMinutes: steamGame.playtime_forever || 0,
+              playtime2WeeksMinutes: steamGame.playtime_2weeks || 0,
+              iconUrl: steamGame.img_icon_url 
+                ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
+                : undefined,
+              logoUrl: steamGame.img_logo_url
+                ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
+                : undefined,
+              coverImageUrl,
+              lastPlayed: steamGame.rtime_last_played 
+                ? new Date(steamGame.rtime_last_played * 1000) // Convert Unix timestamp to Date
+                : undefined,
+            };
+          })
+        );
+        
+        games.push(...batchGames);
+        
+        // Add delay between batches to avoid rate limiting (except for the last batch)
+        if (i + batchSize < gamesNeedingStoreAPI.length) {
+          await new Promise(resolve => setTimeout(resolve, batchDelay));
+        }
+      }
 
       // Calculate derived_last_played for games without lastPlayed
       // This uses cached achievements to provide immediate sorting without fetching achievements
@@ -119,14 +168,30 @@ export async function GET(request: NextRequest) {
       // Use the games with derived_last_played
       games = gamesWithDerivedLastPlayed;
     } else {
-      // Even when loading from cache, calculate derived_last_played for games that don't have it
-      // This ensures games sort correctly even if they were cached before this feature was added
+      // Even when loading from cache, normalize coverImageUrl and calculate derived_last_played
+      // This fixes any stale cached data with wrong image URLs (e.g., library_hero.jpg)
       const now = new Date();
       const gamesWithDerivedLastPlayed = await Promise.all(
         games.map(async (game) => {
-          // If game already has lastPlayed or derivedLastPlayed, no need to calculate
+          // Normalize coverImageUrl to always use header.jpg (fixes stale cache with wrong URLs)
+          const normalizedCoverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${game.appId}/header.jpg`;
+          const needsImageUpdate = game.coverImageUrl !== normalizedCoverImageUrl;
+          
+          // Always normalize in the response (even if we don't save yet)
+          const normalizedGame = {
+            ...game,
+            coverImageUrl: normalizedCoverImageUrl,
+          };
+          
+          // If game already has lastPlayed or derivedLastPlayed, just normalize image
           if (game.lastPlayed || game.derivedLastPlayed) {
-            return game;
+            // Save the normalized image if it was wrong
+            if (needsImageUpdate) {
+              dataAccess.saveUserGames(steamId, [normalizedGame]).catch((error) => {
+                console.warn(`Failed to save fixed coverImageUrl for game ${game.appId}:`, error);
+              });
+            }
+            return normalizedGame;
           }
 
           // Check if we have cached achievements for this game
@@ -135,24 +200,31 @@ export async function GET(request: NextRequest) {
             const latestUnlock = getLatestAchievementUnlockTime(achievements);
             
             if (latestUnlock) {
-              const gameWithDerived = {
-                ...game,
+              const gameWithUpdates = {
+                ...normalizedGame,
                 derivedLastPlayed: latestUnlock,
                 derivedLastPlayedCalculatedAt: now,
               };
               
               // Save the updated game to cache (async, don't wait)
-              dataAccess.saveUserGames(steamId, [gameWithDerived]).catch((error) => {
-                console.warn(`Failed to save derived_last_played for game ${game.appId}:`, error);
+              dataAccess.saveUserGames(steamId, [gameWithUpdates]).catch((error) => {
+                console.warn(`Failed to save updates for game ${game.appId}:`, error);
               });
               
-              return gameWithDerived;
+              return gameWithUpdates;
             }
           } catch (error) {
             // If achievements aren't cached yet, that's okay
           }
 
-          return game;
+          // Save the normalized image if it was wrong
+          if (needsImageUpdate) {
+            dataAccess.saveUserGames(steamId, [normalizedGame]).catch((error) => {
+              console.warn(`Failed to save fixed coverImageUrl for game ${game.appId}:`, error);
+            });
+          }
+
+          return normalizedGame;
         })
       );
       
