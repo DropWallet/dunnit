@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
+import { verifyIsFriend } from '@/lib/utils/authorization';
 import type { UserAchievement } from '@/lib/data/types';
 
 export async function GET(request: NextRequest) {
   try {
-    const steamId = request.cookies.get('steam_id')?.value;
+    const loggedInSteamId = request.cookies.get('steam_id')?.value;
     const searchParams = request.nextUrl.searchParams;
     const appId = searchParams.get('appId');
+    const targetSteamId = searchParams.get('steamId'); // Optional: for viewing friend's achievements
 
-    if (!steamId) {
+    if (!loggedInSteamId) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
@@ -29,6 +31,20 @@ export async function GET(request: NextRequest) {
         { error: 'Invalid appId' },
         { status: 400 }
       );
+    }
+
+    // Determine which steamId to use
+    const steamId = targetSteamId || loggedInSteamId;
+
+    // If viewing friend's achievements, verify authorization
+    if (targetSteamId && targetSteamId !== loggedInSteamId) {
+      const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
+      if (!isAuthorized) {
+        return NextResponse.json(
+          { error: 'Unauthorized: You can only view your own achievements or your friends\' achievements' },
+          { status: 403 }
+        );
+      }
     }
 
     // Check if we have cached achievements

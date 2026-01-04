@@ -46,10 +46,12 @@ export class SteamAPIClient {
 
   /**
    * Get list of games owned by a user
+   * Note: include_played_free_games=1 is required to get rtime_last_played and playtime_2weeks
    */
   async getOwnedGames(steamId: string, includeAppInfo = true): Promise<SteamOwnedGamesResponse> {
     try {
-      const url = `${STEAM_API_BASE}/IPlayerService/GetOwnedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=${includeAppInfo ? 1 : 0}&format=json`;
+      // Include include_played_free_games=1 to get rtime_last_played and playtime_2weeks
+      const url = `${STEAM_API_BASE}/IPlayerService/GetOwnedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=${includeAppInfo ? 1 : 0}&include_played_free_games=1&format=json`;
       const response = await fetch(url);
       
       if (!response.ok) {
@@ -60,6 +62,27 @@ export class SteamAPIClient {
       return data;
     } catch (error) {
       console.error('Error fetching owned games:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recently played games (last 14 days) - more reliable for "Date Played" sorting
+   * This endpoint always returns games played in the last 14 days with playtime_2weeks
+   */
+  async getRecentlyPlayedGames(steamId: string): Promise<SteamOwnedGamesResponse> {
+    try {
+      const url = `${STEAM_API_BASE}/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&format=json`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam API error: ${response.status}`);
+      }
+
+      const data: SteamOwnedGamesResponse = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching recently played games:', error);
       throw error;
     }
   }

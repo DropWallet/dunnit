@@ -87,7 +87,14 @@ export async function GET(request: NextRequest) {
       await dataAccess.updateUser(steamId, { lastSyncAt: new Date() });
     }
 
-    return NextResponse.json({ games });
+    return NextResponse.json(
+      { games },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching games:', error);
     return NextResponse.json(

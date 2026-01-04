@@ -1125,7 +1125,8 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={friend.steamId}
-                            className="flex flex-col md:flex-col lg:flex-row justify-start items-start md:items-start lg:items-center gap-4 pl-3 pr-8 pt-3 pb-3 md:pb-3 rounded-lg bg-surface-low border border-border-weak"
+                            onClick={() => router.push(`/user/${friend.steamId}`)}
+                            className="flex flex-col md:flex-col lg:flex-row justify-start items-start md:items-start lg:items-center gap-4 pl-3 pr-8 pt-3 pb-3 md:pb-3 rounded-lg bg-surface-low border border-border-weak cursor-pointer hover:bg-surface-mid transition-colors"
                           >
                             {/* Avatar and Name - SM: stacked, MD: horizontal, LG: horizontal */}
                             <div className="flex justify-start items-center self-stretch md:self-stretch lg:self-auto flex-grow relative gap-3">

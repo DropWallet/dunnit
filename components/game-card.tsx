@@ -20,6 +20,7 @@ interface GameCardProps {
   iconUrl?: string; // Additional fallback
   achievementIcons?: Array<{ iconUrl: string; iconGrayUrl: string; unlocked: boolean }>;
   isLoadingAchievements?: boolean;
+  steamId?: string; // Optional: for viewing friend's games
 }
 
 export function GameCard({
@@ -33,6 +34,7 @@ export function GameCard({
   iconUrl,
   achievementIcons = [],
   isLoadingAchievements = false,
+  steamId,
 }: GameCardProps) {
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
@@ -161,7 +163,10 @@ export function GameCard({
   }
 
   return (
-    <Link href={`/games/${appId}`} className="block">
+    <Link 
+      href={steamId ? `/games/${appId}?steamId=${steamId}` : `/games/${appId}`} 
+      className="block"
+    >
       <div
         ref={cardRef}
         className="flex flex-col border border-border-strong justify-start items-start h-auto w-full gap-2.5 rounded-xl bg-card transition-all hover:scale-[1.02] hover:border-2 hover:shadow-sm"
