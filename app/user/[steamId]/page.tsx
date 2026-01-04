@@ -4,8 +4,16 @@ import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
-import { GameCard } from "@/components/game-card";
 import { ArrowLeft } from "lucide-react";
+import { GameCard } from "@/components/game-card";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import { Trophy } from "@/components/trophy";
 import { calculateRarity } from "@/lib/utils/achievements";
@@ -243,15 +251,27 @@ export default function UserDashboardPage() {
 
       <div className="p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-          {/* Back Button */}
-          <Button
-            onClick={() => router.push("/dashboard")}
-            variant="ghost"
-            className="mb-4"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Dashboard
-          </Button>
+          {/* Breadcrumb Navigation */}
+          <Breadcrumb className="mb-4">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink 
+                  href="/dashboard"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push("/dashboard");
+                  }}
+                  className="cursor-pointer"
+                >
+                  Dashboard
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{user?.username || "User"}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
           {/* User Profile Section */}
           <UserProfileHeader

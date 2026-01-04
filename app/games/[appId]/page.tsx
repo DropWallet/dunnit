@@ -14,8 +14,15 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { useUserData } from "@/hooks/useUserData";
 
 interface GameData {
   game: {
@@ -43,6 +50,7 @@ export default function GamePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const steamId = searchParams.get('steamId'); // Optional: for viewing friend's game
+  const { user: friendUser } = useUserData(steamId || "", false);
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string>("rarity");
@@ -170,18 +178,46 @@ export default function GamePage() {
       
       {/* Hero Block */}
       <div className="max-w-6xl mx-auto">
-        {/* Back Button */}
-        {steamId && (
-          <div className="p-4 md:p-8 pb-0">
-            <Button
-              onClick={() => router.push(`/user/${steamId}`)}
-              variant="ghost"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Profile
-            </Button>
-          </div>
-        )}
+        {/* Breadcrumb Navigation */}
+        <div className="p-4 md:p-8 pb-0">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink 
+                  href="/dashboard"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push("/dashboard");
+                  }}
+                  className="cursor-pointer"
+                >
+                  Dashboard
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              {steamId && friendUser && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbLink
+                      href={`/user/${steamId}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        router.push(`/user/${steamId}`);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      {friendUser.username}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                </>
+              )}
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{gameData?.game.name || "Game"}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
         <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 h-[448px] overflow-hidden gap-10 p-4 md:p-8">
           <div className="flex flex-col justify-end items-start self-stretch flex-grow-0 flex-shrink-0 h-96 relative overflow-hidden gap-2 p-2 md:p-3 rounded-xl border border-border-strong">
             {/* Background Hero Image */}
