@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataAccess } from "@/lib/data/access";
 import { getSteamClient } from "@/lib/steam/client";
+import { ApiErrors } from "@/lib/utils/api-errors";
 
 export async function GET(
   request: NextRequest,
@@ -10,10 +11,7 @@ export async function GET(
     const friendSteamId = params.steamId;
 
     if (!friendSteamId) {
-      return NextResponse.json(
-        { error: "steamId parameter is required" },
-        { status: 400 }
-      );
+      return ApiErrors.missingParameter('steamId');
     }
 
     const dataAccess = getDataAccess();
@@ -55,9 +53,10 @@ export async function GET(
     );
   } catch (error) {
     console.error("Error fetching friend statistics:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch friend statistics" },
-      { status: 500 }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return ApiErrors.internalError(
+      'Failed to fetch friend statistics',
+      errorMessage
     );
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSteamClient } from "@/lib/steam/client";
 import { getDataAccess } from "@/lib/data/access";
 import { getCountryName } from "@/lib/utils/country";
+import { ApiErrors } from "@/lib/utils/api-errors";
 
 // Cache duration for friend list (12 hours)
 const FRIEND_LIST_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
     const steamId = cookies.get("steam_id")?.value;
 
     if (!steamId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return ApiErrors.notAuthenticated();
     }
 
     const steamClient = getSteamClient();
@@ -120,9 +121,10 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("Error fetching friends:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch friends" },
-      { status: 500 }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return ApiErrors.internalError(
+      'Failed to fetch friends',
+      errorMessage
     );
   }
 }

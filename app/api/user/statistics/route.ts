@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
 import { calculateStatistics } from '@/lib/utils/statistics';
+import { ApiErrors } from '@/lib/utils/api-errors';
 
 // Maximum age for cached statistics (24 hours in milliseconds)
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -10,10 +11,7 @@ export async function GET(request: NextRequest) {
     const steamId = request.cookies.get('steam_id')?.value;
 
     if (!steamId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return ApiErrors.notAuthenticated();
     }
 
     const dataAccess = getDataAccess();
@@ -23,10 +21,7 @@ export async function GET(request: NextRequest) {
     // Get user to check lastSyncAt
     const user = await dataAccess.getUser(steamId);
     if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+      return ApiErrors.userNotFound(steamId);
     }
 
     // Check for cached statistics
@@ -115,9 +110,10 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error('Error calculating statistics:', error);
-    return NextResponse.json(
-      { error: 'Failed to calculate statistics' },
-      { status: 500 }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return ApiErrors.internalError(
+      'Failed to calculate statistics',
+      errorMessage
     );
   }
 }

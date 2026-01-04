@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
+import { ApiErrors } from '@/lib/utils/api-errors';
 import type { Game } from '@/lib/data/types';
 
 export async function GET(request: NextRequest) {
@@ -8,10 +9,7 @@ export async function GET(request: NextRequest) {
     const steamId = request.cookies.get('steam_id')?.value;
     
     if (!steamId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return ApiErrors.notAuthenticated();
     }
 
     // Check if we have cached games
@@ -97,9 +95,10 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error('Error fetching games:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch games' },
-      { status: 500 }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return ApiErrors.internalError(
+      'Failed to fetch games',
+      errorMessage
     );
   }
 }

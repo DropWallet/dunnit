@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
+import { ApiErrors } from '@/lib/utils/api-errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,10 +9,7 @@ export async function GET(request: NextRequest) {
     console.log('API /user - all cookies:', request.cookies.getAll());
 
     if (!steamId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return ApiErrors.notAuthenticated();
     }
 
     const dataAccess = getDataAccess();
@@ -19,18 +17,16 @@ export async function GET(request: NextRequest) {
     console.log('API /user - user found:', user ? 'Yes' : 'No', steamId);
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+      return ApiErrors.userNotFound(steamId);
     }
 
     return NextResponse.json({ user });
   } catch (error) {
     console.error('Error fetching user:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch user' },
-      { status: 500 }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return ApiErrors.internalError(
+      'Failed to fetch user',
+      errorMessage
     );
   }
 }
