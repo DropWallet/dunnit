@@ -103,6 +103,8 @@ export class SupabaseDataAccess implements DataAccess {
       logo_url: game.logoUrl,
       cover_image_url: game.coverImageUrl,
       last_played: game.lastPlayed?.toISOString(),
+      derived_last_played: game.derivedLastPlayed?.toISOString(),
+      derived_last_played_calculated_at: game.derivedLastPlayedCalculatedAt?.toISOString(),
       updated_at: new Date().toISOString(),
     }));
 
@@ -138,6 +140,8 @@ export class SupabaseDataAccess implements DataAccess {
       logoUrl: row.logo_url,
       coverImageUrl: row.cover_image_url,
       lastPlayed: row.last_played ? new Date(row.last_played) : undefined,
+      derivedLastPlayed: row.derived_last_played ? new Date(row.derived_last_played) : undefined,
+      derivedLastPlayedCalculatedAt: row.derived_last_played_calculated_at ? new Date(row.derived_last_played_calculated_at) : undefined,
     }));
   }
 
@@ -169,6 +173,8 @@ export class SupabaseDataAccess implements DataAccess {
       logoUrl: data.logo_url,
       coverImageUrl: data.cover_image_url,
       lastPlayed: data.last_played ? new Date(data.last_played) : undefined,
+      derivedLastPlayed: data.derived_last_played ? new Date(data.derived_last_played) : undefined,
+      derivedLastPlayedCalculatedAt: data.derived_last_played_calculated_at ? new Date(data.derived_last_played_calculated_at) : undefined,
     };
   }
 

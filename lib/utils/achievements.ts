@@ -1,3 +1,5 @@
+import type { UserAchievement } from '@/lib/data/types';
+
 export type AchievementRarity = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
 
 /**
@@ -59,4 +61,37 @@ export function formatUnlockDate(date: Date): string {
   const displayMinutes = minutes.toString().padStart(2, '0');
   
   return `UNLOCKED ${day} ${month} @ ${displayHours}:${displayMinutes}${ampm}`;
+}
+
+/**
+ * Calculates the latest achievement unlock time for a game.
+ * Used to derive a "last played" date when rtime_last_played is unavailable.
+ * 
+ * @param achievements - Array of user achievements for the game
+ * @returns Date of the most recent achievement unlock, or undefined if no unlocks found
+ */
+export function getLatestAchievementUnlockTime(
+  achievements: UserAchievement[]
+): Date | undefined {
+  if (!achievements || achievements.length === 0) {
+    return undefined;
+  }
+
+  const unlockedAchievements = achievements.filter(
+    (ach): ach is UserAchievement & { unlockedAt: Date } =>
+      ach.unlocked && ach.unlockedAt !== undefined && ach.unlockedAt instanceof Date
+  );
+
+  if (unlockedAchievements.length === 0) {
+    return undefined;
+  }
+
+  // Find the most recent unlock time
+  const mostRecentUnlock = unlockedAchievements.reduce((latest, current) => {
+    const currentTime = current.unlockedAt.getTime();
+    const latestTime = latest.unlockedAt.getTime();
+    return currentTime > latestTime ? current : latest;
+  });
+
+  return mostRecentUnlock.unlockedAt;
 }

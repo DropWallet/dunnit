@@ -64,7 +64,14 @@ export function getDerivedLastPlayed(
     return new Date(game.lastPlayed);
   }
 
-  // Priority 2: Find most recent achievement unlock time
+  // Priority 2: Use cached derived_last_played if available (from database)
+  // This provides immediate sorting without needing to fetch achievements
+  if (game.derivedLastPlayed) {
+    return new Date(game.derivedLastPlayed);
+  }
+
+  // Priority 3: Find most recent achievement unlock time from in-memory achievements map
+  // This is a fallback when derived_last_played hasn't been calculated yet
   const achievements = gameAchievements.get(game.appId) || [];
   if (achievements.length > 0) {
     const unlockedAchievements = achievements.filter(
@@ -89,7 +96,7 @@ export function getDerivedLastPlayed(
     }
   }
 
-  // Priority 3: No date available (will fall back to playtime sorting)
+  // Priority 4: No date available (will fall back to playtime sorting)
   return undefined;
 }
 
