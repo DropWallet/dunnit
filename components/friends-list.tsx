@@ -5,6 +5,7 @@ import { FriendCard } from "@/components/friend-card";
 interface FriendStatistics {
   totalGames: number;
   totalAchievements: number;
+  unlockedAchievements: number;
   friendsCount: number;
 }
 
@@ -16,6 +17,7 @@ interface Friend {
   countryCode?: string;
   countryName?: string;
   joinDate?: string;
+  communityVisibilityState?: number; // 1 = Private, 2 = Friends Only, 3 = Public
   statistics: FriendStatistics;
   statsLoaded?: boolean;
 }
