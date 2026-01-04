@@ -32,36 +32,14 @@ import { useUserGames } from "@/hooks/useUserGames";
 import { useUserAchievements } from "@/hooks/useUserAchievements";
 import { useGameAchievements } from "@/hooks/useGameAchievements";
 import type { Game } from "@/lib/data/types";
-
-// Type for achievement data stored in gameAchievements Map
-interface GameAchievement {
-  achievement: {
-    name: string;
-    description: string;
-    iconUrl: string;
-    iconGrayUrl: string;
-    globalPercentage?: number;
-  };
-  unlocked: boolean;
-  unlockedAt?: Date | string;
-}
-
-// Type for user achievement (from useUserAchievements hook)
-interface UserAchievement {
-  achievement: {
-    name: string;
-    description: string;
-    iconUrl: string;
-    globalPercentage?: number;
-  };
-  unlocked: boolean;
-  unlockedAt?: Date;
-  appId?: number;
-  gameName?: string;
-}
-
-// Type for sort options
-type SortOption = "last-played" | "most-played" | "least-played" | "recent-playtime" | "name-asc" | "name-desc" | "achievement-progress";
+import { 
+  sortGames, 
+  sortAchievements,
+  type GameSortOption,
+  type AchievementSortOption,
+  type GameAchievement,
+  type UserAchievement
+} from "@/lib/utils/sorting";
 
 export default function UserDashboardPage() {
   const params = useParams();
@@ -77,14 +55,14 @@ export default function UserDashboardPage() {
   // Local state
   const [displayedGamesCount, setDisplayedGamesCount] = useState(15);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [sortBy, setSortBy] = useState<SortOption>("last-played");
+  const [sortBy, setSortBy] = useState<GameSortOption>("last-played");
   const [showUnplayed, setShowUnplayed] = useState<boolean>(true);
   const [gameAchievements, setGameAchievements] = useState<Map<number, GameAchievement[]>>(new Map());
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Achievement tab state
-  const [achievementSortBy, setAchievementSortBy] = useState<string>("rarity");
+  const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
   const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
   const achievementLoadMoreObserverRef = useRef<IntersectionObserver | null>(null);
 
@@ -112,128 +90,11 @@ export default function UserDashboardPage() {
     return () => window.removeEventListener('resize', updateColumns);
   }, []);
 
-  /**
-   * Calculates a derived "last played" date for a game using a weighted fallback strategy.
-   * 
-   * This implements a three-tier fallback system similar to Steam Hunters:
-   * 1. Priority 1: Uses `rtime_last_played` from Steam API if available
-   * 2. Priority 2: Falls back to the most recent achievement unlock timestamp
-   * 3. Priority 3: Returns undefined (will fall back to playtime-based sorting)
-   * 
-   * This is necessary because Steam's privacy settings often hide `rtime_last_played`
-   * for friends' games, but achievement unlock times are typically still available.
-   * 
-   * @param game - The game object to calculate derived last played date for
-   * @returns Date object if a valid timestamp is found, undefined otherwise
-   */
-  const getDerivedLastPlayed = useCallback((game: Game): Date | undefined => {
-    // Priority 1: Use rtime_last_played if available
-    if (game.lastPlayed) {
-      return new Date(game.lastPlayed);
-    }
-
-    // Priority 2: Find most recent achievement unlock time
-    const achievements = gameAchievements.get(game.appId) || [];
-    if (achievements.length > 0) {
-      const unlockedAchievements = achievements.filter((ach): ach is GameAchievement & { unlockedAt: Date | string } => 
-        ach.unlocked && ach.unlockedAt !== undefined
-      );
-      if (unlockedAchievements.length > 0) {
-        // Find the most recent unlock time
-        const mostRecentUnlock = unlockedAchievements.reduce((latest, current) => {
-          const currentTime = current.unlockedAt instanceof Date 
-            ? current.unlockedAt.getTime() 
-            : new Date(current.unlockedAt).getTime();
-          const latestTime = latest.unlockedAt instanceof Date 
-            ? latest.unlockedAt.getTime() 
-            : new Date(latest.unlockedAt).getTime();
-          return currentTime > latestTime ? current : latest;
-        });
-        
-        return mostRecentUnlock.unlockedAt instanceof Date 
-          ? mostRecentUnlock.unlockedAt 
-          : new Date(mostRecentUnlock.unlockedAt);
-      }
-    }
-
-    // Priority 3: No date available (will fall back to playtime sorting)
-    return undefined;
-  }, [gameAchievements]);
-
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
     const filtered = showUnplayed ? allGames : allGames.filter((g) => g.playtimeMinutes > 0);
-    
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sortBy) {
-        case "last-played": {
-          // Use derivedLastPlayed which includes achievement unlock times as fallback
-          const aDerived = getDerivedLastPlayed(a);
-          const bDerived = getDerivedLastPlayed(b);
-          const aLastPlayed = aDerived ? aDerived.getTime() : 0;
-          const bLastPlayed = bDerived ? bDerived.getTime() : 0;
-          
-          // If both have derivedLastPlayed, sort by that
-          if (aLastPlayed !== 0 && bLastPlayed !== 0) {
-            return bLastPlayed - aLastPlayed;
-          }
-          
-          // If one has derivedLastPlayed and the other doesn't, prioritize the one with it
-          if (aLastPlayed !== 0 && bLastPlayed === 0) return -1;
-          if (aLastPlayed === 0 && bLastPlayed !== 0) return 1;
-          
-          // Both are undefined - use playtime2WeeksMinutes as proxy for "recently played"
-          // Games with recent playtime (last 2 weeks) should appear first
-          const aRecent = a.playtime2WeeksMinutes || 0;
-          const bRecent = b.playtime2WeeksMinutes || 0;
-          
-          // If one has recent playtime and the other doesn't, prioritize recent playtime
-          if (aRecent > 0 && bRecent === 0) return -1;
-          if (aRecent === 0 && bRecent > 0) return 1;
-          
-          // Both have recent playtime or both don't - sort by recent playtime, then total playtime
-          if (aRecent !== bRecent) return bRecent - aRecent;
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "most-played": {
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "least-played": {
-          return (a.playtimeMinutes || 0) - (b.playtimeMinutes || 0);
-        }
-        case "recent-playtime": {
-          const aRecent = a.playtime2WeeksMinutes || 0;
-          const bRecent = b.playtime2WeeksMinutes || 0;
-          
-          if (aRecent !== bRecent) return bRecent - aRecent;
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "name-asc": {
-          return a.name.localeCompare(b.name);
-        }
-        case "name-desc": {
-          return b.name.localeCompare(a.name);
-        }
-        case "achievement-progress": {
-          const aAchievements = gameAchievements.get(a.appId) || [];
-          const bAchievements = gameAchievements.get(b.appId) || [];
-          const aUnlocked = aAchievements.filter((ach) => ach.unlocked).length;
-          const bUnlocked = bAchievements.filter((ach) => ach.unlocked).length;
-          const aTotal = aAchievements.length;
-          const bTotal = bAchievements.length;
-          const aProgress = aTotal > 0 ? (aUnlocked / aTotal) * 100 : 0;
-          const bProgress = bTotal > 0 ? (bUnlocked / bTotal) * 100 : 0;
-          if (aProgress !== bProgress) return bProgress - aProgress;
-          // Fallback to total achievements
-          return bTotal - aTotal;
-        }
-        default:
-          return 0;
-      }
-    });
-    
-    return sorted;
-  }, [allGames, sortBy, showUnplayed, gameAchievements, getDerivedLastPlayed]);
+    return sortGames(filtered, sortBy, gameAchievements);
+  }, [allGames, sortBy, showUnplayed, gameAchievements]);
 
   const gamesToDisplay = useMemo(() => {
     return sortedAndFilteredGames.slice(0, displayedGamesCount);
@@ -294,30 +155,7 @@ export default function UserDashboardPage() {
   // Sort and filter achievements
   const sortedAndFilteredAchievements = useMemo(() => {
     const filtered = allAchievementsList.filter((a) => a.unlocked);
-    
-    const sorted = [...filtered].sort((a, b) => {
-      switch (achievementSortBy) {
-        case "rarity": {
-          const aPercent = a.achievement?.globalPercentage ?? 100;
-          const bPercent = b.achievement?.globalPercentage ?? 100;
-          if (aPercent !== bPercent) return aPercent - bPercent;
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        case "unlock-date": {
-          const aDate = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
-          const bDate = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
-          if (aDate !== bDate) return bDate - aDate;
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        case "name": {
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        default:
-          return 0;
-      }
-    });
-    
-    return sorted;
+    return sortAchievements(filtered, achievementSortBy);
   }, [allAchievementsList, achievementSortBy]);
 
   const achievementsToDisplay = useMemo(() => {
@@ -519,7 +357,7 @@ export default function UserDashboardPage() {
                 <div className="flex flex-col gap-4 mt-4">
                   <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                      <Select value={sortBy} onValueChange={(value) => setSortBy(value as GameSortOption)}>
                         <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                           <SelectValue placeholder="Sort by" />
                         </SelectTrigger>
@@ -623,7 +461,7 @@ export default function UserDashboardPage() {
                 <div className="flex flex-col gap-4 mt-4">
                   <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <Select value={achievementSortBy} onValueChange={setAchievementSortBy}>
+                      <Select value={achievementSortBy} onValueChange={(value) => setAchievementSortBy(value as AchievementSortOption)}>
                         <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                           <SelectValue placeholder="Sort by" />
                         </SelectTrigger>

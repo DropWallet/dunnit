@@ -26,6 +26,15 @@ import {
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import { Trophy } from "@/components/trophy";
 import { calculateRarity } from "@/lib/utils/achievements";
+import type { Game } from "@/lib/data/types";
+import { 
+  sortGames, 
+  sortAchievements,
+  type GameSortOption,
+  type AchievementSortOption,
+  type GameAchievement,
+  type UserAchievement
+} from "@/lib/utils/sorting";
 
 interface User {
   steamId: string;
@@ -65,15 +74,15 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
-  const [gameAchievements, setGameAchievements] = useState<Map<number, any[]>>(new Map());
+  const [gameAchievements, setGameAchievements] = useState<Map<number, GameAchievement[]>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingGames, setIsLoadingGames] = useState(true);
   const [displayedGamesCount, setDisplayedGamesCount] = useState(15);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [sortBy, setSortBy] = useState<string>(() => {
+  const [sortBy, setSortBy] = useState<GameSortOption>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('dashboard-sort-by') || 'last-played';
+      return (sessionStorage.getItem('dashboard-sort-by') || 'last-played') as GameSortOption;
     }
     return 'last-played';
   });
@@ -89,8 +98,8 @@ export default function DashboardPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   
   // Achievement tab state
-  const [achievementSortBy, setAchievementSortBy] = useState<string>("rarity");
-  const [allAchievementsList, setAllAchievementsList] = useState<any[]>([]);
+  const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
+  const [allAchievementsList, setAllAchievementsList] = useState<UserAchievement[]>([]);
   const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
   const [isLoadingAllAchievements, setIsLoadingAllAchievements] = useState(false);
   const achievementLoadMoreObserverRef = useRef<IntersectionObserver | null>(null);
@@ -163,30 +172,33 @@ export default function DashboardPage() {
           : initialBatch;
         
         // Mark games as loading
-        const appIdsToLoad = gamesNeedingAchievements.map((g: any) => Number(g.appId));
+        const appIdsToLoad = gamesNeedingAchievements.map((g: Game) => g.appId);
         setLoadingAchievements(prev => {
           const newSet = new Set(prev);
           appIdsToLoad.forEach((id: number) => newSet.add(id));
           return newSet;
         });
         
-        const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
+        const achievementPromises = gamesNeedingAchievements.map(async (game: Game) => {
           try {
-            const appIdNum = Number(game.appId);
-            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
-            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
+            if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
-            return { appId: appIdNum, achievements: achData.achievements || [] };
+            // Parse dates from strings if needed
+            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+              ...ach,
+              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+            }));
+            return { appId: game.appId, achievements: parsedAchievements };
           } catch {
-            return { appId: Number(game.appId), achievements: [] };
+            return { appId: game.appId, achievements: [] };
           }
         });
         
         const achievementsData = await Promise.all(achievementPromises);
-        const achievementsMap = new Map<number, any[]>();
+        const achievementsMap = new Map<number, GameAchievement[]>();
         achievementsData.forEach(({ appId, achievements }) => {
-          const appIdNum = Number(appId);
-          achievementsMap.set(appIdNum, achievements);
+          achievementsMap.set(appId, achievements);
         });
         setGameAchievements(achievementsMap);
         
@@ -331,65 +343,10 @@ export default function DashboardPage() {
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
-    let filtered = [...allGames];
-    
-    // Filter unplayed games if needed
-    if (!showUnplayed) {
-      filtered = filtered.filter((game) => game.playtimeMinutes > 0);
-    }
-    
-    // Sort games
-    const sorted = [...filtered].sort((a: any, b: any) => {
-      switch (sortBy) {
-        case "last-played": {
-          // Sort by lastPlayed (most recent first), then playtime2WeeksMinutes, then playtimeMinutes
-          const aLastPlayed = a.lastPlayed ? new Date(a.lastPlayed).getTime() : 0;
-          const bLastPlayed = b.lastPlayed ? new Date(b.lastPlayed).getTime() : 0;
-          if (aLastPlayed !== bLastPlayed) return bLastPlayed - aLastPlayed;
-          
-          const aRecent = a.playtime2WeeksMinutes || 0;
-          const bRecent = b.playtime2WeeksMinutes || 0;
-          if (aRecent !== bRecent) return bRecent - aRecent;
-          
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "most-played": {
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "least-played": {
-          return (a.playtimeMinutes || 0) - (b.playtimeMinutes || 0);
-        }
-        case "recent-playtime": {
-          const aRecent = a.playtime2WeeksMinutes || 0;
-          const bRecent = b.playtime2WeeksMinutes || 0;
-          if (aRecent !== bRecent) return bRecent - aRecent;
-          return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
-        }
-        case "name-asc": {
-          return a.name.localeCompare(b.name);
-        }
-        case "name-desc": {
-          return b.name.localeCompare(a.name);
-        }
-        case "achievement-progress": {
-          const aAchievements = gameAchievements.get(Number(a.appId)) || [];
-          const bAchievements = gameAchievements.get(Number(b.appId)) || [];
-          const aUnlocked = aAchievements.filter((ach: any) => ach.unlocked).length;
-          const bUnlocked = bAchievements.filter((ach: any) => ach.unlocked).length;
-          const aTotal = aAchievements.length;
-          const bTotal = bAchievements.length;
-          const aProgress = aTotal > 0 ? (aUnlocked / aTotal) * 100 : 0;
-          const bProgress = bTotal > 0 ? (bUnlocked / bTotal) * 100 : 0;
-          if (aProgress !== bProgress) return bProgress - aProgress;
-          // Fallback to total achievements
-          return bTotal - aTotal;
-        }
-        default:
-          return 0;
-      }
-    });
-    
-    return sorted;
+    const filtered = showUnplayed 
+      ? allGames 
+      : allGames.filter((game) => game.playtimeMinutes > 0);
+    return sortGames(filtered, sortBy, gameAchievements);
   }, [allGames, sortBy, showUnplayed, gameAchievements]);
 
   // Limit games based on displayedGamesCount (infinite scroll)
@@ -401,34 +358,38 @@ export default function DashboardPage() {
   useEffect(() => {
     if (gamesToDisplay.length > 0) {
       const gamesNeedingAchievements = gamesToDisplay.filter(
-        (game: any) => !gameAchievements.has(Number(game.appId))
+        (game) => !gameAchievements.has(game.appId)
       );
       
       if (gamesNeedingAchievements.length > 0) {
         // Mark games as loading
-        const appIdsToLoad = gamesNeedingAchievements.map((g: any) => Number(g.appId));
+        const appIdsToLoad = gamesNeedingAchievements.map((g) => g.appId);
         setLoadingAchievements(prev => {
           const newSet = new Set(prev);
           appIdsToLoad.forEach((id: number) => newSet.add(id));
           return newSet;
         });
 
-        const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
+        const achievementPromises = gamesNeedingAchievements.map(async (game) => {
           try {
-            const appIdNum = Number(game.appId);
-            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
-            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
+            if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
-            return { appId: appIdNum, achievements: achData.achievements || [] };
+            // Parse dates from strings if needed
+            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+              ...ach,
+              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+            }));
+            return { appId: game.appId, achievements: parsedAchievements };
           } catch {
-            return { appId: Number(game.appId), achievements: [] };
+            return { appId: game.appId, achievements: [] };
           }
         });
         
         Promise.all(achievementPromises).then((achievementsData) => {
           const newMap = new Map(gameAchievements);
           achievementsData.forEach(({ appId, achievements }) => {
-            newMap.set(Number(appId), achievements);
+            newMap.set(appId, achievements);
           });
           setGameAchievements(newMap);
           
@@ -446,35 +407,39 @@ export default function DashboardPage() {
   // Lazy-load achievements for all games when sorting by achievement progress
   useEffect(() => {
     if (sortBy === 'achievement-progress' && allGames.length > 0) {
-      const needsLoading = allGames.some((game: any) => !gameAchievements.has(Number(game.appId)));
+      const needsLoading = allGames.some((game) => !gameAchievements.has(game.appId));
       
       if (needsLoading) {
-        const gamesToLoad = allGames.filter((game: any) => !gameAchievements.has(Number(game.appId)));
+        const gamesToLoad = allGames.filter((game) => !gameAchievements.has(game.appId));
         
         // Mark games as loading
-        const appIdsToLoad = gamesToLoad.map((g: any) => Number(g.appId));
+        const appIdsToLoad = gamesToLoad.map((g) => g.appId);
         setLoadingAchievements(prev => {
           const newSet = new Set(prev);
           appIdsToLoad.forEach((id: number) => newSet.add(id));
           return newSet;
         });
         
-        const achievementPromises = gamesToLoad.map(async (game: any) => {
+        const achievementPromises = gamesToLoad.map(async (game) => {
           try {
-            const appIdNum = Number(game.appId);
-            const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
-            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
+            if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
-            return { appId: appIdNum, achievements: achData.achievements || [] };
+            // Parse dates from strings if needed
+            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+              ...ach,
+              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+            }));
+            return { appId: game.appId, achievements: parsedAchievements };
           } catch {
-            return { appId: Number(game.appId), achievements: [] };
+            return { appId: game.appId, achievements: [] };
           }
         });
         
         Promise.all(achievementPromises).then((achievementsData) => {
           const newMap = new Map(gameAchievements);
           achievementsData.forEach(({ appId, achievements }) => {
-            newMap.set(Number(appId), achievements);
+            newMap.set(appId, achievements);
           });
           setGameAchievements(newMap);
           
@@ -502,31 +467,8 @@ export default function DashboardPage() {
   // Sort and filter achievements - only show unlocked achievements
   const sortedAndFilteredAchievements = useMemo(() => {
     // Filter to only unlocked achievements
-    const filtered = allAchievementsList.filter((a: any) => a.unlocked);
-    
-    const sorted = [...filtered].sort((a: any, b: any) => {
-      switch (achievementSortBy) {
-        case "rarity": {
-          const aPercent = a.achievement?.globalPercentage ?? 100;
-          const bPercent = b.achievement?.globalPercentage ?? 100;
-          if (aPercent !== bPercent) return aPercent - bPercent;
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        case "unlock-date": {
-          const aDate = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
-          const bDate = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
-          if (aDate !== bDate) return bDate - aDate;
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        case "name": {
-          return a.achievement?.name.localeCompare(b.achievement?.name) ?? 0;
-        }
-        default:
-          return 0;
-      }
-    });
-    
-    return sorted;
+    const filtered = allAchievementsList.filter((a) => a.unlocked);
+    return sortAchievements(filtered, achievementSortBy);
   }, [allAchievementsList, achievementSortBy]);
 
   // Limit displayed achievements
@@ -584,7 +526,7 @@ export default function DashboardPage() {
 
   // Group achievements into rows based on current breakpoint
   const achievementRows = useMemo(() => {
-    const rows: any[][] = [];
+    const rows: UserAchievement[][] = [];
     for (let i = 0; i < achievementsToDisplay.length; i += columnsPerRow) {
       rows.push(achievementsToDisplay.slice(i, i + columnsPerRow));
     }
@@ -639,34 +581,38 @@ export default function DashboardPage() {
     // Fetch achievements for newly displayed games
     const newlyDisplayedGames = sortedAndFilteredGames.slice(displayedGamesCount, nextBatchCount);
     const gamesNeedingAchievements = newlyDisplayedGames.filter(
-      (game: any) => !gameAchievements.has(Number(game.appId))
+      (game) => !gameAchievements.has(game.appId)
     );
 
     if (gamesNeedingAchievements.length > 0) {
       // Mark games as loading
-      const appIdsToLoad = gamesNeedingAchievements.map(g => Number(g.appId));
+      const appIdsToLoad = gamesNeedingAchievements.map((g) => g.appId);
       setLoadingAchievements(prev => {
         const newSet = new Set(prev);
         appIdsToLoad.forEach((id: number) => newSet.add(id));
         return newSet;
       });
 
-      const achievementPromises = gamesNeedingAchievements.map(async (game: any) => {
+      const achievementPromises = gamesNeedingAchievements.map(async (game) => {
         try {
-          const appIdNum = Number(game.appId);
-          const achRes = await fetch(`/api/achievements?appId=${appIdNum}`);
-          if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+          const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
+          if (!achRes.ok) return { appId: game.appId, achievements: [] };
           const achData = await achRes.json();
-          return { appId: appIdNum, achievements: achData.achievements || [] };
+          // Parse dates from strings if needed
+          const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+            ...ach,
+            unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+          }));
+          return { appId: game.appId, achievements: parsedAchievements };
         } catch {
-          return { appId: Number(game.appId), achievements: [] };
+          return { appId: game.appId, achievements: [] };
         }
       });
 
       const achievementsData = await Promise.all(achievementPromises);
       const newMap = new Map(gameAchievements);
       achievementsData.forEach(({ appId, achievements }) => {
-        newMap.set(Number(appId), achievements);
+        newMap.set(appId, achievements);
       });
       setGameAchievements(newMap);
       
@@ -724,22 +670,26 @@ export default function DashboardPage() {
         
         // Refresh achievements for displayed games only
         const gamesToDisplay = gamesData.games.slice(0, displayedGamesCount);
-        const achievementPromises = gamesToDisplay.map(async (game: any) => {
+        const achievementPromises = gamesToDisplay.map(async (game: Game) => {
           try {
-            const appIdNum = Number(game.appId);
-            const achRes = await fetch(`/api/achievements?appId=${appIdNum}&refresh=true`);
-            if (!achRes.ok) return { appId: appIdNum, achievements: [] };
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}&refresh=true`);
+            if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
-            return { appId: appIdNum, achievements: achData.achievements || [] };
+            // Parse dates from strings if needed
+            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+              ...ach,
+              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+            }));
+            return { appId: game.appId, achievements: parsedAchievements };
           } catch {
-            return { appId: Number(game.appId), achievements: [] };
+            return { appId: game.appId, achievements: [] };
           }
         });
         
         const achievementsData = await Promise.all(achievementPromises);
-        const achievementsMap = new Map<number, any[]>();
+        const achievementsMap = new Map<number, GameAchievement[]>();
         achievementsData.forEach(({ appId, achievements }) => {
-          achievementsMap.set(Number(appId), achievements);
+          achievementsMap.set(appId, achievements);
         });
         setGameAchievements(achievementsMap);
         
@@ -875,7 +825,7 @@ export default function DashboardPage() {
             <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
               {/* Sort Dropdown */}
               <div className="flex items-center gap-2">
-                <Select value={sortBy} onValueChange={setSortBy}>
+                <Select value={sortBy} onValueChange={(value) => setSortBy(value as GameSortOption)}>
                   <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
@@ -951,13 +901,12 @@ export default function DashboardPage() {
               <>
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 md:gap-6">
                   {gamesToDisplay.map((game) => {
-                    const appIdNum = Number(game.appId);
-                    const achievements = gameAchievements.get(appIdNum) || [];
-                    const unlocked = achievements.filter((a: any) => a.unlocked);
+                    const achievements = gameAchievements.get(game.appId) || [];
+                    const unlocked = achievements.filter((a) => a.unlocked);
                     const total = achievements.length;
                     
                     // Extract achievement icon data
-                    const achievementIcons = achievements.map((a: any) => ({
+                    const achievementIcons = achievements.map((a) => ({
                       iconUrl: a.achievement.iconUrl,
                       iconGrayUrl: a.achievement.iconGrayUrl,
                       unlocked: a.unlocked,
@@ -975,7 +924,7 @@ export default function DashboardPage() {
                         logoUrl={game.logoUrl}
                         iconUrl={game.iconUrl}
                         achievementIcons={achievementIcons}
-                        isLoadingAchievements={loadingAchievements.has(appIdNum) && achievements.length === 0}
+                              isLoadingAchievements={loadingAchievements.has(game.appId) && achievements.length === 0}
                       />
                     );
                   })}
@@ -1005,7 +954,7 @@ export default function DashboardPage() {
                   <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
                     {/* Sort Dropdown */}
                     <div className="flex items-center gap-2">
-                      <Select value={achievementSortBy} onValueChange={setAchievementSortBy}>
+                      <Select value={achievementSortBy} onValueChange={(value) => setAchievementSortBy(value as AchievementSortOption)}>
                         <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
                           <SelectValue placeholder="Sort by" />
                         </SelectTrigger>
