@@ -6,27 +6,40 @@ import { ApiErrors } from '@/lib/utils/api-errors';
 // Maximum age for cached statistics (24 hours in milliseconds)
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { steamId: string } }
+) {
   try {
-    const steamId = request.cookies.get('steam_id')?.value;
+    const loggedInSteamId = request.cookies.get('steam_id')?.value;
+    const targetSteamId = params.steamId;
 
-    if (!steamId) {
+    if (!loggedInSteamId) {
       return ApiErrors.notAuthenticated();
     }
+
+    if (!targetSteamId) {
+      return ApiErrors.missingParameter('steamId');
+    }
+
+    // No authorization check needed - Steam API enforces privacy
+    // If profile is private, Steam API will return error/empty data
+    // If profile is public, Steam API will return data
+    // This matches Steam's behavior: public profiles = viewable statistics
 
     const dataAccess = getDataAccess();
     const searchParams = request.nextUrl.searchParams;
     const forceRefresh = searchParams.get('force') === 'true';
     
     // Get user to check lastSyncAt
-    const user = await dataAccess.getUser(steamId);
+    const user = await dataAccess.getUser(targetSteamId);
     if (!user) {
-      return ApiErrors.userNotFound(steamId);
+      return ApiErrors.userNotFound(targetSteamId);
     }
 
     // Check for cached statistics
     if (!forceRefresh) {
-      const cachedStats = await dataAccess.getUserStatistics(steamId);
+      const cachedStats = await dataAccess.getUserStatistics(targetSteamId);
       
       if (cachedStats) {
         const now = new Date();
@@ -54,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
     
     // Need to recalculate statistics
-    const games = await dataAccess.getUserGames(steamId);
+    const games = await dataAccess.getUserGames(targetSteamId);
     
     // If no games, return empty statistics
     if (games.length === 0) {
@@ -67,7 +80,7 @@ export async function GET(request: NextRequest) {
       };
       
       // Save empty stats to cache
-      await dataAccess.saveUserStatistics(steamId, emptyStats);
+      await dataAccess.saveUserStatistics(targetSteamId, emptyStats);
       
       return NextResponse.json({ statistics: emptyStats });
     }
@@ -75,7 +88,7 @@ export async function GET(request: NextRequest) {
     // Fetch achievements for all games IN PARALLEL (not sequential)
     const achievementPromises = games.map(async (game) => {
       try {
-        const achievements = await dataAccess.getUserAchievements(steamId, game.appId);
+        const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
         return { appId: game.appId, achievements };
       } catch (error) {
         console.warn(`Failed to load achievements for game ${game.appId}:`, error);
@@ -98,7 +111,7 @@ export async function GET(request: NextRequest) {
     const statistics = calculateStatistics(games, allAchievements);
     
     // Save to cache
-    await dataAccess.saveUserStatistics(steamId, statistics);
+    await dataAccess.saveUserStatistics(targetSteamId, statistics);
 
     return NextResponse.json(
       { statistics },

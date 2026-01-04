@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { CircularProgress } from "@/components/ui/circular-progress";
 import { AchievementCard } from "@/components/achievement-card";
@@ -14,6 +14,15 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { useUserData } from "@/hooks/useUserData";
 
 interface GameData {
   game: {
@@ -39,6 +48,9 @@ interface GameData {
 export default function GamePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const steamId = searchParams.get('steamId'); // Optional: for viewing friend's game
+  const { user: friendUser } = useUserData(steamId || "", false);
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string>("rarity");
@@ -47,11 +59,14 @@ export default function GamePage() {
   const loadGameData = useCallback(async () => {
     try {
       const appId = params.appId as string;
-      const response = await fetch(`/api/games/${appId}`);
+      const url = steamId 
+        ? `/api/games/${appId}?steamId=${steamId}`
+        : `/api/games/${appId}`;
+      const response = await fetch(url);
       
       if (!response.ok) {
         if (response.status === 404) {
-          router.push("/dashboard");
+          router.push(steamId ? `/user/${steamId}` : "/dashboard");
           return;
         }
         throw new Error("Failed to load game");
@@ -71,11 +86,11 @@ export default function GamePage() {
       setGameData(parsedData);
     } catch (error) {
       console.error("Error loading game data:", error);
-      router.push("/dashboard");
+      router.push(steamId ? `/user/${steamId}` : "/dashboard");
     } finally {
       setIsLoading(false);
     }
-  }, [params.appId, router]);
+  }, [params.appId, router, steamId]);
 
   useEffect(() => {
     if (params.appId) {
@@ -163,7 +178,47 @@ export default function GamePage() {
       
       {/* Hero Block */}
       <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 h-[448px] overflow-hidden gap-10 p-4 md:p-8">
+        {/* Breadcrumb Navigation */}
+        <div className="p-4 md:py-5 md:px-8 pb-0">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink 
+                  href="/dashboard"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push("/dashboard");
+                  }}
+                  className="cursor-pointer"
+                >
+                  Dashboard
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              {steamId && friendUser && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbLink
+                      href={`/user/${steamId}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        router.push(`/user/${steamId}`);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      {friendUser.username}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                </>
+              )}
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{gameData?.game.name || "Game"}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 h-[448px] overflow-hidden gap-10 p-4 md:py-2 md:px-8">
           <div className="flex flex-col justify-end items-start self-stretch flex-grow-0 flex-shrink-0 h-96 relative overflow-hidden gap-2 p-2 md:p-3 rounded-xl border border-border-strong">
             {/* Background Hero Image */}
             <img

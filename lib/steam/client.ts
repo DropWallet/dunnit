@@ -46,10 +46,12 @@ export class SteamAPIClient {
 
   /**
    * Get list of games owned by a user
+   * Note: include_played_free_games=1 is required to get rtime_last_played and playtime_2weeks
    */
   async getOwnedGames(steamId: string, includeAppInfo = true): Promise<SteamOwnedGamesResponse> {
     try {
-      const url = `${STEAM_API_BASE}/IPlayerService/GetOwnedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=${includeAppInfo ? 1 : 0}&format=json`;
+      // Include include_played_free_games=1 to get rtime_last_played and playtime_2weeks
+      const url = `${STEAM_API_BASE}/IPlayerService/GetOwnedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=${includeAppInfo ? 1 : 0}&include_played_free_games=1&format=json`;
       const response = await fetch(url);
       
       if (!response.ok) {
@@ -60,6 +62,27 @@ export class SteamAPIClient {
       return data;
     } catch (error) {
       console.error('Error fetching owned games:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recently played games (last 14 days) - more reliable for "Date Played" sorting
+   * This endpoint always returns games played in the last 14 days with playtime_2weeks
+   */
+  async getRecentlyPlayedGames(steamId: string): Promise<SteamOwnedGamesResponse> {
+    try {
+      const url = `${STEAM_API_BASE}/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&format=json`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam API error: ${response.status}`);
+      }
+
+      const data: SteamOwnedGamesResponse = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching recently played games:', error);
       throw error;
     }
   }
@@ -76,13 +99,20 @@ export class SteamAPIClient {
       const response = await fetch(url);
       
       if (!response.ok) {
+        // 400 is expected for games without achievements - don't log
+        if (response.status !== 400) {
+          console.error(`Unexpected error fetching player achievements (${response.status}):`, { steamId, appId });
+        }
         throw new Error(`Steam API error: ${response.status}`);
       }
 
       const data: SteamPlayerAchievementsResponse = await response.json();
       return data;
     } catch (error) {
-      console.error('Error fetching player achievements:', error);
+      // Only log if it's not a 400 error (expected for games without achievements)
+      if (error instanceof Error && !error.message.includes('400')) {
+        console.error('Error fetching player achievements:', error);
+      }
       throw error;
     }
   }
@@ -137,6 +167,10 @@ export class SteamAPIClient {
       const response = await fetch(url);
       
       if (!response.ok) {
+        // 403 is expected for many games - don't log
+        if (response.status !== 403) {
+          console.error(`Unexpected error fetching global achievement percentages (${response.status}):`, { appId });
+        }
         throw new Error(`Steam API error: ${response.status}`);
       }
 
@@ -151,7 +185,10 @@ export class SteamAPIClient {
       
       return percentages;
     } catch (error) {
-      console.error('Error fetching global achievement percentages:', error);
+      // Only log if it's not a 403 error (expected for many games)
+      if (error instanceof Error && !error.message.includes('403')) {
+        console.error('Error fetching global achievement percentages:', error);
+      }
       throw error;
     }
   }
@@ -169,6 +206,10 @@ export class SteamAPIClient {
       const response = await fetch(url);
       
       if (!response.ok) {
+        // 429 (rate limit) and 403 are expected - don't log
+        if (response.status !== 429 && response.status !== 403) {
+          console.error(`Unexpected error fetching achievements from XML API (${response.status}):`, { steamId, appId });
+        }
         throw new Error(`Steam XML API error: ${response.status}`);
       }
 
@@ -202,7 +243,35 @@ export class SteamAPIClient {
       
       return achievementMap;
     } catch (error) {
-      console.error('Error fetching achievements from XML API:', error);
+      // Only log if it's not a rate limit or 403 error
+      if (error instanceof Error && !error.message.includes('429') && !error.message.includes('403')) {
+        console.error('Error fetching achievements from XML API:', error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get friend list for a user
+   */
+  async getFriendList(steamId: string): Promise<string[]> {
+    try {
+      const url = `${STEAM_API_BASE}/ISteamUser/GetFriendList/v0001/?key=${this.apiKey}&steamid=${steamId}&relationship=friend`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Steam API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.friendslist?.friends) {
+        return data.friendslist.friends.map((friend: { steamid: string }) => friend.steamid);
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error fetching friend list:', error);
       throw error;
     }
   }

@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
+import { verifyIsFriend } from '@/lib/utils/authorization';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { appId: string } }
 ) {
   try {
-    const steamId = request.cookies.get('steam_id')?.value;
+    const loggedInSteamId = request.cookies.get('steam_id')?.value;
+    const searchParams = request.nextUrl.searchParams;
+    const targetSteamId = searchParams.get('steamId'); // Optional: for viewing friend's game
     
-    if (!steamId) {
+    if (!loggedInSteamId) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
@@ -22,6 +25,20 @@ export async function GET(
         { error: 'Invalid app ID' },
         { status: 400 }
       );
+    }
+
+    // Determine which steamId to use
+    const steamId = targetSteamId || loggedInSteamId;
+
+    // If viewing friend's game, verify authorization
+    if (targetSteamId && targetSteamId !== loggedInSteamId) {
+      const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
+      if (!isAuthorized) {
+        return NextResponse.json(
+          { error: 'Unauthorized: You can only view your own games or your friends\' games' },
+          { status: 403 }
+        );
+      }
     }
 
     const dataAccess = getDataAccess();
