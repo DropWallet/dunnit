@@ -341,6 +341,7 @@ export default function UserDashboardPage() {
                           statistics: {
                             totalGames: data.statistics.totalGames || 0,
                             totalAchievements: data.statistics.totalAchievements || 0,
+                            unlockedAchievements: data.statistics.unlockedAchievements || 0,
                             friendsCount: data.statistics.friendsCount || 0,
                           },
                           statsLoaded: true,
