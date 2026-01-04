@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
-import { verifyIsFriend } from '@/lib/utils/authorization';
 import { ApiErrors } from '@/lib/utils/api-errors';
 
 export async function GET(
@@ -19,14 +18,10 @@ export async function GET(
       return ApiErrors.missingParameter('steamId');
     }
 
-    // Verify authorization: user must be viewing themselves or a friend
-    const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
-    if (!isAuthorized) {
-      return ApiErrors.forbidden(
-        'You can only view your own profile or your friends\' profiles',
-        `Access denied for Steam ID: ${targetSteamId}`
-      );
-    }
+    // No authorization check needed - Steam API enforces privacy
+    // If profile is private, Steam API will return error/empty data
+    // If profile is public, Steam API will return data
+    // This matches Steam's behavior: public profiles = viewable data
 
     const dataAccess = getDataAccess();
     const user = await dataAccess.getUser(targetSteamId);

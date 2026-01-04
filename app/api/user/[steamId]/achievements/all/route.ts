@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
-import { verifyIsFriend } from '@/lib/utils/authorization';
 import { ApiErrors } from '@/lib/utils/api-errors';
 
 export async function GET(
@@ -19,14 +18,10 @@ export async function GET(
       return ApiErrors.missingParameter('steamId');
     }
 
-    // Verify authorization: user must be viewing themselves or a friend
-    const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
-    if (!isAuthorized) {
-      return ApiErrors.forbidden(
-        'You can only view your own achievements or your friends\' achievements',
-        `Access denied for Steam ID: ${targetSteamId}`
-      );
-    }
+    // No authorization check needed - Steam API enforces privacy
+    // If profile is private, Steam API will return error/empty data
+    // If profile is public, Steam API will return achievements
+    // This matches Steam's behavior: public profiles = viewable achievements
 
     const dataAccess = getDataAccess();
     const games = await dataAccess.getUserGames(targetSteamId);

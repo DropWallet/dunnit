@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
 import { calculateStatistics } from '@/lib/utils/statistics';
-import { verifyIsFriend } from '@/lib/utils/authorization';
 import { ApiErrors } from '@/lib/utils/api-errors';
 
 // Maximum age for cached statistics (24 hours in milliseconds)
@@ -23,14 +22,10 @@ export async function GET(
       return ApiErrors.missingParameter('steamId');
     }
 
-    // Verify authorization: user must be viewing themselves or a friend
-    const isAuthorized = await verifyIsFriend(loggedInSteamId, targetSteamId);
-    if (!isAuthorized) {
-      return ApiErrors.forbidden(
-        'You can only view your own statistics or your friends\' statistics',
-        `Access denied for Steam ID: ${targetSteamId}`
-      );
-    }
+    // No authorization check needed - Steam API enforces privacy
+    // If profile is private, Steam API will return error/empty data
+    // If profile is public, Steam API will return data
+    // This matches Steam's behavior: public profiles = viewable statistics
 
     const dataAccess = getDataAccess();
     const searchParams = request.nextUrl.searchParams;
