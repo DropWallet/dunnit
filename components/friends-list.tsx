@@ -23,21 +23,21 @@ interface Friend {
 interface FriendsListProps {
   friends: Friend[];
   isLoading: boolean;
-  sortBy: string;
-  onSortChange: (value: string) => void;
+  sortBy?: string;
+  onSortChange?: (value: string) => void;
   loadingFriendStats: Set<string>;
 }
 
 export function FriendsList({
   friends,
   isLoading,
-  sortBy,
+  sortBy = "name",
   onSortChange,
   loadingFriendStats,
 }: FriendsListProps) {
   const router = useRouter();
 
-  // Sort friends
+  // Sort friends based on sortBy prop, default to name
   const sortedFriends = [...friends].sort((a: Friend, b: Friend) => {
     switch (sortBy) {
       case "achievements": {
@@ -53,33 +53,35 @@ export function FriendsList({
         return bDate - aDate;
       }
       default:
-        return 0;
+        return a.username.localeCompare(b.username);
     }
   });
 
   return (
     <div className="flex flex-col gap-4 mt-4">
-      {/* Sort Controls */}
-      <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Select value={sortBy} onValueChange={onSortChange}>
-            <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent className="bg-surface-low border-border-strong">
-              <SelectItem value="achievements" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                Achievements (amount)
-              </SelectItem>
-              <SelectItem value="name" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                Name (A-Z)
-              </SelectItem>
-              <SelectItem value="date-added" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                Date added
-              </SelectItem>
-            </SelectContent>
-          </Select>
+      {/* Sort Controls - only show if onSortChange is provided */}
+      {onSortChange && (
+        <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Select value={sortBy} onValueChange={onSortChange}>
+              <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent className="bg-surface-low border-border-strong">
+                <SelectItem value="achievements" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                  Achievements (amount)
+                </SelectItem>
+                <SelectItem value="name" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                  Name (A-Z)
+                </SelectItem>
+                <SelectItem value="date-added" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
+                  Date added
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Friends List */}
       {isLoading ? (
