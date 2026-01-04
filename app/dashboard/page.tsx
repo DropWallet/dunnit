@@ -190,9 +190,20 @@ export default function DashboardPage() {
         const initialBatch = gamesData.games.slice(0, 15);
         
         // If sorting by achievement progress, fetch for all games
-        const gamesNeedingAchievements = sortBy === 'achievement-progress' 
+        const allGamesNeedingAchievements = sortBy === 'achievement-progress' 
           ? gamesData.games 
           : initialBatch;
+        
+        // Only fetch achievements for games that aren't already loaded
+        const gamesNeedingAchievements = allGamesNeedingAchievements.filter(
+          (game: Game) => !gameAchievements.has(game.appId)
+        );
+        
+        // If no games need achievements, skip fetching
+        if (gamesNeedingAchievements.length === 0) {
+          setIsLoadingGames(false);
+          return;
+        }
         
         // Mark games as loading
         const appIdsToLoad = gamesNeedingAchievements.map((g: Game) => g.appId);
@@ -744,6 +755,10 @@ export default function DashboardPage() {
   const handleRefresh = () => {
     setIsLoadingGames(true);
     setDisplayedGamesCount(15); // Reset to initial batch
+    
+    // Clear achievement state to force fresh fetch
+    setGameAchievements(new Map());
+    setLoadingAchievements(new Set());
     
     // Reset friend stats so they reload with fresh data
     setFriends((prevFriends) =>

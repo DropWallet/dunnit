@@ -158,7 +158,20 @@ export async function GET(request: NextRequest) {
       userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
     }
 
-    return NextResponse.json({ achievements: userAchievements });
+    // Set HTTP cache headers
+    // If force refresh, don't cache; otherwise cache for 5 minutes
+    const cacheControl = forceRefresh
+      ? 'no-cache, no-store, must-revalidate'
+      : 'private, max-age=300'; // 5 minutes browser cache
+
+    return NextResponse.json(
+      { achievements: userAchievements },
+      {
+        headers: {
+          'Cache-Control': cacheControl,
+        },
+      }
+    );
   } catch (error) {
     // Only log unexpected errors (not network errors that are handled)
     if (error instanceof Error && !error.message.includes('HeadersOverflowError')) {
