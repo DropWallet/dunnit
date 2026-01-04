@@ -119,8 +119,10 @@ export function FriendCard({ friend, isLoadingStats, onClick }: FriendCardProps)
               />
             </svg>
             <p className="flex-grow-0 flex-shrink-0 text-base font-bold text-center text-text-weak">
-              {friend.statistics.friendsCount > 0 ? (
-                `${friend.statistics.friendsCount} Friends`
+              {isLoadingStats ? (
+                <span className="text-text-subdued">Loading...</span>
+              ) : hasStats ? (
+                `${friend.statistics.friendsCount.toLocaleString()} Friends`
               ) : (
                 <span className="text-text-subdued">—</span>
               )}

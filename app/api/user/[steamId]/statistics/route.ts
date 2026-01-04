@@ -99,13 +99,27 @@ export async function GET(
     // Wait for all achievement fetches to complete in parallel
     const achievementResults = await Promise.all(achievementPromises);
     
-    // Build the map
+    // Build the map and track games without achievements
     const allAchievements = new Map<number, any[]>();
+    const gamesWithoutAchievements: number[] = [];
     achievementResults.forEach(({ appId, achievements }) => {
       if (achievements.length > 0) {
         allAchievements.set(appId, achievements);
+      } else {
+        // Track games that might have achievements but aren't synced yet
+        // (games with playtime are more likely to have achievements)
+        const game = games.find(g => g.appId === appId);
+        if (game && game.playtimeMinutes > 0) {
+          gamesWithoutAchievements.push(appId);
+        }
       }
     });
+    
+    // Log games that might be missing achievements (for debugging)
+    if (gamesWithoutAchievements.length > 0 && process.env.NODE_ENV === 'development') {
+      console.log(`[Stats] ${gamesWithoutAchievements.length} games with playtime but no achievements synced:`, 
+        gamesWithoutAchievements.slice(0, 10)); // Log first 10 to avoid spam
+    }
     
     // Calculate statistics
     const statistics = calculateStatistics(games, allAchievements);

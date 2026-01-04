@@ -22,6 +22,8 @@ export interface Game {
   logoUrl?: string;
   coverImageUrl?: string;
   lastPlayed?: Date;
+  derivedLastPlayed?: Date; // Latest achievement unlock time (fallback when lastPlayed is unavailable)
+  derivedLastPlayedCalculatedAt?: Date; // When derived_last_played was calculated
 }
 
 export interface UserGame {

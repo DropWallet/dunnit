@@ -3,6 +3,7 @@ import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import { verifyIsFriend } from '@/lib/utils/authorization';
 import { ApiErrors } from '@/lib/utils/api-errors';
+import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 import type { UserAchievement } from '@/lib/data/types';
 
 export async function GET(request: NextRequest) {
@@ -80,7 +81,9 @@ export async function GET(request: NextRequest) {
       const unlockTimes = new Map<string, number>();
       const achievementDescriptions = new Map<string, string>();
       
-      playerAchievementsResponse.playerstats.achievements.forEach((ach) => {
+      // Check if playerstats and achievements exist before iterating
+      if (playerAchievementsResponse.playerstats?.achievements) {
+        playerAchievementsResponse.playerstats.achievements.forEach((ach) => {
         if (ach.achieved === 1) {
           unlockedAchievements.push(ach.apiname);
           if (ach.unlocktime > 0) {
@@ -92,6 +95,7 @@ export async function GET(request: NextRequest) {
           }
         }
       });
+      }
 
       // Transform schema achievements to our format
       const achievements = (gameSchemaResponse.game.availableGameStats?.achievements || []).map(
@@ -123,6 +127,39 @@ export async function GET(request: NextRequest) {
         unlockTimes,
         globalPercentages
       );
+
+      // Recalculate derived_last_played for this game if it doesn't have lastPlayed
+      // This ensures sorting works immediately without waiting for achievements to load
+      try {
+        const game = await dataAccess.getUserGame(steamId, appIdNum);
+        if (game && !game.lastPlayed) {
+          // Check if achievements were just synced (newer than last calculation)
+          const achievementLastSynced = await dataAccess.getAchievementLastSyncedAt(steamId, appIdNum);
+          const shouldRecalculate = !game.derivedLastPlayedCalculatedAt || 
+            (achievementLastSynced && achievementLastSynced > game.derivedLastPlayedCalculatedAt);
+
+          if (shouldRecalculate) {
+            // Fetch the achievements we just saved
+            const savedAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
+            const latestUnlock = getLatestAchievementUnlockTime(savedAchievements);
+
+            if (latestUnlock) {
+              // Update the game with derived_last_played
+              const updatedGame: typeof game = {
+                ...game,
+                derivedLastPlayed: latestUnlock,
+                derivedLastPlayedCalculatedAt: new Date(),
+              };
+              
+              // Save just this game to update derived_last_played
+              await dataAccess.saveUserGames(steamId, [updatedGame]);
+            }
+          }
+        }
+      } catch (error) {
+        // Non-critical - if this fails, sorting will still work, just might need to fetch achievements
+        console.warn(`Failed to update derived_last_played for game ${appIdNum}:`, error);
+      }
 
       // Fetch again to get the formatted data
       userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);

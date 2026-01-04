@@ -278,16 +278,16 @@ export default function UserDashboardPage() {
               return null;
             })
             .then((data) => {
-              if (data) {
+              if (data && data.statistics) {
                 setFriends((prevFriends) =>
                   prevFriends.map((f) =>
                     f.steamId === friend.steamId
                       ? {
                           ...f,
                           statistics: {
-                            totalGames: data.totalGames || 0,
-                            totalAchievements: data.totalAchievements || 0,
-                            friendsCount: data.friendsCount || 0,
+                            totalGames: data.statistics.totalGames || 0,
+                            totalAchievements: data.statistics.totalAchievements || 0,
+                            friendsCount: data.statistics.friendsCount || 0,
                           },
                           statsLoaded: true,
                         }

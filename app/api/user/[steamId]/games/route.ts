@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import { ApiErrors } from '@/lib/utils/api-errors';
+import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 import type { Game } from '@/lib/data/types';
 
 export async function GET(
@@ -97,11 +98,84 @@ export async function GET(
         };
       });
 
-      // Save to cache
-      await dataAccess.saveUserGames(targetSteamId, games);
+      // Calculate derived_last_played for games without lastPlayed
+      // This uses cached achievements to provide immediate sorting without fetching achievements
+      const now = new Date();
+      const gamesWithDerivedLastPlayed = await Promise.all(
+        games.map(async (game) => {
+          // If game already has lastPlayed, no need to calculate derived
+          if (game.lastPlayed) {
+            return game;
+          }
+
+          // Check if we have cached achievements for this game
+          try {
+            const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
+            const latestUnlock = getLatestAchievementUnlockTime(achievements);
+            
+            if (latestUnlock) {
+              return {
+                ...game,
+                derivedLastPlayed: latestUnlock,
+                derivedLastPlayedCalculatedAt: now,
+              };
+            }
+          } catch (error) {
+            // If achievements aren't cached yet, that's okay - we'll calculate it later
+            // when achievements are synced
+          }
+
+          return game;
+        })
+      );
+
+      // Save to cache (including derived_last_played)
+      await dataAccess.saveUserGames(targetSteamId, gamesWithDerivedLastPlayed);
       
       // Update user's last sync time
       await dataAccess.updateUser(targetSteamId, { lastSyncAt: new Date() });
+      
+      // Use the games with derived_last_played
+      games = gamesWithDerivedLastPlayed;
+    } else {
+      // Even when loading from cache, calculate derived_last_played for games that don't have it
+      // This ensures games sort correctly even if they were cached before this feature was added
+      const now = new Date();
+      const gamesWithDerivedLastPlayed = await Promise.all(
+        games.map(async (game) => {
+          // If game already has lastPlayed or derivedLastPlayed, no need to calculate
+          if (game.lastPlayed || game.derivedLastPlayed) {
+            return game;
+          }
+
+          // Check if we have cached achievements for this game
+          try {
+            const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
+            const latestUnlock = getLatestAchievementUnlockTime(achievements);
+            
+            if (latestUnlock) {
+              const gameWithDerived = {
+                ...game,
+                derivedLastPlayed: latestUnlock,
+                derivedLastPlayedCalculatedAt: now,
+              };
+              
+              // Save the updated game to cache (async, don't wait)
+              dataAccess.saveUserGames(targetSteamId, [gameWithDerived]).catch((error) => {
+                console.warn(`Failed to save derived_last_played for game ${game.appId}:`, error);
+              });
+              
+              return gameWithDerived;
+            }
+          } catch (error) {
+            // If achievements aren't cached yet, that's okay
+          }
+
+          return game;
+        })
+      );
+      
+      games = gamesWithDerivedLastPlayed;
     }
 
     return NextResponse.json(

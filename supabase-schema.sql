@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS user_games (
   logo_url TEXT,
   cover_image_url TEXT,
   last_played TIMESTAMPTZ,
+  derived_last_played TIMESTAMPTZ,
+  derived_last_played_calculated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, app_id)
