@@ -7,22 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getCountryFlag } from "@/lib/utils/country";
 import { DotSeparator } from "@/components/dot-separator";
 import { GameCard } from "@/components/game-card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { RefreshCw, ArrowLeft } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ArrowLeft } from "lucide-react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import { Trophy } from "@/components/trophy";
 import { calculateRarity } from "@/lib/utils/achievements";
@@ -31,6 +16,8 @@ import { useUserStatistics } from "@/hooks/useUserStatistics";
 import { useUserGames } from "@/hooks/useUserGames";
 import { useUserAchievements } from "@/hooks/useUserAchievements";
 import { useGameAchievements } from "@/hooks/useGameAchievements";
+import { GameSortingControls } from "@/components/game-sorting-controls";
+import { AchievementSortingControls } from "@/components/achievement-sorting-controls";
 import type { Game } from "@/lib/data/types";
 import { 
   sortGames, 
@@ -354,50 +341,13 @@ export default function UserDashboardPage() {
             <TabPanels>
               {/* Games Tab */}
               <TabPanel>
-                <div className="flex flex-col gap-4 mt-4">
-                  <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Select value={sortBy} onValueChange={(value) => setSortBy(value as GameSortOption)}>
-                        <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
-                          <SelectValue placeholder="Sort by" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-surface-low border-border-strong">
-                          <SelectItem value="last-played" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Date played
-                          </SelectItem>
-                          <SelectItem value="most-played" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Most played
-                          </SelectItem>
-                          <SelectItem value="least-played" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Least played
-                          </SelectItem>
-                          <SelectItem value="recent-playtime" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Recent playtime
-                          </SelectItem>
-                          <SelectItem value="name-asc" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Name (A-Z)
-                          </SelectItem>
-                          <SelectItem value="name-desc" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Name (Z-A)
-                          </SelectItem>
-                          <SelectItem value="achievement-progress" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Achievement progress
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="show-unplayed"
-                        checked={showUnplayed}
-                        onCheckedChange={(checked) => setShowUnplayed(checked === true)}
+                    <div className="flex flex-col gap-4 mt-4">
+                      <GameSortingControls
+                        sortBy={sortBy}
+                        onSortChange={setSortBy}
+                        showUnplayed={showUnplayed}
+                        onShowUnplayedChange={setShowUnplayed}
                       />
-                      <Label htmlFor="show-unplayed" className="text-sm text-text-strong cursor-pointer">
-                        Show unplayed games
-                      </Label>
-                    </div>
-                  </div>
 
                   {isLoadingGames ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
@@ -459,26 +409,10 @@ export default function UserDashboardPage() {
               {/* Achievements Tab */}
               <TabPanel>
                 <div className="flex flex-col gap-4 mt-4">
-                  <div className="flex flex-col sm:flex-row flex-col-reverse justify-between items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Select value={achievementSortBy} onValueChange={(value) => setAchievementSortBy(value as AchievementSortOption)}>
-                        <SelectTrigger className="w-[200px] border-border-strong bg-surface-low text-text-strong">
-                          <SelectValue placeholder="Sort by" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-surface-low border-border-strong">
-                          <SelectItem value="rarity" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Rarity
-                          </SelectItem>
-                          <SelectItem value="unlock-date" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Unlock date
-                          </SelectItem>
-                          <SelectItem value="name" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-                            Name
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  <AchievementSortingControls
+                    sortBy={achievementSortBy}
+                    onSortChange={setAchievementSortBy}
+                  />
 
                   {isLoadingAllAchievements ? (
                     <div className="flex justify-center items-center py-12">
