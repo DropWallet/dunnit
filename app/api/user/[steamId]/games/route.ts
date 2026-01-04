@@ -99,23 +99,20 @@ export async function GET(
       });
 
       // Calculate derived_last_played for games without lastPlayed
-      // This uses cached achievements to provide immediate sorting without fetching achievements
+      // Only check achievements for games that need it (no lastPlayed) and limit to first 50 to prevent performance issues
       const now = new Date();
-      const gamesWithDerivedLastPlayed = await Promise.all(
-        games.map(async (game) => {
-          // If game already has lastPlayed, no need to calculate derived
-          if (game.lastPlayed) {
-            return game;
-          }
-
-          // Check if we have cached achievements for this game
+      const gamesNeedingDerivedLastPlayed = games.filter(game => !game.lastPlayed).slice(0, 50);
+      
+      // Process games that need derivedLastPlayed calculation
+      const derivedLastPlayedResults = await Promise.all(
+        gamesNeedingDerivedLastPlayed.map(async (game) => {
           try {
             const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
             const latestUnlock = getLatestAchievementUnlockTime(achievements);
             
             if (latestUnlock) {
               return {
-                ...game,
+                appId: game.appId,
                 derivedLastPlayed: latestUnlock,
                 derivedLastPlayedCalculatedAt: now,
               };
@@ -124,10 +121,32 @@ export async function GET(
             // If achievements aren't cached yet, that's okay - we'll calculate it later
             // when achievements are synced
           }
-
-          return game;
+          return null;
         })
       );
+      
+      // Create a map of derivedLastPlayed results for quick lookup
+      const derivedLastPlayedMap = new Map<number, { derivedLastPlayed: Date; derivedLastPlayedCalculatedAt: Date }>();
+      derivedLastPlayedResults.forEach((result, index) => {
+        if (result) {
+          derivedLastPlayedMap.set(gamesNeedingDerivedLastPlayed[index].appId, {
+            derivedLastPlayed: result.derivedLastPlayed,
+            derivedLastPlayedCalculatedAt: result.derivedLastPlayedCalculatedAt,
+          });
+        }
+      });
+      
+      // Apply derivedLastPlayed to games
+      const gamesWithDerivedLastPlayed = games.map((game) => {
+        const derived = derivedLastPlayedMap.get(game.appId);
+        if (derived) {
+          return {
+            ...game,
+            ...derived,
+          };
+        }
+        return game;
+      });
 
       // Save to cache (including derived_last_played)
       await dataAccess.saveUserGames(targetSteamId, gamesWithDerivedLastPlayed);
@@ -140,40 +159,63 @@ export async function GET(
     } else {
       // Even when loading from cache, calculate derived_last_played for games that don't have it
       // This ensures games sort correctly even if they were cached before this feature was added
+      // Only check achievements for games that need it (no lastPlayed AND no derivedLastPlayed)
+      // Limit to first 50 to prevent performance issues
       const now = new Date();
-      const gamesWithDerivedLastPlayed = await Promise.all(
-        games.map(async (game) => {
-          // If game already has lastPlayed or derivedLastPlayed, no need to calculate
-          if (game.lastPlayed || game.derivedLastPlayed) {
-            return game;
-          }
-
-          // Check if we have cached achievements for this game
+      const gamesNeedingDerivedLastPlayed = games
+        .filter(game => !game.lastPlayed && !game.derivedLastPlayed)
+        .slice(0, 50);
+      
+      // Process games that need derivedLastPlayed calculation
+      const derivedLastPlayedResults = await Promise.all(
+        gamesNeedingDerivedLastPlayed.map(async (game) => {
           try {
             const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
             const latestUnlock = getLatestAchievementUnlockTime(achievements);
             
             if (latestUnlock) {
-              const gameWithDerived = {
-                ...game,
+              return {
+                appId: game.appId,
                 derivedLastPlayed: latestUnlock,
                 derivedLastPlayedCalculatedAt: now,
               };
-              
-              // Save the updated game to cache (async, don't wait)
-              dataAccess.saveUserGames(targetSteamId, [gameWithDerived]).catch((error) => {
-                console.warn(`Failed to save derived_last_played for game ${game.appId}:`, error);
-              });
-              
-              return gameWithDerived;
             }
           } catch (error) {
             // If achievements aren't cached yet, that's okay
           }
-
-          return game;
+          return null;
         })
       );
+      
+      // Create a map of derivedLastPlayed results for quick lookup
+      const derivedLastPlayedMap = new Map<number, { derivedLastPlayed: Date; derivedLastPlayedCalculatedAt: Date }>();
+      derivedLastPlayedResults.forEach((result, index) => {
+        if (result) {
+          derivedLastPlayedMap.set(gamesNeedingDerivedLastPlayed[index].appId, {
+            derivedLastPlayed: result.derivedLastPlayed,
+            derivedLastPlayedCalculatedAt: result.derivedLastPlayedCalculatedAt,
+          });
+        }
+      });
+      
+      // Apply derivedLastPlayed to games and save updates
+      const gamesWithDerivedLastPlayed = games.map((game) => {
+        const derived = derivedLastPlayedMap.get(game.appId);
+        if (derived) {
+          const gameWithDerived = {
+            ...game,
+            ...derived,
+          };
+          
+          // Save the updated game to cache (async, don't wait)
+          dataAccess.saveUserGames(targetSteamId, [gameWithDerived]).catch((error) => {
+            console.warn(`Failed to save derived_last_played for game ${game.appId}:`, error);
+          });
+          
+          return gameWithDerived;
+        }
+        return game;
+      });
       
       games = gamesWithDerivedLastPlayed;
     }

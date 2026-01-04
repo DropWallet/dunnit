@@ -34,22 +34,21 @@ export async function GET(request: NextRequest) {
       // Store API images are fetched on-demand when header.jpg fails to load (see /api/games/[appId]/image)
       const gamesBatch = response.response.games || [];
       const defaultHeaderPattern = /\/steam\/apps\/\d+\/header\.jpg$/;
-      const cachedImageMap = new Map<number, string>(); // appId -> coverImageUrl
       
-      // Check cache for all games - use cached non-default images if available
-      for (const steamGame of gamesBatch) {
-        const cachedGame = await dataAccess.getUserGame(steamId, steamGame.appid);
-        if (cachedGame?.coverImageUrl && !defaultHeaderPattern.test(cachedGame.coverImageUrl)) {
-          // We have a cached non-default image from Store API, use it
-          cachedImageMap.set(steamGame.appid, cachedGame.coverImageUrl);
-        }
-      }
+      // Use existing cached games to get coverImageUrl (avoid N+1 queries)
+      // We already have games from getUserGames() at line 19, use that data
+      const existingGamesMap = new Map<number, Game>();
+      games.forEach(game => {
+        existingGamesMap.set(game.appId, game);
+      });
       
       // Process all games - use cached images or default header.jpg
       games = gamesBatch.map((steamGame) => {
-        // Use cached non-default image if available, otherwise use default header.jpg
-        const coverImageUrl = cachedImageMap.get(steamGame.appid) || 
-          `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+        // Check if we have a cached non-default image from existing games
+        const existingGame = existingGamesMap.get(steamGame.appid);
+        const coverImageUrl = (existingGame?.coverImageUrl && !defaultHeaderPattern.test(existingGame.coverImageUrl))
+          ? existingGame.coverImageUrl
+          : `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
 
         return {
           appId: steamGame.appid,
@@ -70,23 +69,20 @@ export async function GET(request: NextRequest) {
       });
 
       // Calculate derived_last_played for games without lastPlayed
-      // This uses cached achievements to provide immediate sorting without fetching achievements
+      // Only check achievements for games that need it (no lastPlayed) and limit to first 50 to prevent performance issues
       const now = new Date();
-      const gamesWithDerivedLastPlayed = await Promise.all(
-        games.map(async (game) => {
-          // If game already has lastPlayed, no need to calculate derived
-          if (game.lastPlayed) {
-            return game;
-          }
-
-          // Check if we have cached achievements for this game
+      const gamesNeedingDerivedLastPlayed = games.filter(game => !game.lastPlayed).slice(0, 50);
+      
+      // Process games that need derivedLastPlayed calculation
+      const derivedLastPlayedResults = await Promise.all(
+        gamesNeedingDerivedLastPlayed.map(async (game) => {
           try {
             const achievements = await dataAccess.getUserAchievements(steamId, game.appId);
             const latestUnlock = getLatestAchievementUnlockTime(achievements);
             
             if (latestUnlock) {
               return {
-                ...game,
+                appId: game.appId,
                 derivedLastPlayed: latestUnlock,
                 derivedLastPlayedCalculatedAt: now,
               };
@@ -95,10 +91,32 @@ export async function GET(request: NextRequest) {
             // If achievements aren't cached yet, that's okay - we'll calculate it later
             // when achievements are synced
           }
-
-          return game;
+          return null;
         })
       );
+      
+      // Create a map of derivedLastPlayed results for quick lookup
+      const derivedLastPlayedMap = new Map<number, { derivedLastPlayed: Date; derivedLastPlayedCalculatedAt: Date }>();
+      derivedLastPlayedResults.forEach((result, index) => {
+        if (result) {
+          derivedLastPlayedMap.set(gamesNeedingDerivedLastPlayed[index].appId, {
+            derivedLastPlayed: result.derivedLastPlayed,
+            derivedLastPlayedCalculatedAt: result.derivedLastPlayedCalculatedAt,
+          });
+        }
+      });
+      
+      // Apply derivedLastPlayed to games
+      const gamesWithDerivedLastPlayed = games.map((game) => {
+        const derived = derivedLastPlayedMap.get(game.appId);
+        if (derived) {
+          return {
+            ...game,
+            ...derived,
+          };
+        }
+        return game;
+      });
 
       // Save to cache (including derived_last_played)
       await dataAccess.saveUserGames(steamId, gamesWithDerivedLastPlayed);
@@ -112,62 +130,75 @@ export async function GET(request: NextRequest) {
       // Even when loading from cache, normalize coverImageUrl and calculate derived_last_played
       // This fixes any stale cached data with wrong image URLs (e.g., library_hero.jpg)
       const now = new Date();
-      const gamesWithDerivedLastPlayed = await Promise.all(
-        games.map(async (game) => {
-          // Normalize coverImageUrl to always use header.jpg (fixes stale cache with wrong URLs)
-          const normalizedCoverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${game.appId}/header.jpg`;
-          const needsImageUpdate = game.coverImageUrl !== normalizedCoverImageUrl;
-          
-          // Always normalize in the response (even if we don't save yet)
-          const normalizedGame = {
+      
+      // Normalize coverImageUrl for all games (no async needed)
+      const normalizedGames = games.map((game) => {
+        const normalizedCoverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${game.appId}/header.jpg`;
+        const needsImageUpdate = game.coverImageUrl !== normalizedCoverImageUrl;
+        
+        return {
+          game: {
             ...game,
             coverImageUrl: normalizedCoverImageUrl,
-          };
-          
-          // If game already has lastPlayed or derivedLastPlayed, just normalize image
-          if (game.lastPlayed || game.derivedLastPlayed) {
-            // Save the normalized image if it was wrong
-            if (needsImageUpdate) {
-              dataAccess.saveUserGames(steamId, [normalizedGame]).catch((error) => {
-                console.warn(`Failed to save fixed coverImageUrl for game ${game.appId}:`, error);
-              });
-            }
-            return normalizedGame;
-          }
-
-          // Check if we have cached achievements for this game
+          },
+          needsImageUpdate,
+        };
+      });
+      
+      // Only check achievements for games that need derivedLastPlayed (no lastPlayed AND no derivedLastPlayed)
+      // Limit to first 50 to prevent performance issues
+      const gamesNeedingDerivedLastPlayed = normalizedGames
+        .filter(({ game }) => !game.lastPlayed && !game.derivedLastPlayed)
+        .slice(0, 50);
+      
+      // Process games that need derivedLastPlayed calculation
+      const derivedLastPlayedResults = await Promise.all(
+        gamesNeedingDerivedLastPlayed.map(async ({ game }) => {
           try {
             const achievements = await dataAccess.getUserAchievements(steamId, game.appId);
             const latestUnlock = getLatestAchievementUnlockTime(achievements);
             
             if (latestUnlock) {
-              const gameWithUpdates = {
-                ...normalizedGame,
+              return {
+                appId: game.appId,
                 derivedLastPlayed: latestUnlock,
                 derivedLastPlayedCalculatedAt: now,
               };
-              
-              // Save the updated game to cache (async, don't wait)
-              dataAccess.saveUserGames(steamId, [gameWithUpdates]).catch((error) => {
-                console.warn(`Failed to save updates for game ${game.appId}:`, error);
-              });
-              
-              return gameWithUpdates;
             }
           } catch (error) {
             // If achievements aren't cached yet, that's okay
           }
-
-          // Save the normalized image if it was wrong
-          if (needsImageUpdate) {
-            dataAccess.saveUserGames(steamId, [normalizedGame]).catch((error) => {
-              console.warn(`Failed to save fixed coverImageUrl for game ${game.appId}:`, error);
-            });
-          }
-
-          return normalizedGame;
+          return null;
         })
       );
+      
+      // Create a map of derivedLastPlayed results for quick lookup
+      const derivedLastPlayedMap = new Map<number, { derivedLastPlayed: Date; derivedLastPlayedCalculatedAt: Date }>();
+      derivedLastPlayedResults.forEach((result, index) => {
+        if (result) {
+          derivedLastPlayedMap.set(gamesNeedingDerivedLastPlayed[index].game.appId, {
+            derivedLastPlayed: result.derivedLastPlayed,
+            derivedLastPlayedCalculatedAt: result.derivedLastPlayedCalculatedAt,
+          });
+        }
+      });
+      
+      // Apply derivedLastPlayed and save updates
+      const gamesWithDerivedLastPlayed = normalizedGames.map(({ game, needsImageUpdate }) => {
+        const derived = derivedLastPlayedMap.get(game.appId);
+        const gameWithUpdates = derived
+          ? { ...game, ...derived }
+          : game;
+        
+        // Save updates asynchronously (don't wait)
+        if (derived || needsImageUpdate) {
+          dataAccess.saveUserGames(steamId, [gameWithUpdates]).catch((error) => {
+            console.warn(`Failed to save updates for game ${game.appId}:`, error);
+          });
+        }
+        
+        return gameWithUpdates;
+      });
       
       games = gamesWithDerivedLastPlayed;
     }
