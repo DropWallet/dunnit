@@ -44,7 +44,10 @@ export async function GET(request: NextRequest) {
         // Update cache
         friendListCache.set(steamId, { friends: friendSteamIds, cachedAt: now });
       } catch (error) {
-        console.error("Error fetching friend list:", error);
+        // Only log unexpected errors (not 401 which is expected for private profiles)
+        if (error instanceof Error && !error.message.includes('401')) {
+          console.error("Error fetching friend list:", error);
+        }
         // If we have cached data, use it even if fetch failed
         if (cachedFriendList) {
           friendSteamIds = cachedFriendList.friends;

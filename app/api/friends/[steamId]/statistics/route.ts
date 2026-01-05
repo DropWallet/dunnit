@@ -27,7 +27,10 @@ export async function GET(
       const friendList = await steamClient.getFriendList(friendSteamId);
       friendsCount = friendList.length;
     } catch (error) {
-      console.error(`Error fetching friends count for ${friendSteamId}:`, error);
+      // Only log unexpected errors (not 401 which is expected for private profiles)
+      if (error instanceof Error && !error.message.includes('401')) {
+        console.error(`Error fetching friends count for ${friendSteamId}:`, error);
+      }
       // If we can't get friends count, just use 0
     }
 
