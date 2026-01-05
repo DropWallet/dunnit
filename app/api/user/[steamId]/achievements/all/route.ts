@@ -7,6 +7,77 @@ import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 // Number of games to sync immediately before returning response
 const INITIAL_SYNC_BATCH_SIZE = 25;
 
+// Maximum concurrent Steam API calls to prevent overwhelming the system
+// This prevents HeadersOverflowError and gateway timeouts
+const MAX_CONCURRENT_SYNC = 8;
+
+// Simple concurrency limiter
+class ConcurrencyLimiter {
+  private running = 0;
+  private queue: Array<() => void> = [];
+
+  async limit<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const run = async () => {
+        this.running++;
+        try {
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.running--;
+          if (this.queue.length > 0) {
+            const next = this.queue.shift()!;
+            next();
+          }
+        }
+      };
+
+      if (this.running < MAX_CONCURRENT_SYNC) {
+        run();
+      } else {
+        this.queue.push(run);
+      }
+    });
+  }
+}
+
+/**
+ * Retry helper for HeadersOverflowError
+ * Retries the function once after a delay if HeadersOverflowError occurs
+ */
+async function retryOnHeadersOverflow<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 1,
+  retryDelay: number = 2000
+): Promise<T | null> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      const errorMessage = lastError.message || '';
+      
+      // Check if this is a HeadersOverflowError
+      if (errorMessage.includes('HeadersOverflowError') || errorMessage.includes('UND_ERR_HEADERS_OVERFLOW')) {
+        if (attempt < maxRetries) {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+      }
+      
+      // If not HeadersOverflowError or max retries reached, return null
+      return null;
+    }
+  }
+  
+  return null;
+}
+
 /**
  * Sync achievements for a single game from Steam API
  */
@@ -30,16 +101,32 @@ async function syncGameAchievements(
       return;
     }
 
-    // Fetch from Steam API
+    // Fetch from Steam API with retry logic for HeadersOverflowError
     const [playerAchievementsResponse, gameSchemaResponse, globalPercentages, xmlAchievements] = await Promise.all([
-      steamClient.getPlayerAchievements(steamId, appId).catch(() => null),
-      steamClient.getGameSchema(appId).catch(() => null),
+      retryOnHeadersOverflow(() => steamClient.getPlayerAchievements(steamId, appId)),
+      retryOnHeadersOverflow(() => steamClient.getGameSchema(appId)),
       steamClient.getGlobalAchievementPercentages(appId).catch(() => new Map<string, number>()),
       steamClient.getPlayerAchievementsXML(steamId, appId).catch(() => new Map()),
     ]);
 
-    // If Steam API fails, skip this game (might be private or no achievements)
+    // If Steam API fails, create a placeholder to mark this game as "attempted but failed"
+    // This prevents the progress bar from getting stuck on games that can't be synced
     if (!playerAchievementsResponse || !gameSchemaResponse) {
+      // Create a placeholder to mark this game as "attempted but failed"
+      // This prevents the progress bar from getting stuck
+      try {
+        await dataAccess.saveUserAchievements(
+          steamId,
+          appId,
+          [], // Empty achievements array will trigger placeholder creation
+          [],
+          undefined,
+          undefined
+        );
+      } catch (error) {
+        // Silently fail - placeholder creation is best effort
+        // Don't log to avoid noise from expected failures
+      }
       return;
     }
 
@@ -167,22 +254,33 @@ export async function GET(
       }
     }
 
+    // Track if we actually started syncing (not just detected stale games)
+    let actuallySyncing = false;
+
     // If sync needed, sync first batch immediately, then continue in background
     if (shouldSync && gamesWithPlaytime.length > 0) {
       const steamClient = getSteamClient();
+      const limiter = new ConcurrencyLimiter();
       
-      // Sync first batch immediately (for quick response)
+      // Sync first batch immediately (for quick response) with concurrency limit
       const initialBatch = gamesWithPlaytime.slice(0, INITIAL_SYNC_BATCH_SIZE);
       await Promise.all(
-        initialBatch.map(game => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+        initialBatch.map(game => 
+          limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+        )
       );
 
-      // Continue syncing remaining games in background (fire and forget)
+      // Mark that we actually started syncing
+      actuallySyncing = true;
+
+      // Continue syncing remaining games in background (fire and forget) with concurrency limit
       const remainingGames = gamesWithPlaytime.slice(INITIAL_SYNC_BATCH_SIZE);
       if (remainingGames.length > 0) {
         // Don't await - let this run in background
         Promise.all(
-          remainingGames.map(game => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+          remainingGames.map(game => 
+            limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+          )
         ).catch(() => {
           // Silently fail - background sync errors are not critical
         });
@@ -208,7 +306,10 @@ export async function GET(
     const allAchievements = allAchievementsArrays.flat();
 
     return NextResponse.json(
-      { achievements: allAchievements },
+      { 
+        achievements: allAchievements,
+        isSyncing: actuallySyncing // Only true if we actually started syncing games
+      },
       {
         headers: {
           'Cache-Control': 'private, max-age=300', // 5 minutes browser cache

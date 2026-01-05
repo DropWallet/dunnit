@@ -79,7 +79,7 @@ export function getLatestAchievementUnlockTime(
 
   const unlockedAchievements = achievements.filter(
     (ach): ach is UserAchievement & { unlockedAt: Date } =>
-      ach.unlocked && ach.unlockedAt !== undefined && ach.unlockedAt instanceof Date
+      ach.unlocked === true && ach.unlockedAt !== undefined && ach.unlockedAt instanceof Date
   );
 
   if (unlockedAchievements.length === 0) {

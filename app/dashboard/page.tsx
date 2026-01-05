@@ -129,14 +129,30 @@ export default function DashboardPage() {
   // Tab state - remember last selected tab only on browser back/forward navigation
   const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      // Check if this is a back/forward navigation
-      const navigationEntry = window.performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
-      const isBackForward = navigationEntry?.type === 'back_forward';
+      // Use Navigation API if available (more reliable)
+      // Type assertion needed as Navigation API types aren't fully available
+      const nav = (window as any).navigation;
+      if (nav && nav.currentEntry) {
+        const navEntry = nav.currentEntry;
+        if (navEntry.transitionType === 'back_forward') {
+          const saved = sessionStorage.getItem('dashboard-selected-tab');
+          return saved !== null ? parseInt(saved, 10) : 0;
+        }
+      }
       
-      // Only restore saved tab if navigating via browser back/forward button
-      if (isBackForward) {
-        const saved = sessionStorage.getItem('dashboard-selected-tab');
-        return saved !== null ? parseInt(saved, 10) : 0;
+      // Fallback: Check if page was loaded from cache (back/forward navigation)
+      // Pages loaded from cache typically have navigation timing type 'back_forward'
+      try {
+        const perfEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        if (perfEntries.length > 0) {
+          const navEntry = perfEntries[0];
+          if (navEntry.type === 'back_forward') {
+            const saved = sessionStorage.getItem('dashboard-selected-tab');
+            return saved !== null ? parseInt(saved, 10) : 0;
+          }
+        }
+      } catch (e) {
+        // Fall through to default
       }
       
       // For link navigation, always default to Games tab (index 0)

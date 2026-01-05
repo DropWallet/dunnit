@@ -258,6 +258,66 @@ export class SupabaseDataAccess implements DataAccess {
       console.error('Error saving user achievements:', userAchievementsError);
       throw userAchievementsError;
     }
+
+    // If achievements array is empty (game has 0 achievements), create a placeholder row
+    // so we can track that this game was synced
+    if (achievements.length === 0) {
+      // First, create the placeholder achievement in the achievements table
+      // This is required because of the foreign key constraint
+      const placeholderAchievement = {
+        app_id: appId,
+        api_name: '__zero_achievements__',
+        name: 'No achievements',
+        description: 'This game does not have achievements on Steam',
+        icon_url: '',
+        icon_gray_url: '',
+        hidden: false,
+        global_percentage: null,
+      };
+
+      try {
+        // Upsert the placeholder achievement first
+        const { error: achievementError } = await this.supabase
+          .from('achievements')
+          .upsert(placeholderAchievement, { onConflict: 'app_id,api_name' });
+
+        if (achievementError) {
+          return; // Can't create placeholder if achievement definition fails
+        }
+
+        // Now create the placeholder in user_achievements
+        const placeholderRecord: any = {
+          user_id: userId,
+          app_id: appId,
+          achievement_api_name: '__zero_achievements__',
+          unlocked: false,
+          unlocked_at: null,
+          updated_at: now,
+        };
+        
+        // Try to include last_synced_at (will work after migration)
+        placeholderRecord.last_synced_at = now;
+
+        const { error: placeholderError } = await this.supabase
+          .from('user_achievements')
+          .upsert(placeholderRecord, { onConflict: 'user_id,app_id,achievement_api_name' });
+
+        // If error is about missing last_synced_at column, retry without it
+        if (placeholderError && (
+          placeholderError.message?.includes('last_synced_at') ||
+          placeholderError.code === 'PGRST204'
+        )) {
+          const { last_synced_at, ...recordWithoutLastSynced } = placeholderRecord;
+          const { error: retryError } = await this.supabase
+            .from('user_achievements')
+            .upsert(recordWithoutLastSynced, { onConflict: 'user_id,app_id,achievement_api_name' });
+          
+          // Retry succeeded or failed - no action needed
+        }
+      } catch (error) {
+        // Silently fail - placeholder creation is optional for tracking
+      }
+    }
   }
 
   async getAchievementLastSyncedAt(userId: string, appId: number): Promise<Date | null> {
@@ -294,6 +354,328 @@ export class SupabaseDataAccess implements DataAccess {
     }
   }
 
+  async getAllAchievementMetadataForUser(userId: string): Promise<Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>> {
+    const metadataMap = new Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>();
+    
+    let viewReturnedData = false;
+    
+    try {
+      // Query the view which groups achievements by app_id
+      // This returns one row per game instead of one row per achievement
+      // This avoids the 1000-row limit and is much more efficient
+      const { data, error } = await this.supabase
+        .from('user_sync_summary')
+        .select('app_id, last_synced_at, has_achievements')
+        .eq('user_id', userId);
+
+      if (error) {
+        // If view doesn't exist yet (migration not run), fall back to old method
+        if (error.message?.includes('user_sync_summary') || error.code === 'PGRST204') {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`[METADATA WARN] user_sync_summary view doesn't exist yet. Falling back to direct query. Run migration: add-user-sync-summary-view.sql`);
+          }
+          // Fall back to direct query method
+          return this.getAllAchievementMetadataForUserDirect(userId);
+        }
+        if (process.env.NODE_ENV === 'development') {
+          console.error(`[METADATA ERROR] View query failed:`, error);
+        }
+        // Continue to fallback - don't return empty map
+      } else if (data && data.length > 0) {
+        // Build the result map from the view data
+        for (const row of data) {
+          metadataMap.set(row.app_id, {
+            hasAchievements: row.has_achievements ?? false,
+            lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at) : null,
+          });
+        }
+        viewReturnedData = true;
+      }
+      
+      // Debug logging
+
+      // CRITICAL FIX: If view returned 0 rows, always fall back to direct query
+      // This handles RLS issues, view caching problems, or read-after-write consistency
+      if (!viewReturnedData || metadataMap.size === 0) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[METADATA WARN] View returned 0 rows, falling back to direct query for userId: ${userId}`);
+        }
+        const directMetadata = await this.getAllAchievementMetadataForUserDirect(userId);
+        // Merge direct query results into existing map
+        for (const [appId, metadata] of directMetadata) {
+          if (!metadataMap.has(appId)) {
+            metadataMap.set(appId, metadata);
+          } else {
+            // Update lastSyncedAt if direct query has a newer one
+            const existing = metadataMap.get(appId)!;
+            if (metadata.lastSyncedAt && (!existing.lastSyncedAt || metadata.lastSyncedAt > existing.lastSyncedAt)) {
+              existing.lastSyncedAt = metadata.lastSyncedAt;
+            }
+          }
+        }
+        
+        // If direct query also returned 0, query placeholders directly as a last resort
+        // This handles read-after-write consistency where placeholders were just created
+        if (metadataMap.size === 0) {
+          // Retry up to 3 times with increasing delays to handle read-after-write consistency
+          // This is a workaround for database write visibility issues
+          for (let attempt = 0; attempt < 3 && metadataMap.size === 0; attempt++) {
+            const delay = 1000 * (attempt + 1); // 1s, 2s, 3s
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            try {
+              const { data: allPlaceholders, error: placeholderError } = await this.supabase
+                .from('user_achievements')
+                .select('app_id, last_synced_at')
+                .eq('user_id', userId)
+                .eq('achievement_api_name', '__zero_achievements__')
+                .limit(1000);
+              
+              if (!placeholderError && allPlaceholders && allPlaceholders.length > 0) {
+                for (const placeholder of allPlaceholders) {
+                  if (!metadataMap.has(placeholder.app_id)) {
+                    metadataMap.set(placeholder.app_id, {
+                      hasAchievements: false,
+                      lastSyncedAt: placeholder.last_synced_at ? new Date(placeholder.last_synced_at) : null,
+                    });
+                  }
+                }
+                // Found placeholders, exit retry loop
+                if (metadataMap.size > 0) {
+                  break;
+                }
+              }
+            } catch (placeholderError) {
+              if (process.env.NODE_ENV === 'development') {
+                console.warn(`[METADATA WARN] Error in last resort placeholder query (attempt ${attempt + 1}):`, placeholderError);
+              }
+            }
+          }
+        }
+      } else {
+        // View returned data, but still query for recently updated placeholders as safety net
+        const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+        try {
+          const { data: recentPlaceholders, error: recentError } = await this.supabase
+            .from('user_achievements')
+            .select('app_id, last_synced_at, updated_at')
+            .eq('user_id', userId)
+            .eq('achievement_api_name', '__zero_achievements__')
+            .gte('updated_at', thirtySecondsAgo);
+
+          if (recentError) {
+            if (process.env.NODE_ENV === 'development') {
+              console.warn(`[METADATA WARN] Error querying recent placeholders:`, recentError);
+            }
+          } else if (recentPlaceholders && recentPlaceholders.length > 0) {
+            let addedCount = 0;
+            for (const placeholder of recentPlaceholders) {
+              if (!metadataMap.has(placeholder.app_id)) {
+                metadataMap.set(placeholder.app_id, {
+                  hasAchievements: false,
+                  lastSyncedAt: placeholder.last_synced_at ? new Date(placeholder.last_synced_at) : null,
+                });
+                addedCount++;
+              }
+            }
+          }
+          
+          // FINAL FALLBACK: If we still have a reasonable number of games but might be missing placeholders,
+          // query ALL placeholders for this user (not just recent ones) to ensure we catch everything
+          // This handles cases where placeholders were created >30 seconds ago but view hasn't updated
+          // Always run this when view returned data (it's a safety net, and the limit prevents huge queries)
+          if (viewReturnedData && metadataMap.size > 0) {
+            // Only do this expensive query if we have some data (view worked) but might be missing some
+            try {
+              // Add a small delay to allow database writes to become visible
+              // This is a workaround for read-after-write consistency issues
+              await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+              
+              const { data: allPlaceholders, error: allPlaceholdersError } = await this.supabase
+                .from('user_achievements')
+                .select('app_id, last_synced_at')
+                .eq('user_id', userId)
+                .eq('achievement_api_name', '__zero_achievements__')
+                .limit(1000); // Limit to avoid huge queries, but should cover most cases
+              
+              if (!allPlaceholdersError && allPlaceholders) {
+                for (const placeholder of allPlaceholders) {
+                  if (!metadataMap.has(placeholder.app_id)) {
+                    metadataMap.set(placeholder.app_id, {
+                      hasAchievements: false,
+                      lastSyncedAt: placeholder.last_synced_at ? new Date(placeholder.last_synced_at) : null,
+                    });
+                  }
+                }
+              }
+            } catch (fallbackError) {
+              // Silently fail - this is just a safety net
+              if (process.env.NODE_ENV === 'development') {
+                console.warn(`[METADATA WARN] Error in full placeholder fallback query:`, fallbackError);
+              }
+            }
+          }
+        } catch (recentError) {
+          // Silently fail - this is just a safety net
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`[METADATA WARN] Error in recent placeholders query:`, recentError);
+          }
+        }
+      }
+    } catch (error: any) {
+      // View doesn't exist yet - migration not run, or other error
+      if (error?.message?.includes('user_sync_summary')) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[METADATA WARN] user_sync_summary view error. Falling back to direct query. Run migration: add-user-sync-summary-view.sql`);
+        }
+      } else {
+        console.error('Error getting achievement metadata:', error);
+      }
+      // Fall back to direct query
+      const directMetadata = await this.getAllAchievementMetadataForUserDirect(userId);
+      for (const [appId, metadata] of directMetadata) {
+        metadataMap.set(appId, metadata);
+      }
+    }
+
+    return metadataMap;
+  }
+
+  // Direct query method that queries user_achievements table directly
+  // This is used as a fallback when the view fails or returns 0 rows
+  private async getAllAchievementMetadataForUserDirect(userId: string): Promise<Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>> {
+    const metadataMap = new Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>();
+    
+    try {
+      // Query ALL user_achievements for this user with pagination
+      // Group by app_id to get one row per game
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      const seenAppIds = new Set<number>();
+
+      while (hasMore) {
+        const { data, error } = await this.supabase
+          .from('user_achievements')
+          .select('app_id, last_synced_at, achievement_api_name')
+          .eq('user_id', userId)
+          .range(from, from + pageSize - 1)
+          .order('app_id', { ascending: true });
+
+        if (error) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error(`[METADATA ERROR] Direct query failed (page ${from}-${from + pageSize - 1}):`, error);
+          }
+          break;
+        }
+
+        if (data && data.length > 0) {
+          // Process this page of data
+          for (const row of data) {
+            if (!seenAppIds.has(row.app_id)) {
+              seenAppIds.add(row.app_id);
+              const isPlaceholder = row.achievement_api_name === '__zero_achievements__';
+              
+              // If we already have this app_id, update it if this row has a newer last_synced_at
+              if (metadataMap.has(row.app_id)) {
+                const existing = metadataMap.get(row.app_id)!;
+                const rowLastSynced = row.last_synced_at ? new Date(row.last_synced_at) : null;
+                if (rowLastSynced && (!existing.lastSyncedAt || rowLastSynced > existing.lastSyncedAt)) {
+                  existing.lastSyncedAt = rowLastSynced;
+                }
+                // Update hasAchievements if this row is not a placeholder
+                if (!isPlaceholder) {
+                  existing.hasAchievements = true;
+                }
+              } else {
+                // New app_id - add it
+                metadataMap.set(row.app_id, {
+                  hasAchievements: !isPlaceholder,
+                  lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at) : null,
+                });
+              }
+            } else {
+              // We've seen this app_id before in this page, update metadata
+              const existing = metadataMap.get(row.app_id)!;
+              const isPlaceholder = row.achievement_api_name === '__zero_achievements__';
+              if (!isPlaceholder) {
+                existing.hasAchievements = true;
+              }
+              const rowLastSynced = row.last_synced_at ? new Date(row.last_synced_at) : null;
+              if (rowLastSynced && (!existing.lastSyncedAt || rowLastSynced > existing.lastSyncedAt)) {
+                existing.lastSyncedAt = rowLastSynced;
+              }
+            }
+          }
+          
+          from += pageSize;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+    } catch (error) {
+      console.error('Error in direct query fallback:', error);
+    }
+
+    return metadataMap;
+  }
+
+  // Legacy method as fallback (keeps old logic for backwards compatibility)
+  private async getAllAchievementMetadataForUserLegacy(userId: string): Promise<Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>> {
+    const metadataMap = new Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>();
+    
+    try {
+      const { data, error } = await this.supabase
+        .from('user_achievements')
+        .select('app_id, last_synced_at, achievement_api_name')
+        .eq('user_id', userId)
+        .limit(1000); // Explicit limit to avoid confusion
+
+      if (error) {
+        if (error.message?.includes('last_synced_at') || error.code === 'PGRST204') {
+          return metadataMap;
+        }
+        console.error('Error getting achievement metadata (legacy):', error);
+        return metadataMap;
+      }
+
+      const appIdMap = new Map<number, Date | null>();
+      const appIdsWithRealAchievements = new Set<number>();
+      
+      if (data) {
+        for (const row of data) {
+          const appId = row.app_id;
+          const lastSyncedAt = row.last_synced_at ? new Date(row.last_synced_at) : null;
+          
+          if (row.achievement_api_name !== '__zero_achievements__') {
+            appIdsWithRealAchievements.add(appId);
+          }
+          
+          const existing = appIdMap.get(appId);
+          if (!existing || (lastSyncedAt && (!existing || lastSyncedAt > existing))) {
+            appIdMap.set(appId, lastSyncedAt);
+          }
+        }
+      }
+
+      for (const [appId, lastSyncedAt] of appIdMap.entries()) {
+        metadataMap.set(appId, {
+          hasAchievements: appIdsWithRealAchievements.has(appId),
+          lastSyncedAt,
+        });
+      }
+    } catch (error: any) {
+      if (error?.message?.includes('last_synced_at') || error?.code === 'PGRST204') {
+        return metadataMap;
+      }
+      console.error('Error getting achievement metadata (legacy):', error);
+    }
+
+    return metadataMap;
+  }
+
   async getUserAchievements(userId: string, appId: number): Promise<UserAchievement[]> {
     // First get user achievements
     const { data: userAchievementsData, error: userAchievementsError } = await this.supabase
@@ -311,8 +693,17 @@ export class SupabaseDataAccess implements DataAccess {
       return [];
     }
 
+    // Filter out placeholder rows for games with 0 achievements
+    const realUserAchievements = userAchievementsData.filter(
+      ua => ua.achievement_api_name !== '__zero_achievements__'
+    );
+
+    if (realUserAchievements.length === 0) {
+      return [];
+    }
+
     // Get all achievement API names
-    const achievementApiNames = userAchievementsData.map(ua => ua.achievement_api_name);
+    const achievementApiNames = realUserAchievements.map(ua => ua.achievement_api_name);
 
     // Fetch achievement definitions
     const { data: achievementsData, error: achievementsError } = await this.supabase
@@ -339,7 +730,7 @@ export class SupabaseDataAccess implements DataAccess {
     );
 
     // Combine user achievements with achievement definitions
-    return userAchievementsData.map(row => {
+    return realUserAchievements.map(row => {
       const achievement = achievementsMap.get(row.achievement_api_name);
       
       if (!achievement) {
@@ -347,6 +738,7 @@ export class SupabaseDataAccess implements DataAccess {
         return {
           userId: row.user_id,
           appId: row.app_id,
+          apiName: row.achievement_api_name, // For backward compatibility
           achievement: {
             appId,
             apiName: row.achievement_api_name,
@@ -355,7 +747,7 @@ export class SupabaseDataAccess implements DataAccess {
             iconUrl: '',
             iconGrayUrl: '',
             hidden: false,
-            globalPercentage: null,
+            globalPercentage: undefined,
           },
           unlocked: row.unlocked,
           unlockedAt: row.unlocked_at ? new Date(row.unlocked_at) : undefined,
@@ -365,6 +757,7 @@ export class SupabaseDataAccess implements DataAccess {
       return {
         userId: row.user_id,
         appId: row.app_id,
+        apiName: achievement.api_name, // For backward compatibility
         achievement: {
           appId: achievement.app_id,
           apiName: achievement.api_name,
@@ -377,6 +770,7 @@ export class SupabaseDataAccess implements DataAccess {
         },
         unlocked: row.unlocked,
         unlockedAt: row.unlocked_at ? new Date(row.unlocked_at) : undefined,
+        globalPercentage: achievement.global_percentage,
       };
     });
   }
@@ -441,6 +835,46 @@ export class SupabaseDataAccess implements DataAccess {
 
     if (error) {
       console.error('Error saving user statistics:', error);
+      throw error;
+    }
+  }
+
+  async getUserFriendsCount(steamId: string): Promise<{ count: number; syncedAt: Date | null } | null> {
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('friends_count, friends_count_synced_at')
+      .eq('steam_id', steamId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      console.error('Error getting friends count:', error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      count: data.friends_count || 0,
+      syncedAt: data.friends_count_synced_at ? new Date(data.friends_count_synced_at) : null,
+    };
+  }
+
+  async saveUserFriendsCount(steamId: string, count: number): Promise<void> {
+    const { error } = await this.supabase
+      .from('users')
+      .update({
+        friends_count: count,
+        friends_count_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('steam_id', steamId);
+
+    if (error) {
+      console.error('Error saving friends count:', error);
       throw error;
     }
   }

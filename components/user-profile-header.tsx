@@ -30,6 +30,7 @@ export function UserProfileHeader({
   statistics,
   isLoadingStats,
 }: UserProfileHeaderProps) {
+
   return (
     <div className="flex flex-col justify-start items-start gap-5 lg:flex-row lg:items-center lg:gap-10">
       {/* Avatar */}
@@ -69,41 +70,44 @@ export function UserProfileHeader({
           </div>
         </div>
 
-        {/* Statistics Section */}
-        {isLoadingStats ? (
-          <div className="flex justify-start items-center gap-3 p-2 rounded-lg bg-surface-mid border border-border-strong w-full">
-            <p className="text-text-moderate">Loading statistics...</p>
-          </div>
-        ) : statistics ? (
-          <div className="grid grid-cols-2 gap-0.5 p-1 rounded-lg bg-surface-mid border border-border-strong w-full md:w-full md:flex md:justify-start md:items-center">
-            <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-              <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                {statistics.unlockedAchievements.toLocaleString()}
-              </p>
-              <p className="text-xs text-center text-text-subdued">Achievements</p>
+        {/* Statistics and Sync Progress Section */}
+        <div className="flex flex-col md:flex-row gap-2 w-full">
+          {/* Statistics Section */}
+          {isLoadingStats ? (
+            <div className="flex justify-start items-center gap-3 p-2 rounded-lg bg-surface-mid border border-border-strong w-full">
+              <p className="text-text-moderate">Loading statistics...</p>
             </div>
-            <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-              <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                {statistics.averageCompletionRate}%
-              </p>
-              <p className="text-xs text-center text-text-subdued">
-                Avg completion rate
-              </p>
+          ) : statistics ? (
+            <div className="grid grid-cols-2 gap-0.5 p-1 rounded-lg bg-surface-mid border border-border-strong w-full md:w-auto md:flex md:justify-start md:items-center">
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
+                  {statistics.unlockedAchievements.toLocaleString()}
+                </p>
+                <p className="text-xs text-center text-text-subdued">Achievements</p>
+              </div>
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
+                  {statistics.averageCompletionRate}%
+                </p>
+                <p className="text-xs text-center text-text-subdued">
+                  Avg completion rate
+                </p>
+              </div>
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
+                  {statistics.totalGames.toLocaleString()}
+                </p>
+                <p className="text-xs text-center text-text-subdued">Games</p>
+              </div>
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
+                  {statistics.startedGames.toLocaleString()}
+                </p>
+                <p className="text-xs text-center text-text-subdued">Started games</p>
+              </div>
             </div>
-            <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-              <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                {statistics.totalGames.toLocaleString()}
-              </p>
-              <p className="text-xs text-center text-text-subdued">Games</p>
-            </div>
-            <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
-              <p className="text-3xl md:text-2xl font-semibold text-center text-text-moderate">
-                {statistics.startedGames.toLocaleString()}
-              </p>
-              <p className="text-xs text-center text-text-subdued">Started games</p>
-            </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
     </div>
   );
