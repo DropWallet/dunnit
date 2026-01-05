@@ -117,6 +117,14 @@ export default function DashboardPage() {
   const [friendsRefreshKey, setFriendsRefreshKey] = useState(0);
   const friendsStatsLoadingRef = useRef<Set<string>>(new Set());
   const friendsFullStatsAttemptedRef = useRef<Set<string>>(new Set());
+  
+  // Friend statistics queue system with rate limiting
+  const friendStatsQueueRef = useRef<Array<{ steamId: string; lightweight: boolean }>>([]);
+  const friendStatsProcessingRef = useRef<boolean>(false);
+  const friendStatsDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent requests to avoid database overload
+  const QUEUE_DEBOUNCE_MS = 300; // Debounce queue processing by 300ms to batch requests
+  const REQUEST_DELAY_MS = 100; // Delay between individual requests within a batch
 
   // Tab state - remember last selected tab
   const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
@@ -297,7 +305,135 @@ export default function DashboardPage() {
     loadFriends();
   }, []);
 
-  // Progressive loading: Load statistics for friends in batches
+  // Queue-based friend statistics loader with rate limiting and debouncing
+  const processFriendStatsQueue = useCallback(async () => {
+    if (friendStatsProcessingRef.current || friendStatsQueueRef.current.length === 0) {
+      return;
+    }
+
+    friendStatsProcessingRef.current = true;
+
+    // Process queue with limited concurrency
+    while (friendStatsQueueRef.current.length > 0) {
+      const batch: Array<{ steamId: string; lightweight: boolean }> = [];
+      
+      // Take up to MAX_CONCURRENT_REQUESTS from queue
+      while (batch.length < MAX_CONCURRENT_REQUESTS && friendStatsQueueRef.current.length > 0) {
+        const item = friendStatsQueueRef.current.shift();
+        if (item) {
+          // Skip if already loading
+          const loadingKey = item.lightweight ? item.steamId : `${item.steamId}-full`;
+          if (!friendsStatsLoadingRef.current.has(loadingKey)) {
+            batch.push(item);
+          }
+        }
+      }
+
+      if (batch.length === 0) {
+        break;
+      }
+
+      // Process batch concurrently
+      const promises = batch.map(async (item) => {
+        const loadingKey = item.lightweight ? item.steamId : `${item.steamId}-full`;
+        
+        // Mark as loading
+        friendsStatsLoadingRef.current.add(loadingKey);
+        setLoadingFriendStats((prev) => new Set(prev).add(item.steamId));
+
+        try {
+          const url = item.lightweight
+            ? `/api/friends/${item.steamId}/statistics?lightweight=true&t=${Date.now()}`
+            : `/api/friends/${item.steamId}/statistics?t=${Date.now()}`;
+          
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            setFriends((prevFriends) =>
+              prevFriends.map((f) =>
+                f.steamId === item.steamId
+                  ? {
+                      ...f,
+                      statistics: {
+                        totalGames: data.statistics.totalGames || 0,
+                        totalAchievements: data.statistics.totalAchievements || 0,
+                        unlockedAchievements: data.statistics.unlockedAchievements || 0,
+                        friendsCount: data.statistics.friendsCount || 0,
+                      },
+                      statsLoaded: item.lightweight ? true : f.statsLoaded,
+                    }
+                  : f
+              )
+            );
+
+            // If lightweight, mark full stats as attempted so we can load them next
+            if (item.lightweight) {
+              // Don't mark as attempted yet - let the queue system handle it
+            } else {
+              friendsFullStatsAttemptedRef.current.add(item.steamId);
+            }
+          }
+        } catch (error) {
+          if (item.lightweight) {
+            // Mark as loaded even on error to prevent retries
+            setFriends((prevFriends) =>
+              prevFriends.map((f) =>
+                f.steamId === item.steamId ? { ...f, statsLoaded: true } : f
+              )
+            );
+          }
+          // For full stats, don't mark as error - keep existing stats
+        } finally {
+          friendsStatsLoadingRef.current.delete(loadingKey);
+          setLoadingFriendStats((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(item.steamId);
+            return newSet;
+          });
+        }
+      });
+
+      await Promise.all(promises);
+
+      // Delay before next batch to avoid overwhelming the database
+      if (friendStatsQueueRef.current.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS));
+      }
+    }
+
+    friendStatsProcessingRef.current = false;
+  }, []);
+
+  // Add requests to queue with debouncing
+  const enqueueFriendStats = useCallback((steamId: string, lightweight: boolean) => {
+    // Check if already in queue
+    const alreadyQueued = friendStatsQueueRef.current.some(
+      item => item.steamId === steamId && item.lightweight === lightweight
+    );
+    
+    if (alreadyQueued) {
+      return;
+    }
+
+    // Check if already loading
+    const loadingKey = lightweight ? steamId : `${steamId}-full`;
+    if (friendsStatsLoadingRef.current.has(loadingKey)) {
+      return;
+    }
+
+    // Add to queue
+    friendStatsQueueRef.current.push({ steamId, lightweight });
+
+    // Debounce queue processing
+    if (friendStatsDebounceTimerRef.current) {
+      clearTimeout(friendStatsDebounceTimerRef.current);
+    }
+
+    friendStatsDebounceTimerRef.current = setTimeout(() => {
+      processFriendStatsQueue();
+    }, QUEUE_DEBOUNCE_MS);
+  }, [processFriendStatsQueue]);
+
   // Step 1: Load lightweight stats (friends count only) for all friends
   useEffect(() => {
     if (friends.length === 0) return;
@@ -309,85 +445,17 @@ export default function DashboardPage() {
         !friendsStatsLoadingRef.current.has(friend.steamId)
     );
 
-    if (friendsNeedingLightweightStats.length === 0) return;
-
-    // Load lightweight stats in batches of 10 (faster since it's just friends count)
-    const batchSize = 10;
-    const batches: Friend[][] = [];
-    for (let i = 0; i < friendsNeedingLightweightStats.length; i += batchSize) {
-      batches.push(friendsNeedingLightweightStats.slice(i, i + batchSize));
-    }
-
-    // Process batches with a delay between them
-    const timeouts: NodeJS.Timeout[] = [];
-    batches.forEach((batch, batchIndex) => {
-      const timeout = setTimeout(() => {
-        batch.forEach(async (friend) => {
-          // Skip if already loading
-          if (friendsStatsLoadingRef.current.has(friend.steamId)) return;
-          
-          // Mark as loading in ref and state
-          friendsStatsLoadingRef.current.add(friend.steamId);
-          setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
-
-          try {
-            // Fetch lightweight stats (only friends count)
-            const res = await fetch(`/api/friends/${friend.steamId}/statistics?lightweight=true&t=${Date.now()}`);
-            if (res.ok) {
-              const data = await res.json();
-              // Update friend with lightweight statistics
-              setFriends((prevFriends) =>
-                prevFriends.map((f) =>
-                  f.steamId === friend.steamId
-                    ? {
-                        ...f,
-                        statistics: {
-                          totalGames: data.statistics.totalGames || 0,
-                          totalAchievements: data.statistics.totalAchievements || 0,
-                          unlockedAchievements: data.statistics.unlockedAchievements || 0,
-                          friendsCount: data.statistics.friendsCount || 0,
-                        },
-                        statsLoaded: true, // Mark as loaded so we can check for full stats next
-                      }
-                    : f
-                )
-              );
-            }
-          } catch (error) {
-            console.error(`Error loading lightweight stats for friend ${friend.steamId}:`, error);
-            // Mark as loaded even on error to prevent retries
-            setFriends((prevFriends) =>
-              prevFriends.map((f) =>
-                f.steamId === friend.steamId
-                  ? { ...f, statsLoaded: true }
-                  : f
-              )
-            );
-          } finally {
-            friendsStatsLoadingRef.current.delete(friend.steamId);
-            setLoadingFriendStats((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(friend.steamId);
-              return newSet;
-            });
-          }
-        });
-      }, batchIndex * 200); // 200ms delay between batches (faster for lightweight)
-      timeouts.push(timeout);
+    // Enqueue all friends needing lightweight stats
+    friendsNeedingLightweightStats.forEach(friend => {
+      enqueueFriendStats(friend.steamId, true);
     });
-
-    // Cleanup timeouts on unmount or when friends change
-    return () => {
-      timeouts.forEach((timeout) => clearTimeout(timeout));
-    };
-  }, [friends.length, friendsRefreshKey]); // Include friendsRefreshKey to re-run when stats are reset
+  }, [friends.length, friendsRefreshKey, enqueueFriendStats]);
 
   // Step 2: Load full stats (achievements) for friends that have games cached
   useEffect(() => {
     if (friends.length === 0) return;
 
     // Find friends that have lightweight stats but haven't attempted full stats yet
-    // We'll try to fetch full stats - the API will only calculate if games are cached
     const friendsNeedingFullStats = friends.filter(
       (friend) => 
         friend.statsLoaded && // Has lightweight stats
@@ -396,71 +464,20 @@ export default function DashboardPage() {
         !friendsStatsLoadingRef.current.has(`${friend.steamId}-full`) // Not already loading full stats
     );
 
-    if (friendsNeedingFullStats.length === 0) return;
-
-    // Load full stats in batches of 5 (slower since it calculates achievements)
-    const batchSize = 5;
-    const batches: Friend[][] = [];
-    for (let i = 0; i < friendsNeedingFullStats.length; i += batchSize) {
-      batches.push(friendsNeedingFullStats.slice(i, i + batchSize));
-    }
-
-    // Process batches with a delay between them
-    const timeouts: NodeJS.Timeout[] = [];
-    batches.forEach((batch, batchIndex) => {
-      const timeout = setTimeout(() => {
-        batch.forEach(async (friend) => {
-          // Skip if already loading
-          if (friendsStatsLoadingRef.current.has(`${friend.steamId}-full`)) return;
-          
-          // Mark as attempted and loading
-          friendsFullStatsAttemptedRef.current.add(friend.steamId);
-          friendsStatsLoadingRef.current.add(`${friend.steamId}-full`);
-          setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
-
-          try {
-            // Fetch full stats (API will only calculate if games are cached)
-            const res = await fetch(`/api/friends/${friend.steamId}/statistics?t=${Date.now()}`);
-            if (res.ok) {
-              const data = await res.json();
-              // Update friend with full statistics (includes achievements if games are cached)
-              setFriends((prevFriends) =>
-                prevFriends.map((f) =>
-                  f.steamId === friend.steamId
-                    ? {
-                        ...f,
-                        statistics: {
-                          totalGames: data.statistics.totalGames || 0,
-                          totalAchievements: data.statistics.totalAchievements || 0,
-                          unlockedAchievements: data.statistics.unlockedAchievements || 0,
-                          friendsCount: data.statistics.friendsCount || 0,
-                        },
-                      }
-                    : f
-                )
-              );
-            }
-          } catch (error) {
-            console.error(`Error loading full stats for friend ${friend.steamId}:`, error);
-            // Don't mark as error - keep existing stats
-          } finally {
-            friendsStatsLoadingRef.current.delete(`${friend.steamId}-full`);
-            setLoadingFriendStats((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(friend.steamId);
-              return newSet;
-            });
-          }
-        });
-      }, batchIndex * 500); // 500ms delay between batches
-      timeouts.push(timeout);
+    // Enqueue all friends needing full stats
+    friendsNeedingFullStats.forEach(friend => {
+      enqueueFriendStats(friend.steamId, false);
     });
+  }, [friends, enqueueFriendStats]);
 
-    // Cleanup timeouts on unmount or when friends change
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
     return () => {
-      timeouts.forEach((timeout) => clearTimeout(timeout));
+      if (friendStatsDebounceTimerRef.current) {
+        clearTimeout(friendStatsDebounceTimerRef.current);
+      }
     };
-  }, [friends]); // Re-run when friends change (after lightweight stats are loaded)
+  }, []);
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
