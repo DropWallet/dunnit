@@ -4,6 +4,7 @@ import { getSteamClient } from "@/lib/steam/client";
 import { ApiErrors } from "@/lib/utils/api-errors";
 import { calculateStatistics } from "@/lib/utils/statistics";
 import { getLatestAchievementUnlockTime } from "@/lib/utils/achievements";
+import type { UserAchievement } from "@/lib/data/types";
 
 export async function GET(
   request: NextRequest,
@@ -27,7 +28,10 @@ export async function GET(
       const friendList = await steamClient.getFriendList(friendSteamId);
       friendsCount = friendList.length;
     } catch (error) {
-      console.error(`Error fetching friends count for ${friendSteamId}:`, error);
+      // Only log unexpected errors (not 401 which is expected for private profiles)
+      if (error instanceof Error && !error.message.includes('401')) {
+        console.error(`Error fetching friends count for ${friendSteamId}:`, error);
+      }
       // If we can't get friends count, just use 0
     }
 
@@ -194,7 +198,7 @@ export async function GET(
         });
         
         const achievementResults = await Promise.all(achievementPromises);
-        const allAchievements = new Map<number, any[]>();
+        const allAchievements = new Map<number, UserAchievement[]>();
         achievementResults.forEach(({ appId, achievements }) => {
           if (achievements.length > 0) {
             allAchievements.set(appId, achievements);
@@ -267,7 +271,7 @@ export async function GET(
           });
           
           const achievementResults = await Promise.all(achievementPromises);
-          const allAchievements = new Map<number, any[]>();
+          const allAchievements = new Map<number, UserAchievement[]>();
           achievementResults.forEach(({ appId, achievements }) => {
             if (achievements.length > 0) {
               allAchievements.set(appId, achievements);

@@ -263,6 +263,10 @@ export class SteamAPIClient {
       const response = await fetch(url);
       
       if (!response.ok) {
+        // 401 is expected for private profiles - don't log
+        if (response.status !== 401) {
+          console.error(`Unexpected error fetching friend list (${response.status}):`, steamId);
+        }
         throw new Error(`Steam API error: ${response.status}`);
       }
 
@@ -274,7 +278,10 @@ export class SteamAPIClient {
       
       return [];
     } catch (error) {
-      console.error('Error fetching friend list:', error);
+      // Only log unexpected errors (not 401 which is expected for private profiles)
+      if (error instanceof Error && !error.message.includes('401')) {
+        console.error('Error fetching friend list:', error);
+      }
       throw error;
     }
   }

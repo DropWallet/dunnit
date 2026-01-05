@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
 import { calculateStatistics } from '@/lib/utils/statistics';
 import { ApiErrors } from '@/lib/utils/api-errors';
+import type { UserAchievement } from '@/lib/data/types';
 
 // Maximum age for cached statistics (24 hours in milliseconds)
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
     const achievementResults = await Promise.all(achievementPromises);
     
     // Build the map and track games without achievements
-    const allAchievements = new Map<number, any[]>();
+    const allAchievements = new Map<number, UserAchievement[]>();
     const gamesWithoutAchievements: number[] = [];
     achievementResults.forEach(({ appId, achievements }) => {
       if (achievements.length > 0) {
