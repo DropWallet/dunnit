@@ -126,11 +126,21 @@ export default function DashboardPage() {
   const QUEUE_DEBOUNCE_MS = 300; // Debounce queue processing by 300ms to batch requests
   const REQUEST_DELAY_MS = 100; // Delay between individual requests within a batch
 
-  // Tab state - remember last selected tab
+  // Tab state - remember last selected tab only on browser back/forward navigation
   const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('dashboard-selected-tab');
-      return saved !== null ? parseInt(saved, 10) : 0;
+      // Check if this is a back/forward navigation
+      const navigationEntry = window.performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      const isBackForward = navigationEntry?.type === 'back_forward';
+      
+      // Only restore saved tab if navigating via browser back/forward button
+      if (isBackForward) {
+        const saved = sessionStorage.getItem('dashboard-selected-tab');
+        return saved !== null ? parseInt(saved, 10) : 0;
+      }
+      
+      // For link navigation, always default to Games tab (index 0)
+      return 0;
     }
     return 0;
   });
