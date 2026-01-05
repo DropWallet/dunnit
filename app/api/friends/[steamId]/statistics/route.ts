@@ -4,6 +4,7 @@ import { getSteamClient } from "@/lib/steam/client";
 import { ApiErrors } from "@/lib/utils/api-errors";
 import { calculateStatistics } from "@/lib/utils/statistics";
 import { getLatestAchievementUnlockTime } from "@/lib/utils/achievements";
+import type { UserAchievement } from "@/lib/data/types";
 
 export async function GET(
   request: NextRequest,
@@ -197,7 +198,7 @@ export async function GET(
         });
         
         const achievementResults = await Promise.all(achievementPromises);
-        const allAchievements = new Map<number, any[]>();
+        const allAchievements = new Map<number, UserAchievement[]>();
         achievementResults.forEach(({ appId, achievements }) => {
           if (achievements.length > 0) {
             allAchievements.set(appId, achievements);
@@ -270,7 +271,7 @@ export async function GET(
           });
           
           const achievementResults = await Promise.all(achievementPromises);
-          const allAchievements = new Map<number, any[]>();
+          const allAchievements = new Map<number, UserAchievement[]>();
           achievementResults.forEach(({ appId, achievements }) => {
             if (achievements.length > 0) {
               allAchievements.set(appId, achievements);

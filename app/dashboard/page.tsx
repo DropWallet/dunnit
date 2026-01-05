@@ -99,7 +99,7 @@ export default function DashboardPage() {
     }
     return true;
   });
-  const [allGames, setAllGames] = useState<any[]>([]);
+  const [allGames, setAllGames] = useState<Game[]>([]);
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
   const loadMoreObserverRef = useRef<IntersectionObserver | null>(null);
   
