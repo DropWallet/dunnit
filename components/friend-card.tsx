@@ -72,7 +72,7 @@ export function FriendCard({ friend, isLoadingStats, onClick }: FriendCardProps)
             </svg>
             {isLoadingStats ? (
               <div className="h-5 w-20 bg-surface-mid rounded animate-pulse" />
-            ) : hasStats ? (
+            ) : hasStats && typeof friend.statistics.friendsCount === 'number' ? (
               <p className="flex-grow-0 flex-shrink-0 text-base font-bold text-center text-text-weak">
                 {friend.statistics.friendsCount.toLocaleString()} Friends
               </p>

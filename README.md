@@ -22,6 +22,11 @@ Transform Steam gaming into a social, trackable experience where players can:
   - Global achievement percentages
   - Unlock timestamps
   - Hidden achievement descriptions (via XML API fallback)
+- **Achievement Sync Progress**: Real-time progress tracking for achievement synchronization
+  - Visual progress indicator with current/total games syncing
+  - Automatic polling every 3 seconds while sync is active
+  - Responsive layout (below stats on mobile, alongside on desktop)
+  - Only displays when actively syncing
 - **Image Fallbacks**: Robust image loading with multiple fallback options
 - **Design System**: Semantic token system with light/dark mode support
 
@@ -427,6 +432,29 @@ Use the `ThemeToggle` component anywhere in your app to allow users to switch th
 - **Rate Limits**: Steam API has rate limits. Implement proper rate limiting and caching.
 - **Hidden Achievements**: Some achievements don't return descriptions via the standard API. We use the legacy XML API as a fallback.
 - **Image URLs**: Steam uses multiple CDN domains. We implement robust fallback logic for images.
+
+## 🔄 Achievement Synchronization
+
+### Overview
+
+Achievements are automatically synchronized from the Steam API when a user's profile is loaded. The sync process runs in the background and achievements appear as they are loaded. For large game libraries, this may take several minutes.
+
+### How It Works
+
+1. **Automatic Sync**: When a user profile is loaded, the system checks for stale or missing achievement data and automatically syncs from the Steam API.
+
+2. **Background Processing**: The initial batch of games is synced immediately, with remaining games processed in the background to provide a quick initial response.
+
+3. **Caching**: Achievement data is cached for 1 hour to reduce API calls and improve performance.
+
+4. **Progressive Loading**: Individual game cards show loading states while their achievement data is being fetched.
+
+### Future Enhancements
+
+- Add percentage display alongside current/total
+- Show estimated time remaining
+- Add per-game sync status (optional)
+- Support for SSE (Server-Sent Events) for real-time updates without polling
 
 ## 🤝 Contributing
 
