@@ -413,7 +413,7 @@ export default function UserDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pt-16">
       <Navbar />
 
       <div className="p-4 md:px-8 md:py-5">

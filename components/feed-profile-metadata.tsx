@@ -10,6 +10,10 @@ export function FeedProfileMetadata() {
   const { user, isLoading: isLoadingUser } = useUserData();
   const { statistics, isLoading: isLoadingStats } = useUserStatistics();
 
+  const formatCompletionRate = (rate: number) => {
+    return `${rate.toFixed(1)}%`;
+  };
+
   if (isLoadingUser || !user) {
     return (
       <div className="flex flex-col justify-center items-start self-stretch flex-grow-0 flex-shrink-0 overflow-hidden rounded-lg bg-surface-low border border-border-weak">
@@ -101,7 +105,7 @@ export function FeedProfileMetadata() {
             {/* Avg Completion Rate */}
             <div className="flex flex-col justify-start items-start absolute left-[155.5px] top-3 xl:relative xl:left-0 xl:top-0 gap-0.5 rounded">
               <p className="flex-grow-0 flex-shrink-0 text-xl font-semibold text-center text-text-moderate">
-                {statistics.averageCompletionRate}%
+                {formatCompletionRate(statistics.averageCompletionRate)}
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-xs text-center text-text-subdued">
                 Avg completion rate

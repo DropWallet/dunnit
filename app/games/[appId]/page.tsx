@@ -173,7 +173,7 @@ export default function GamePage() {
   const hoursPlayed = game.playtimeMinutes / 60;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pt-16">
       <Navbar />
       
       {/* Hero Block */}

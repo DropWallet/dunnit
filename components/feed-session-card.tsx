@@ -190,7 +190,7 @@ export function FeedSessionCard({
       </div>
 
       {/* MD+ Layout: Horizontal (content left, image right) */}
-      <div className="hidden md:flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-8 p-4 rounded bg-surface-transparent-low">
+      <div className="hidden md:flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-8 p-4 rounded bg-surface-mid">
         {/* Content Section - Left */}
         <div className="flex flex-col justify-start items-start flex-grow gap-4">
           {/* Badge and Achievement Summary */}
@@ -210,7 +210,7 @@ export function FeedSessionCard({
               <p className="flex-grow-0 flex-shrink-0 text-xl font-medium text-left text-text-strong">
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
               </p>
-              <p className="flex-grow-0 flex-shrink-0 text-sm font-light text-left text-text-subdued">
+              <p className="flex-grow-0 flex-shrink-0 text-sm font-normal text-left text-text-subdued">
                 In <Link href={`/games/${session.game.appId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
               </p>
             </div>
@@ -219,7 +219,7 @@ export function FeedSessionCard({
           {/* Session Details */}
           <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
             <div className="flex justify-start items-start self-stretch flex-grow-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
+              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
                 Session:
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
@@ -227,7 +227,7 @@ export function FeedSessionCard({
               </p>
             </div>
             <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
+              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
                 Unlocks:
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
@@ -268,7 +268,7 @@ export function FeedSessionCard({
           )}
 
           {/* Achievement Progress Bar */}
-          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 px-3 pt-2.5 pb-2 rounded bg-surface-transparent-mid">
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-2.5 pb-2 rounded-md bg-surface-mid">
             <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-1.5">
               {/* Progress Text */}
               <div className="flex justify-center items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-2">

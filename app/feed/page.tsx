@@ -3,13 +3,14 @@
 import { Navbar } from "@/components/navbar";
 import { FeedSessionCard } from "@/components/feed-session-card";
 import { FeedProfileMetadata } from "@/components/feed-profile-metadata";
+import { FeedRecentlyPlayed } from "@/components/feed-recently-played";
 import { useFeed } from "@/hooks/useFeed";
 
 export default function FeedPage() {
   const { sessions, isLoading, isLoadingMore, error, hasMore, loadMore } = useFeed();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pt-16">
       <Navbar />
       
       {/* Main Content Container */}
@@ -61,8 +62,13 @@ export default function FeedPage() {
 
             {/* Column 2: Profile Metadata */}
             {/* lg: 1/3 width, xl: 5/12 width, hidden on smaller screens */}
-            <div className="hidden lg:block lg:col-span-1 xl:col-span-5 align-left">
-              <FeedProfileMetadata />
+            <div className="hidden lg:block lg:col-span-1 xl:col-span-5">
+              <div className="sticky top-20">
+                <FeedProfileMetadata />
+                <div className="mt-8">
+                  <FeedRecentlyPlayed />
+                </div>
+              </div>
             </div>
           </div>
         </div>
