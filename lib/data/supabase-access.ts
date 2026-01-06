@@ -954,4 +954,29 @@ export class SupabaseDataAccess implements DataAccess {
 
     return new Set((data || []).map((row: any) => row.session_id));
   }
+
+  async getLikedByUsers(sessionId: string, limit: number = 3): Promise<Array<{ userId: string; avatarUrl: string }>> {
+    // Query feed_likes and join with users table
+    const { data, error } = await this.supabase
+      .from('feed_likes')
+      .select(`
+        user_id,
+        users (
+          avatar_url
+        )
+      `)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error getting liked by users:', error);
+      throw error;
+    }
+
+    return (data || []).map((row: any) => ({
+      userId: row.user_id,
+      avatarUrl: (row.users as any)?.avatar_url || '',
+    }));
+  }
 }

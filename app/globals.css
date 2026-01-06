@@ -421,6 +421,9 @@
     --color-rarity-uncommon: var(--color-emerald-500);
     --color-rarity-common: var(--color-slate-400);
     
+    /* Like Pink - Light Mode (pink-600) */
+    --color-like-pink: var(--color-pink-600);
+    
     /* Shelf Gradient Colors - Light Mode */
     --color-shelf-gradient-start: 214 32% 91%;
     --color-shelf-gradient-mid: 213 29% 80%;
@@ -604,6 +607,9 @@
     --color-rarity-rare: var(--color-blue-500);
     --color-rarity-uncommon: var(--color-emerald-500);
     --color-rarity-common: var(--color-slate-400);
+    
+    /* Like Pink - Dark Mode (pink-500) */
+    --color-like-pink: var(--color-pink-500);
     
     /* Shelf Gradient Colors - Dark Mode */
     --color-shelf-gradient-start: 215 38% 27%;

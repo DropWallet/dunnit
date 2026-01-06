@@ -79,6 +79,7 @@ export interface DataAccess {
   unlikeSession(sessionId: string, userId: string): Promise<void>;
   getLikeCounts(sessionIds: string[]): Promise<Map<string, number>>;
   getUserLikes(sessionIds: string[], userId: string): Promise<Set<string>>;
+  getLikedByUsers(sessionId: string, limit?: number): Promise<Array<{ userId: string; avatarUrl: string }>>;
 }
 
 // Singleton instance

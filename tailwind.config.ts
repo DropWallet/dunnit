@@ -152,6 +152,11 @@ const config: Config = {
           common: "hsl(var(--color-rarity-common))",
         },
         
+        // Like pink color
+        like: {
+          pink: "hsl(var(--color-like-pink))",
+        },
+        
         // Black & White transparency ramps
         black: {
           DEFAULT: "var(--color-black)",

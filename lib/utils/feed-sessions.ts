@@ -86,6 +86,7 @@ export interface FeedSession {
   // Like data
   likeCount: number;
   isLiked: boolean;
+  likedByUsers: Array<{ userId: string; avatarUrl: string }>;
 }
 
 /**
@@ -207,6 +208,7 @@ function createSessionFromAchievements(
     unlockedGameAchievements: 0,
     likeCount: 0,
     isLiked: false,
+    likedByUsers: [],
   };
 
   return session;

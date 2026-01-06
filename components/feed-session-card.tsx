@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FeedSession } from "@/lib/utils/feed-sessions";
 import { getRarityBorderClass } from "@/lib/utils/achievements";
+import { FeedLikeButton } from "@/components/feed-like-button";
 
 interface FeedSessionCardProps {
   session: FeedSession;
@@ -162,6 +163,11 @@ export function FeedSessionCard({
             </div>
           )}
 
+          {/* Like Button */}
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
+            <FeedLikeButton session={session} />
+          </div>
+
           {/* Achievement Progress Bar */}
           <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 px-3 pt-2.5 pb-2 rounded bg-surface-transparent-mid">
             <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-1.5">
@@ -266,6 +272,11 @@ export function FeedSessionCard({
               )}
             </div>
           )}
+
+          {/* Like Button */}
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
+            <FeedLikeButton session={session} />
+          </div>
 
           {/* Achievement Progress Bar */}
           <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-2.5 pb-2 rounded-md bg-surface-mid">
