@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FeedSession } from "@/lib/utils/feed-sessions";
 import { getRarityBorderClass } from "@/lib/utils/achievements";
+import { FeedLikeButton } from "@/components/feed-like-button";
 
 interface FeedSessionCardProps {
   session: FeedSession;
@@ -38,7 +39,7 @@ export function FeedSessionCard({
   const capsuleArtUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${session.game.appId}/library_600x900_2x.jpg`;
 
   return (
-    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-[15px] p-4 sm:p-5 rounded-lg bg-surface-low border border-border-weak">
+    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 px-4 pt-4 pb-3 sm:p-5 sm:pb-3 rounded-lg bg-surface-low border border-border-weak">
       {/* User Header */}
       <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 w-full relative gap-3 sm:gap-4">
         <Link href={`/user/${session.user.steamId}`}>
@@ -67,7 +68,7 @@ export function FeedSessionCard({
       <div className="flex md:hidden flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-4 rounded">
         {/* Game Cover Image - Mobile */}
         {mobileImageUrl ? (
-          <Link href={`/games/${session.game.appId}`}>
+          <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`}>
             <img
               src={mobileImageUrl}
               alt={session.game.name}
@@ -79,7 +80,7 @@ export function FeedSessionCard({
             />
           </Link>
         ) : (
-          <Link href={`/games/${session.game.appId}`}>
+          <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`}>
             <div className="self-stretch flex-grow-0 flex-shrink-0 h-[156px] bg-surface-mid rounded flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity">
               <span className="text-text-subdued text-sm">{session.game.name}</span>
             </div>
@@ -106,7 +107,7 @@ export function FeedSessionCard({
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-sm font-light text-left text-text-subdued">
-                In <Link href={`/games/${session.game.appId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
+                In <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
               </p>
             </div>
           </div>
@@ -211,7 +212,7 @@ export function FeedSessionCard({
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-sm font-normal text-left text-text-subdued">
-                In <Link href={`/games/${session.game.appId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
+                In <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
               </p>
             </div>
           </div>
@@ -294,7 +295,7 @@ export function FeedSessionCard({
         </div>
 
         {/* Game Art Image - Right (MD+) - Portrait Capsule Art */}
-        <Link href={`/games/${session.game.appId}`}>
+        <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`}>
           <img
             src={capsuleArtUrl}
             alt={session.game.name}
@@ -315,6 +316,9 @@ export function FeedSessionCard({
           />
         </Link>
       </div>
+
+      {/* Like Button - Below achievement block */}
+      <FeedLikeButton session={session} />
     </div>
   );
 }

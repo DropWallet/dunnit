@@ -295,14 +295,41 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Apply pagination
+    // Fetch like counts and user likes
+    const sessionIds = sessions.map(s => s.sessionId);
+    const likeCounts = await dataAccess.getLikeCounts(sessionIds);
+    const userLikes = await dataAccess.getUserLikes(sessionIds, steamId);
+
+    // Apply pagination before fetching liked by users (to reduce queries)
     const total = sessions.length;
     const paginatedSessions = sessions.slice(offset, offset + limit);
     const hasMore = offset + limit < total;
 
+    // Fetch liked by users for paginated sessions only (first 3 users per session)
+    const likedByUsersMap = new Map<string, Array<{ userId: string; avatarUrl: string }>>();
+    await Promise.all(
+      paginatedSessions.map(async (session) => {
+        try {
+          const users = await dataAccess.getLikedByUsers(session.sessionId, 3);
+          likedByUsersMap.set(session.sessionId, users);
+        } catch (error) {
+          console.warn(`Failed to fetch liked by users for session ${session.sessionId}:`, error);
+          likedByUsersMap.set(session.sessionId, []);
+        }
+      })
+    );
+
+    // Add like data to each session
+    const sessionsWithLikes = paginatedSessions.map(session => ({
+      ...session,
+      likeCount: likeCounts.get(session.sessionId) || 0,
+      isLiked: userLikes.has(session.sessionId),
+      likedByUsers: likedByUsersMap.get(session.sessionId) || [],
+    }));
+
     return NextResponse.json(
       {
-        sessions: paginatedSessions,
+        sessions: sessionsWithLikes,
         pagination: {
           total,
           limit,

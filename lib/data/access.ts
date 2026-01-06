@@ -74,6 +74,12 @@ export interface DataAccess {
   saveUserStatistics(userId: string, statistics: any): Promise<void>;
   getUserFriendsCount(steamId: string): Promise<{ count: number; syncedAt: Date | null } | null>;
   saveUserFriendsCount(steamId: string, count: number): Promise<void>;
+  // Like methods
+  likeSession(sessionId: string, userId: string): Promise<void>;
+  unlikeSession(sessionId: string, userId: string): Promise<void>;
+  getLikeCounts(sessionIds: string[]): Promise<Map<string, number>>;
+  getUserLikes(sessionIds: string[], userId: string): Promise<Set<string>>;
+  getLikedByUsers(sessionId: string, limit?: number): Promise<Array<{ userId: string; avatarUrl: string }>>;
 }
 
 // Singleton instance
