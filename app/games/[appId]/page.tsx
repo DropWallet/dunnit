@@ -49,8 +49,39 @@ export default function GamePage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const steamId = searchParams.get('steamId'); // Optional: for viewing friend's game
-  const { user: friendUser } = useUserData(steamId || "", false);
+  
+  // Get steamId with fallback to window.location if searchParams not ready
+  // This prevents the initial render from making a request without steamId
+  const [steamId, setSteamId] = useState<string | null>(() => {
+    // Try to get from searchParams first
+    try {
+      const id = searchParams.get('steamId');
+      if (id) return id;
+    } catch (e) {
+      // searchParams not ready, fallback to window.location
+    }
+    
+    // Fallback to window.location if available
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get('steamId');
+    }
+    return null;
+  });
+  
+  // Update steamId when searchParams becomes available
+  useEffect(() => {
+    try {
+      const id = searchParams.get('steamId');
+      if (id !== steamId) {
+        setSteamId(id);
+      }
+    } catch (e) {
+      // searchParams not ready yet, keep current value
+    }
+  }, [searchParams, steamId]);
+  
+  const { user: friendUser } = useUserData(steamId || undefined, false);
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string>("rarity");
@@ -74,10 +105,15 @@ export default function GamePage() {
 
       const data = await response.json();
       
+      // Validate response structure
+      if (!data || !data.game) {
+        throw new Error("Invalid response: missing game data");
+      }
+      
       // Parse dates from strings
       const parsedData: GameData = {
         ...data,
-        achievements: data.achievements.map((ach: any) => ({
+        achievements: (data.achievements || []).map((ach: any) => ({
           ...ach,
           unlockedAt: ach.unlockedAt ? new Date(ach.unlockedAt) : undefined,
         })),
