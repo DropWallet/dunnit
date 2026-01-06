@@ -2,10 +2,11 @@
 
 import { Navbar } from "@/components/navbar";
 import { FeedSessionCard } from "@/components/feed-session-card";
+import { FeedProfileMetadata } from "@/components/feed-profile-metadata";
 import { useFeed } from "@/hooks/useFeed";
 
 export default function FeedPage() {
-  const { sessions, isLoading, error } = useFeed();
+  const { sessions, isLoading, isLoadingMore, error, hasMore, loadMore } = useFeed();
 
   return (
     <div className="min-h-screen bg-background">
@@ -41,16 +42,27 @@ export default function FeedPage() {
                       unlockedGameAchievements={session.unlockedGameAchievements}
                     />
                   ))}
+                  
+                  {/* Load More Button */}
+                  {hasMore && (
+                    <div className="flex items-center justify-center py-8">
+                      <button
+                        onClick={loadMore}
+                        disabled={isLoadingMore}
+                        className="px-6 py-2 rounded-md bg-surface-mid hover:bg-surface-high text-text-strong font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoadingMore ? "Loading..." : "Load More"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Column 2: Profile Metadata */}
             {/* lg: 1/3 width, xl: 5/12 width, hidden on smaller screens */}
-            <div className="hidden lg:block lg:col-span-1 xl:col-span-5">
-              <div className="h-96 bg-surface-low rounded-lg">
-                {/* Profile metadata will go here */}
-              </div>
+            <div className="hidden lg:block lg:col-span-1 xl:col-span-5 align-left">
+              <FeedProfileMetadata />
             </div>
           </div>
         </div>

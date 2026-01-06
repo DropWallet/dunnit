@@ -12,7 +12,7 @@ import {
 
 // Cooldown period: sessions only appear 30 minutes after completion
 const COOLDOWN_MINUTES = 30;
-const MAX_LOOKBACK_DAYS = 7;
+const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
 
 export async function GET(request: NextRequest) {

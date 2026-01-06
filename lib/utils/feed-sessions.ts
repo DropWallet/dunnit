@@ -246,8 +246,11 @@ function calculateSessionMetadata(
  */
 export function formatDuration(ms: number): string {
   const totalMinutes = Math.floor(ms / (60 * 1000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
+  
+  // Minimum display time of 5 minutes
+  const displayMinutes = Math.max(totalMinutes, 5);
+  const hours = Math.floor(displayMinutes / 60);
+  const minutes = displayMinutes % 60;
 
   if (hours > 0) {
     if (minutes > 0) {

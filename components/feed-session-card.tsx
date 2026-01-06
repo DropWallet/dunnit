@@ -106,7 +106,7 @@ export function FeedSessionCard({
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-sm font-light text-left text-text-subdued">
-                In {session.game.name}
+                In <Link href={`/games/${session.game.appId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
               </p>
             </div>
           </div>
@@ -194,7 +194,7 @@ export function FeedSessionCard({
         {/* Content Section - Left */}
         <div className="flex flex-col justify-start items-start flex-grow gap-4">
           {/* Badge and Achievement Summary */}
-          <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-4">
+          <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
             <svg
               width="40"
               height="35"
@@ -206,12 +206,12 @@ export function FeedSessionCard({
             >
               <path d="M10 35L0 17.5L10 0H30L40 17.5L30 35H10Z" fill={badgeColor}></path>
             </svg>
-            <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative gap-0.5">
+            <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative">
               <p className="flex-grow-0 flex-shrink-0 text-xl font-medium text-left text-text-strong">
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
               </p>
               <p className="flex-grow-0 flex-shrink-0 text-sm font-light text-left text-text-subdued">
-                In {session.game.name}
+                In <Link href={`/games/${session.game.appId}`} className="hover:underline cursor-pointer">{session.game.name}</Link>
               </p>
             </div>
           </div>
