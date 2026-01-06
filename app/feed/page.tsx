@@ -1,12 +1,13 @@
 "use client";
 
+import { Suspense } from "react";
 import { Navbar } from "@/components/navbar";
 import { FeedSessionCard } from "@/components/feed-session-card";
 import { FeedProfileMetadata } from "@/components/feed-profile-metadata";
 import { FeedRecentlyPlayed } from "@/components/feed-recently-played";
 import { useFeed } from "@/hooks/useFeed";
 
-export default function FeedPage() {
+function FeedContent() {
   const { sessions, isLoading, isLoadingMore, error, hasMore, loadMore } = useFeed();
 
   return (
@@ -74,5 +75,20 @@ export default function FeedPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function FeedPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background pt-16">
+        <Navbar />
+        <div className="flex items-center justify-center py-12">
+          <p className="text-text-subdued">Loading...</p>
+        </div>
+      </div>
+    }>
+      <FeedContent />
+    </Suspense>
   );
 }

@@ -15,6 +15,8 @@ const COOLDOWN_MINUTES = 30;
 const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Get authenticated user

@@ -10,6 +10,8 @@ const FRIEND_LIST_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 // In-memory cache for friend lists (steamId -> { friends: string[], cachedAt: Date })
 const friendListCache = new Map<string, { friends: string[]; cachedAt: Date }>();
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Get authenticated user
