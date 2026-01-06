@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSteamClient } from "@/lib/steam/client";
 import { getSupabaseAdmin } from "@/lib/supabase/client";
+import { getDataAccess } from "@/lib/data/access";
 import { ApiErrors } from "@/lib/utils/api-errors";
 import {
   groupAchievementsIntoSessions,
@@ -60,29 +61,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    if (friendSteamIds.length === 0) {
-      return NextResponse.json({
-        sessions: [],
-        pagination: {
-          total: 0,
-          limit,
-          offset: 0,
-          hasMore: false,
-        },
-        meta: {
-          fetchedAt: new Date().toISOString(),
-          friendCount: 0,
-          cooldownMinutes: COOLDOWN_MINUTES,
-        },
-      });
-    }
+    // Include the logged-in user's own activity in the feed
+    const targetUserIds = [steamId, ...friendSteamIds];
 
     // Apply friend filter if provided
     if (friendId) {
-      if (!friendSteamIds.includes(friendId)) {
+      if (!targetUserIds.includes(friendId)) {
         return ApiErrors.badRequest("Friend not found in your friend list");
       }
-      friendSteamIds = [friendId];
+      // If filtering by friend, still include own activity
+      const filteredIds = friendId === steamId ? [steamId] : [steamId, friendId];
+      targetUserIds.splice(0, targetUserIds.length, ...filteredIds);
     }
 
     // Calculate date filters
@@ -123,7 +112,7 @@ export async function GET(request: NextRequest) {
       .not("unlocked_at", "is", null)
       .gte("unlocked_at", lookbackDate.toISOString())
       .lte("unlocked_at", cooldownThreshold.toISOString())
-      .in("user_id", friendSteamIds)
+      .in("user_id", targetUserIds)
       .order("unlocked_at", { ascending: true });
 
     if (gameId) {
@@ -239,9 +228,7 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const rawData = achievements;
-
-    if (!rawData || rawData.length === 0) {
+    if (!achievements || achievements.length === 0) {
       return NextResponse.json({
         sessions: [],
         pagination: {
@@ -258,8 +245,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const achievements = rawData;
-
     // Group achievements into sessions
     let sessions = groupAchievementsIntoSessions(achievements);
 
@@ -268,6 +253,45 @@ export async function GET(request: NextRequest) {
 
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
+
+    // Fetch achievement counts for each unique (user_id, app_id) combination
+    const dataAccess = getDataAccess();
+    const uniqueGameKeys = new Set<string>();
+    sessions.forEach(session => {
+      uniqueGameKeys.add(`${session.user.steamId}-${session.game.appId}`);
+    });
+
+    // Batch fetch achievement counts
+    const achievementCounts = new Map<string, { total: number; unlocked: number }>();
+    
+    await Promise.all(
+      Array.from(uniqueGameKeys).map(async (key) => {
+        const [userId, appIdStr] = key.split('-');
+        const appId = parseInt(appIdStr, 10);
+        
+        try {
+          const userAchievements = await dataAccess.getUserAchievements(userId, appId);
+          const total = userAchievements.length;
+          const unlocked = userAchievements.filter(ach => ach.unlocked).length;
+          achievementCounts.set(key, { total, unlocked });
+        } catch (error) {
+          console.warn(`Failed to fetch achievement counts for ${key}:`, error);
+          // Default to 0 if fetch fails
+          achievementCounts.set(key, { total: 0, unlocked: 0 });
+        }
+      })
+    );
+
+    // Add achievement counts to each session
+    sessions = sessions.map(session => {
+      const key = `${session.user.steamId}-${session.game.appId}`;
+      const counts = achievementCounts.get(key) || { total: 0, unlocked: 0 };
+      return {
+        ...session,
+        totalGameAchievements: counts.total,
+        unlockedGameAchievements: counts.unlocked,
+      };
+    });
 
     // Apply pagination
     const total = sessions.length;

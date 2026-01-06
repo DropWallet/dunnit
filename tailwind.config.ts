@@ -37,6 +37,7 @@ const config: Config = {
           low: "hsl(var(--color-surface-low))",
           mid: "hsl(var(--color-surface-mid))",
           high: "hsl(var(--color-surface-high))",
+          "transparent-low": "var(--color-surface-transparent-low)",
           "transparent-mid": "var(--color-surface-transparent-mid)",
           "transparent-high": "var(--color-surface-transparent-high)",
         },

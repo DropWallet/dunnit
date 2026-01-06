@@ -80,6 +80,9 @@ export interface FeedSession {
   narrative?: Narrative;
   relativeTime: string;
   timestamp: string;
+  // Progress bar data
+  totalGameAchievements: number;
+  unlockedGameAchievements: number;
 }
 
 /**
@@ -196,6 +199,9 @@ function createSessionFromAchievements(
     narrative: calculateNarrative(metadata, achievements.length),
     relativeTime: getRelativeTime(sessionEnd),
     timestamp: sessionEnd.toISOString(),
+    // Default values - will be populated by API
+    totalGameAchievements: 0,
+    unlockedGameAchievements: 0,
   };
 
   return session;

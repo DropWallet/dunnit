@@ -337,6 +337,7 @@
     --color-surface-low: var(--color-slate-50);
     --color-surface-mid: var(--color-slate-200);
     --color-surface-high: var(--color-slate-300);
+    --color-surface-transparent-low: rgba(0, 0, 0, 0.04);
     --color-surface-transparent-mid: rgba(0, 0, 0, 0.08);
     --color-surface-transparent-high: rgba(0, 0, 0, 0.6);
     
@@ -531,6 +532,7 @@
     --color-surface-low: var(--color-slate-900);
     --color-surface-mid: var(--color-slate-800);
     --color-surface-high: var(--color-slate-700);
+    --color-surface-transparent-low: rgba(255, 255, 255, 0.05);
     --color-surface-transparent-mid: rgba(255, 255, 255, 0.1);
     --color-surface-transparent-high: rgba(255, 255, 255, 0.5);
     
