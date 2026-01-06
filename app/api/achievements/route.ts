@@ -5,6 +5,8 @@ import { ApiErrors } from '@/lib/utils/api-errors';
 import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 import type { UserAchievement } from '@/lib/data/types';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const loggedInSteamId = request.cookies.get('steam_id')?.value;

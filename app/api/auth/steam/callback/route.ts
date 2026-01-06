@@ -3,6 +3,8 @@ import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import { getCountryName } from '@/lib/utils/country';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);

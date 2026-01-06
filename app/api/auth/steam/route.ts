@@ -3,6 +3,8 @@ import { randomBytes } from 'crypto';
 
 const STEAM_OPENID_URL = 'https://steamcommunity.com/openid/login';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Derive baseUrl from the request URL instead of relying on env var

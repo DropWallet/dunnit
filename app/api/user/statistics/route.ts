@@ -7,6 +7,8 @@ import type { UserAchievement } from '@/lib/data/types';
 // Maximum age for cached statistics (24 hours in milliseconds)
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const steamId = request.cookies.get('steam_id')?.value;
