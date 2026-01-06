@@ -39,14 +39,9 @@ export function FeedLikeButton({ session, onLikeChange }: FeedLikeButtonProps) {
       setIsLiked(data.liked);
       setLikeCount(data.likeCount);
       
-      // If we liked it, we should refresh the liked by users list
-      // For now, we'll just update optimistically - in a real app you'd refetch
-      if (newLiked && data.liked) {
-        // Add current user to the list (we don't have user data here, so we'll skip for now)
-        // The next feed refresh will include the updated list
-      } else if (!newLiked) {
-        // Remove current user from list (optimistic)
-        setLikedByUsers(prev => prev.slice(0, Math.max(0, prev.length - 1)));
+      // Update liked by users from API response
+      if (data.likedByUsers) {
+        setLikedByUsers(data.likedByUsers);
       }
       
       if (onLikeChange) {
@@ -56,6 +51,7 @@ export function FeedLikeButton({ session, onLikeChange }: FeedLikeButtonProps) {
       // Rollback on error
       setIsLiked(!newLiked);
       setLikeCount(likeCount);
+      setLikedByUsers(session.likedByUsers || []); // Rollback to original
       console.error("Error updating like:", error);
     } finally {
       setIsLoading(false);

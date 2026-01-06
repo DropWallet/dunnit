@@ -40,10 +40,14 @@ export async function POST(
     const likeCounts = await dataAccess.getLikeCounts([sessionId]);
     const likeCount = likeCounts.get(sessionId) || 0;
 
+    // Get updated liked by users (first 3)
+    const likedByUsers = await dataAccess.getLikedByUsers(sessionId, 3);
+
     return NextResponse.json({
       success: true,
       liked: true,
       likeCount,
+      likedByUsers,
     });
   } catch (error) {
     console.error("Error liking session:", error);
@@ -88,10 +92,14 @@ export async function DELETE(
     const likeCounts = await dataAccess.getLikeCounts([sessionId]);
     const likeCount = likeCounts.get(sessionId) || 0;
 
+    // Get updated liked by users (first 3)
+    const likedByUsers = await dataAccess.getLikedByUsers(sessionId, 3);
+
     return NextResponse.json({
       success: true,
       liked: false,
       likeCount,
+      likedByUsers,
     });
   } catch (error) {
     console.error("Error unliking session:", error);

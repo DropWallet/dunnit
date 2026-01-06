@@ -39,7 +39,7 @@ export function FeedSessionCard({
   const capsuleArtUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${session.game.appId}/library_600x900_2x.jpg`;
 
   return (
-    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-[15px] p-4 sm:p-5 rounded-lg bg-surface-low border border-border-weak">
+    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 p-4 sm:p-5 rounded-lg bg-surface-low border border-border-weak">
       {/* User Header */}
       <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 w-full relative gap-3 sm:gap-4">
         <Link href={`/user/${session.user.steamId}`}>
@@ -163,11 +163,6 @@ export function FeedSessionCard({
             </div>
           )}
 
-          {/* Like Button */}
-          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
-            <FeedLikeButton session={session} />
-          </div>
-
           {/* Achievement Progress Bar */}
           <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 px-3 pt-2.5 pb-2 rounded bg-surface-transparent-mid">
             <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-1.5">
@@ -273,11 +268,6 @@ export function FeedSessionCard({
             </div>
           )}
 
-          {/* Like Button */}
-          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
-            <FeedLikeButton session={session} />
-          </div>
-
           {/* Achievement Progress Bar */}
           <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-2.5 pb-2 rounded-md bg-surface-mid">
             <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-1.5">
@@ -326,6 +316,9 @@ export function FeedSessionCard({
           />
         </Link>
       </div>
+
+      {/* Like Button - Below achievement block */}
+      <FeedLikeButton session={session} />
     </div>
   );
 }
