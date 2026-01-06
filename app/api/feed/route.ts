@@ -295,6 +295,18 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Fetch like counts and user likes
+    const sessionIds = sessions.map(s => s.sessionId);
+    const likeCounts = await dataAccess.getLikeCounts(sessionIds);
+    const userLikes = await dataAccess.getUserLikes(sessionIds, steamId);
+
+    // Add like data to each session
+    sessions = sessions.map(session => ({
+      ...session,
+      likeCount: likeCounts.get(session.sessionId) || 0,
+      isLiked: userLikes.has(session.sessionId),
+    }));
+
     // Apply pagination
     const total = sessions.length;
     const paginatedSessions = sessions.slice(offset, offset + limit);

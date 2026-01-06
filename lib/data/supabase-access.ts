@@ -878,4 +878,80 @@ export class SupabaseDataAccess implements DataAccess {
       throw error;
     }
   }
+
+  async likeSession(sessionId: string, userId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('feed_likes')
+      .upsert({
+        session_id: sessionId,
+        user_id: userId,
+        created_at: new Date().toISOString(),
+      }, {
+        onConflict: 'session_id,user_id',
+      });
+
+    if (error) {
+      console.error('Error liking session:', error);
+      throw error;
+    }
+  }
+
+  async unlikeSession(sessionId: string, userId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('feed_likes')
+      .delete()
+      .eq('session_id', sessionId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error unliking session:', error);
+      throw error;
+    }
+  }
+
+  async getLikeCounts(sessionIds: string[]): Promise<Map<string, number>> {
+    if (sessionIds.length === 0) {
+      return new Map();
+    }
+
+    const { data, error } = await this.supabase
+      .from('feed_likes')
+      .select('session_id')
+      .in('session_id', sessionIds);
+
+    if (error) {
+      console.error('Error getting like counts:', error);
+      throw error;
+    }
+
+    // Count likes per session
+    const counts = new Map<string, number>();
+    sessionIds.forEach(id => counts.set(id, 0)); // Initialize all to 0
+    
+    (data || []).forEach((row: any) => {
+      const current = counts.get(row.session_id) || 0;
+      counts.set(row.session_id, current + 1);
+    });
+
+    return counts;
+  }
+
+  async getUserLikes(sessionIds: string[], userId: string): Promise<Set<string>> {
+    if (sessionIds.length === 0) {
+      return new Set();
+    }
+
+    const { data, error } = await this.supabase
+      .from('feed_likes')
+      .select('session_id')
+      .in('session_id', sessionIds)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error getting user likes:', error);
+      throw error;
+    }
+
+    return new Set((data || []).map((row: any) => row.session_id));
+  }
 }

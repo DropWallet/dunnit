@@ -83,6 +83,9 @@ export interface FeedSession {
   // Progress bar data
   totalGameAchievements: number;
   unlockedGameAchievements: number;
+  // Like data
+  likeCount: number;
+  isLiked: boolean;
 }
 
 /**
@@ -202,6 +205,8 @@ function createSessionFromAchievements(
     // Default values - will be populated by API
     totalGameAchievements: 0,
     unlockedGameAchievements: 0,
+    likeCount: 0,
+    isLiked: false,
   };
 
   return session;
