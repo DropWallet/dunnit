@@ -65,7 +65,7 @@ export function Navbar() {
         <div className="flex justify-center items-center gap-3">
           {/* Profile Dropdown */}
           {user && (
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
