@@ -323,7 +323,7 @@ export default function DashboardPage() {
     async function loadFriends() {
       setIsLoadingFriends(true);
       try {
-        const res = await fetch("/api/friends");
+        const res = await fetch("/api/friends?refresh=true");
         if (res.ok) {
           const data = await res.json();
           const friendsList = data.friends || [];
