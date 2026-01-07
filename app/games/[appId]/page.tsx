@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { CircularProgress } from "@/components/ui/circular-progress";
@@ -45,58 +45,54 @@ interface GameData {
   heroImageUrl: string;
 }
 
-export default function GamePage() {
+function GamePageContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Get steamId with fallback to window.location if searchParams not ready
-  // This prevents the initial render from making a request without steamId
-  const [steamId, setSteamId] = useState<string | null>(() => {
-    // Try to get from searchParams first
-    try {
-      const id = searchParams.get('steamId');
-      if (id) return id;
-    } catch (e) {
-      // searchParams not ready, fallback to window.location
-    }
-    
-    // Fallback to window.location if available
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get('steamId');
-    }
-    return null;
-  });
+  // Read steamId directly from the URL - it's always there if it exists
+  // This works immediately, no waiting for Next.js hydration
+  const getSteamIdFromUrl = () => {
+    if (typeof window === 'undefined') return null;
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('steamId');
+  };
   
-  // Update steamId when searchParams becomes available
-  useEffect(() => {
-    try {
-      const id = searchParams.get('steamId');
-      if (id !== steamId) {
-        setSteamId(id);
-      }
-    } catch (e) {
-      // searchParams not ready yet, keep current value
-    }
-  }, [searchParams, steamId]);
+  const steamIdFromUrl = getSteamIdFromUrl();
   
-  const { user: friendUser } = useUserData(steamId || undefined, false);
+  const { user: friendUser } = useUserData(steamIdFromUrl || undefined, false);
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string>("rarity");
   const [hideLocked, setHideLocked] = useState(false);
 
   const loadGameData = useCallback(async () => {
+    if (!params.appId) return;
+
     try {
       const appId = params.appId as string;
+      // Read steamId directly from URL right before the API call
+      // This ensures we always have the latest value from the browser
+      const steamId = typeof window !== 'undefined' 
+        ? new URLSearchParams(window.location.search).get('steamId')
+        : null;
+      
       const url = steamId 
-        ? `/api/games/${appId}?steamId=${steamId}`
+        ? `/api/games/${appId}?steamId=${steamId}` 
         : `/api/games/${appId}`;
+      
+      console.log('[GamePage] Loading game:', { 
+        appId, 
+        steamId, 
+        url,
+        windowLocation: typeof window !== 'undefined' ? window.location.href : 'N/A'
+      });
+      
       const response = await fetch(url);
       
       if (!response.ok) {
         if (response.status === 404) {
+          console.log('[GamePage] 404 - redirecting:', steamId ? `/user/${steamId}` : "/dashboard");
           router.push(steamId ? `/user/${steamId}` : "/dashboard");
           return;
         }
@@ -121,18 +117,16 @@ export default function GamePage() {
       
       setGameData(parsedData);
     } catch (error) {
-      console.error("Error loading game data:", error);
-      router.push(steamId ? `/user/${steamId}` : "/dashboard");
+      console.error("Fetch error:", error);
+      // Don't redirect on fetch errors - let the 404 handler above deal with it
     } finally {
       setIsLoading(false);
     }
-  }, [params.appId, router, steamId]);
+  }, [params.appId, router]);
 
   useEffect(() => {
-    if (params.appId) {
-      loadGameData();
-    }
-  }, [params.appId, loadGameData]);
+    loadGameData();
+  }, [loadGameData]);
 
   // Sort and filter achievements (must be called before early returns)
   const sortedAndFilteredAchievements = useMemo(() => {
@@ -230,15 +224,15 @@ export default function GamePage() {
                   Dashboard
                 </BreadcrumbLink>
               </BreadcrumbItem>
-              {steamId && friendUser && (
+              {steamIdFromUrl && friendUser && (
                 <>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem>
                     <BreadcrumbLink
-                      href={`/user/${steamId}`}
+                      href={`/user/${steamIdFromUrl}`}
                       onClick={(e) => {
                         e.preventDefault();
-                        router.push(`/user/${steamId}`);
+                        router.push(`/user/${steamIdFromUrl}`);
                       }}
                       className="cursor-pointer"
                     >
@@ -405,5 +399,17 @@ export default function GamePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function GamePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-text-moderate">Loading...</div>
+      </div>
+    }>
+      <GamePageContent />
+    </Suspense>
   );
 }
