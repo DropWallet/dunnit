@@ -120,8 +120,46 @@ export async function GET(request: NextRequest) {
         return game;
       });
 
-      // Save to cache (including derived_last_played)
-      await dataAccess.saveUserGames(steamId, gamesWithDerivedLastPlayed);
+      // Get existing games to preserve previous playtime values
+      const existingGamesBeforeSave = await dataAccess.getUserGames(steamId);
+      const existingGamesMapForPlaytime = new Map<number, Game>();
+      existingGamesBeforeSave.forEach(game => {
+        existingGamesMapForPlaytime.set(game.appId, game);
+      });
+
+      // Prepare games for saving with playtime tracking
+      const gamesToSave = gamesWithDerivedLastPlayed.map((game) => {
+        const existingGame = existingGamesMapForPlaytime.get(game.appId);
+        
+        // Preserve previousPlaytimeMinutes logic:
+        // - If no existing game: previousPlaytimeMinutes = undefined (first sync)
+        // - If existing game but no previousPlaytimeMinutes: set to old playtimeMinutes (first playtime tracking)
+        // - If existing game with previousPlaytimeMinutes: preserve it (don't reset on every sync)
+        // - Only update previousPlaytimeMinutes when playtime actually increases
+        let previousPlaytimeMinutes = existingGame?.previousPlaytimeMinutes;
+        
+        if (existingGame) {
+          // If we have an existing game but no previousPlaytimeMinutes, initialize it
+          if (previousPlaytimeMinutes === undefined) {
+            previousPlaytimeMinutes = existingGame.playtimeMinutes;
+          }
+          // If playtime increased, update previousPlaytimeMinutes to the old value
+          // This way, next sync will detect the increase
+          if (game.playtimeMinutes > existingGame.playtimeMinutes) {
+            previousPlaytimeMinutes = existingGame.playtimeMinutes;
+          }
+          // If playtime stayed the same or decreased, keep the existing previousPlaytimeMinutes
+        }
+        
+        return {
+          ...game,
+          previousPlaytimeMinutes,
+          playtimeLastSyncedAt: new Date(),
+        };
+      });
+
+      // Save to cache (including derived_last_played and playtime tracking)
+      await dataAccess.saveUserGames(steamId, gamesToSave);
       
       // Update user's last sync time
       await dataAccess.updateUser(steamId, { lastSyncAt: new Date() });

@@ -108,6 +108,8 @@ export class SupabaseDataAccess implements DataAccess {
       last_played: game.lastPlayed?.toISOString(),
       derived_last_played: game.derivedLastPlayed?.toISOString(),
       derived_last_played_calculated_at: game.derivedLastPlayedCalculatedAt?.toISOString(),
+      previous_playtime_minutes: game.previousPlaytimeMinutes,
+      playtime_last_synced_at: game.playtimeLastSyncedAt?.toISOString(),
       updated_at: new Date().toISOString(),
     }));
 
@@ -145,6 +147,8 @@ export class SupabaseDataAccess implements DataAccess {
       lastPlayed: row.last_played ? new Date(row.last_played) : undefined,
       derivedLastPlayed: row.derived_last_played ? new Date(row.derived_last_played) : undefined,
       derivedLastPlayedCalculatedAt: row.derived_last_played_calculated_at ? new Date(row.derived_last_played_calculated_at) : undefined,
+      previousPlaytimeMinutes: row.previous_playtime_minutes,
+      playtimeLastSyncedAt: row.playtime_last_synced_at ? new Date(row.playtime_last_synced_at) : undefined,
     }));
   }
 
@@ -178,6 +182,8 @@ export class SupabaseDataAccess implements DataAccess {
       lastPlayed: data.last_played ? new Date(data.last_played) : undefined,
       derivedLastPlayed: data.derived_last_played ? new Date(data.derived_last_played) : undefined,
       derivedLastPlayedCalculatedAt: data.derived_last_played_calculated_at ? new Date(data.derived_last_played_calculated_at) : undefined,
+      previousPlaytimeMinutes: data.previous_playtime_minutes,
+      playtimeLastSyncedAt: data.playtime_last_synced_at ? new Date(data.playtime_last_synced_at) : undefined,
     };
   }
 

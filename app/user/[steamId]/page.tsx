@@ -60,6 +60,8 @@ export default function UserDashboardPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousLoadingSizeRef = useRef<number>(0);
   const hasRefetchedForThisCycleRef = useRef<boolean>(false);
+  // Ref to track loaded achievement appIds to prevent re-fetching
+  const loadedAchievementAppIds = useRef<Set<number>>(new Set());
 
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
@@ -115,6 +117,7 @@ export default function UserDashboardPage() {
   useEffect(() => {
     previousLoadingSizeRef.current = 0;
     hasRefetchedForThisCycleRef.current = false;
+    loadedAchievementAppIds.current.clear();
   }, [steamId]);
 
   // Sort and filter games
@@ -135,9 +138,12 @@ export default function UserDashboardPage() {
     // (last-played needs achievements to find latest unlock time as fallback)
     // Otherwise, load only for displayed games
     const needsAllGames = sortBy === 'achievement-progress' || sortBy === 'last-played';
-    const gamesNeedingAchievements = needsAllGames
-      ? allGames.filter((game) => !gameAchievements.has(game.appId))
-      : gamesToDisplay.filter((game) => !gameAchievements.has(game.appId));
+    const targetGames = needsAllGames ? allGames : gamesToDisplay;
+    
+    // Use ref to check what's already loaded (prevents re-fetching)
+    const gamesNeedingAchievements = targetGames.filter(
+      (game) => !loadedAchievementAppIds.current.has(game.appId)
+    );
 
     if (gamesNeedingAchievements.length > 0) {
       const appIdsToLoad = gamesNeedingAchievements.map((g) => g.appId);
@@ -167,6 +173,7 @@ export default function UserDashboardPage() {
         const newMap = new Map(gameAchievements);
         achievementsData.forEach(({ appId, achievements }) => {
           newMap.set(appId, achievements);
+          loadedAchievementAppIds.current.add(appId);
         });
         setGameAchievements(newMap);
         
@@ -177,7 +184,7 @@ export default function UserDashboardPage() {
         });
       });
     }
-  }, [allGames, gamesToDisplay, gameAchievements, steamId, sortBy]);
+  }, [allGames, gamesToDisplay, steamId, sortBy]);
 
   // Refetch statistics when achievements finish loading
   useEffect(() => {
