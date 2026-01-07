@@ -28,6 +28,8 @@ import { AchievementSortingControls } from "@/components/achievement-sorting-con
 import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
+import { PrivacyMessage } from "@/components/privacy-message";
+import { detectPrivacyState } from "@/lib/utils/privacy";
 import type { Game } from "@/lib/data/types";
 import { 
   sortGames, 
@@ -119,6 +121,15 @@ export default function UserDashboardPage() {
     hasRefetchedForThisCycleRef.current = false;
     loadedAchievementAppIds.current.clear();
   }, [steamId]);
+
+  // Detect privacy state
+  const privacyState = detectPrivacyState(
+    user,
+    statistics,
+    allGames,
+    isLoadingUser,
+    isLoadingGames
+  );
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -478,6 +489,12 @@ export default function UserDashboardPage() {
             user={user}
             statistics={statistics}
             isLoadingStats={isLoadingStats}
+          />
+
+          {/* Privacy Message */}
+          <PrivacyMessage 
+            state={privacyState} 
+            username={user?.username || 'User'} 
           />
 
           {/* Tabs */}
