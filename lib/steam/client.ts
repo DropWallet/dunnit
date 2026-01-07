@@ -260,7 +260,6 @@ export class SteamAPIClient {
   async getFriendList(steamId: string): Promise<string[]> {
     try {
       const url = `${STEAM_API_BASE}/ISteamUser/GetFriendList/v0001/?key=${this.apiKey}&steamid=${steamId}&relationship=friend`;
-      console.log(`[Steam API] Fetching friend list for steamId: ${steamId}`);
       const response = await fetch(url);
       
       if (!response.ok) {
@@ -272,15 +271,12 @@ export class SteamAPIClient {
       }
 
       const data = await response.json();
-      console.log(`[Steam API] Raw response for ${steamId}:`, JSON.stringify(data, null, 2));
       
       if (data.friendslist?.friends) {
         const friendIds = data.friendslist.friends.map((friend: { steamid: string }) => friend.steamid);
-        console.log(`[Steam API] Parsed ${friendIds.length} friends from response for ${steamId}`);
         return friendIds;
       }
       
-      console.log(`[Steam API] No friends in response for ${steamId}`);
       return [];
     } catch (error) {
       // Only log unexpected errors (not 401 which is expected for private profiles)

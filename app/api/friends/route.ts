@@ -24,28 +24,23 @@ export async function GET(request: NextRequest) {
 
     const steamClient = getSteamClient();
     const dataAccess = getDataAccess();
-    const searchParams = request.nextUrl.searchParams;
-    const forceRefresh = searchParams.get("refresh") === "true";
 
     // Check cache for friend list
     let friendSteamIds: string[] = [];
     const cachedFriendList = friendListCache.get(steamId);
     const now = new Date();
 
-    if (!forceRefresh && cachedFriendList) {
+    if (cachedFriendList) {
       const cacheAge = now.getTime() - cachedFriendList.cachedAt.getTime();
       if (cacheAge < FRIEND_LIST_CACHE_AGE_MS) {
         friendSteamIds = cachedFriendList.friends;
-        console.log(`[Friends API] Using cached friend list for ${steamId}: ${friendSteamIds.length} friends (cache age: ${Math.round(cacheAge / 1000 / 60)} minutes)`);
         
         // If cache has suspiciously few friends (less than 3), force refresh
         if (friendSteamIds.length < 3) {
-          console.log(`[Friends API] Cache has only ${friendSteamIds.length} friends, forcing refresh`);
           friendListCache.delete(steamId);
           friendSteamIds = [];
         }
       } else {
-        console.log(`[Friends API] Cache expired for ${steamId}, fetching fresh data`);
         friendListCache.delete(steamId);
       }
     }
@@ -53,9 +48,7 @@ export async function GET(request: NextRequest) {
     // Fetch friend list if not cached or cache expired
     if (friendSteamIds.length === 0) {
       try {
-        console.log(`[Friends API] Fetching friend list from Steam API for ${steamId}`);
         friendSteamIds = await steamClient.getFriendList(steamId);
-        console.log(`[Friends API] Steam API returned ${friendSteamIds.length} friends for ${steamId}`);
         // Update cache
         friendListCache.set(steamId, { friends: friendSteamIds, cachedAt: now });
       } catch (error) {
@@ -66,7 +59,6 @@ export async function GET(request: NextRequest) {
         // If we have cached data, use it even if fetch failed
         if (cachedFriendList) {
           friendSteamIds = cachedFriendList.friends;
-          console.log(`[Friends API] Fetch failed, using stale cache: ${friendSteamIds.length} friends`);
         } else {
           return NextResponse.json({ friends: [] });
         }
@@ -80,8 +72,6 @@ export async function GET(request: NextRequest) {
     // Fetch friend summaries in batches (Steam API supports up to 100 at a time)
     const batchSize = 100;
     const allFriends: any[] = [];
-
-    console.log(`[Friends API] Fetching summaries for ${friendSteamIds.length} friends in batches of ${batchSize}`);
 
     for (let i = 0; i < friendSteamIds.length; i += batchSize) {
       const batch = friendSteamIds.slice(i, i + batchSize);
@@ -137,7 +127,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    console.log(`[Friends API] Returning ${friendsWithBasicInfo.length} friends for ${steamId}`);
 
     return NextResponse.json(
       { friends: friendsWithBasicInfo },
