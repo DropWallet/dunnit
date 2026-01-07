@@ -326,7 +326,10 @@ export default function DashboardPage() {
         const res = await fetch("/api/friends");
         if (res.ok) {
           const data = await res.json();
-          setFriends(data.friends || []);
+          const friendsList = data.friends || [];
+          console.log("[Dashboard] Friends API response:", friendsList.length, "friends");
+          setFriends(friendsList);
+          console.log("[Dashboard] Friends state set to:", friendsList.length, "friends");
         } else {
           console.error("Failed to fetch friends:", res.status);
         }
@@ -473,6 +476,9 @@ export default function DashboardPage() {
   useEffect(() => {
     if (friends.length === 0) return;
 
+    console.log("[Dashboard] Processing friends for stats:", friends.length, "friends");
+    console.log("[Dashboard] Friends array:", friends.map(f => ({ steamId: f.steamId, username: f.username })));
+
     // Find friends that need lightweight stats loaded
     const friendsNeedingLightweightStats = friends.filter(
       (friend) => 
@@ -480,11 +486,14 @@ export default function DashboardPage() {
         !friendsStatsLoadingRef.current.has(friend.steamId)
     );
 
+    console.log("[Dashboard] Friends needing lightweight stats:", friendsNeedingLightweightStats.length);
+    console.log("[Dashboard] Friends needing stats:", friendsNeedingLightweightStats.map(f => ({ steamId: f.steamId, username: f.username })));
+
     // Enqueue all friends needing lightweight stats
     friendsNeedingLightweightStats.forEach(friend => {
       enqueueFriendStats(friend.steamId, true);
     });
-  }, [friends.length, friendsRefreshKey, enqueueFriendStats]);
+  }, [friends.length, friendsRefreshKey, enqueueFriendStats]); // Keep friends.length like user dashboard which works
 
   // Step 2: Load full stats (achievements) for friends that have games cached
   useEffect(() => {
