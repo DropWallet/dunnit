@@ -28,19 +28,27 @@ export async function GET(
     
     // Try to fetch from Store API
     let coverImageUrl: string | null = null;
+    let capsuleImageUrl: string | null = null;
     
     try {
       const gameDetails = await steamClient.getGameDetails(appId);
       
       // Check if Store API call was successful and has data
-      if (gameDetails?.success && gameDetails?.data?.header_image) {
-        coverImageUrl = gameDetails.data.header_image;
-      } else if (gameDetails?.success && gameDetails?.data) {
-        // Try alternative image sources if header_image doesn't exist
+      if (gameDetails?.success && gameDetails?.data) {
+        // Separate capsule_image (for feed cards - portrait) from coverImageUrl (for game cards - landscape)
+        // Game cards need header_image (landscape), feed cards need capsule_image (portrait)
         if (gameDetails.data.capsule_image) {
-          coverImageUrl = gameDetails.data.capsule_image;
+          capsuleImageUrl = gameDetails.data.capsule_image;
+        }
+        
+        // coverImageUrl should always be header_image (landscape) for game cards
+        if (gameDetails.data.header_image) {
+          coverImageUrl = gameDetails.data.header_image;
         } else if (gameDetails.data.background) {
           coverImageUrl = gameDetails.data.background;
+        } else if (gameDetails.data.capsule_image) {
+          // Only use capsule_image as coverImageUrl if no header_image is available
+          coverImageUrl = gameDetails.data.capsule_image;
         }
       }
     } catch (error) {
@@ -49,7 +57,7 @@ export async function GET(
         console.error(`Error fetching Store API image for game ${appId}:`, error);
       }
       // Return null if Store API fails
-      return NextResponse.json({ coverImageUrl: null });
+      return NextResponse.json({ coverImageUrl: null, capsuleImageUrl: null });
     }
 
     // If we got an image from Store API, update the cache
@@ -69,7 +77,10 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ coverImageUrl });
+    return NextResponse.json({ 
+      coverImageUrl,
+      capsuleImageUrl: capsuleImageUrl || coverImageUrl // Return capsule if available, otherwise cover
+    });
   } catch (error) {
     console.error('Error fetching game image:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

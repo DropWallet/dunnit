@@ -26,6 +26,8 @@ export interface Game {
   lastPlayed?: Date;
   derivedLastPlayed?: Date;
   derivedLastPlayedCalculatedAt?: Date;
+  previousPlaytimeMinutes?: number;
+  playtimeLastSyncedAt?: Date;
 }
 
 export interface Achievement {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import type React from "react";
 import Link from "next/link";
 import { type FeedSession } from "@/lib/utils/feed-sessions";
 import { getRarityBorderClass } from "@/lib/utils/achievements";
@@ -30,13 +32,86 @@ export function FeedSessionCard({
   const displayAchievements = session.achievements.slice(0, 5);
   const remainingCount = session.achievements.length - displayAchievements.length;
   const hasAchievements = session.achievements.length > 0;
+  const isPlaytimeOnly = session.achievementCount === 0;
+
+  // State for image fallbacks
+  const [desktopImageError, setDesktopImageError] = useState(false);
+  const [storeApiCapsuleUrl, setStoreApiCapsuleUrl] = useState<string | null>(null);
+  const [isFetchingStoreImage, setIsFetchingStoreImage] = useState(false);
+  const [fallbackToHeader, setFallbackToHeader] = useState(false);
 
   // Determine which image to use
   // Mobile: use coverImageUrl (header.jpg - landscape)
   // MD+: use CDN capsule art (portrait) - direct CDN URL, no API call needed
   const mobileImageUrl = session.game.coverImageUrl;
-  // Use Steam CDN capsule art URL directly (portrait aspect ratio)
-  const capsuleArtUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${session.game.appId}/library_600x900_2x.jpg`;
+  // Use Store API capsule if available, otherwise use CDN capsule art URL
+  const defaultCapsuleArtUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${session.game.appId}/library_600x900_2x.jpg`;
+  const capsuleArtUrl = storeApiCapsuleUrl || defaultCapsuleArtUrl;
+
+  // Handle desktop capsule art error - try Store API for capsule_image
+  const handleDesktopImageError = async (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    // If we're already showing header.jpg fallback and it failed, hide the image
+    if (fallbackToHeader) {
+      setDesktopImageError(true);
+      return;
+    }
+
+    // If we already have a Store API capsule URL, it means Store API returned something but it also failed
+    // Fallback to header.jpg
+    if (storeApiCapsuleUrl) {
+      if (mobileImageUrl) {
+        setFallbackToHeader(true);
+        // Let React re-render with the new state
+        return;
+      } else {
+        setDesktopImageError(true);
+        return;
+      }
+    }
+
+    // If we're already fetching, don't trigger again
+    if (isFetchingStoreImage) {
+      return;
+    }
+
+    // Try Store API to get capsule_image
+    setIsFetchingStoreImage(true);
+    try {
+      const response = await fetch(`/api/games/${session.game.appId}/image`);
+      if (response.ok) {
+        const data = await response.json();
+        // Prefer capsuleImageUrl from Store API, fallback to coverImageUrl
+        if (data.capsuleImageUrl) {
+          setStoreApiCapsuleUrl(data.capsuleImageUrl);
+          // React will re-render and update the src automatically
+          setIsFetchingStoreImage(false);
+          return;
+        } else if (data.coverImageUrl) {
+          // If no capsule_image, use coverImageUrl but mark as header fallback
+          setStoreApiCapsuleUrl(data.coverImageUrl);
+          setFallbackToHeader(true);
+          // React will re-render and update the src automatically
+          setIsFetchingStoreImage(false);
+          return;
+        }
+      }
+    } catch (error) {
+      // Silently fail
+    } finally {
+      setIsFetchingStoreImage(false);
+    }
+
+    // If Store API failed, try header.jpg fallback
+    if (mobileImageUrl) {
+      setFallbackToHeader(true);
+      // Set mobileImageUrl in state so React can use it
+      setStoreApiCapsuleUrl(mobileImageUrl);
+      return;
+    }
+    
+    // If no header.jpg available, hide the image
+    setDesktopImageError(true);
+  };
 
   return (
     <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 px-4 pt-4 pb-3 sm:p-5 sm:pb-3 rounded-lg bg-surface-low border border-border-weak">
@@ -122,14 +197,17 @@ export function FeedSessionCard({
                 {session.durationFormatted}
               </p>
             </div>
-            <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
-                Unlocks:
-              </p>
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                {session.achievementCount}
-              </p>
-            </div>
+            {/* Only show "Unlocks" for achievement sessions */}
+            {!isPlaytimeOnly && (
+              <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
+                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
+                  Unlocks:
+                </p>
+                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                  {session.achievementCount}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Achievement Icons - Only show if there are achievements */}
@@ -227,14 +305,17 @@ export function FeedSessionCard({
                 {session.durationFormatted}
               </p>
             </div>
-            <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
-                Unlocks:
-              </p>
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                {session.achievementCount}
-              </p>
-            </div>
+            {/* Only show "Unlocks" for achievement sessions */}
+            {!isPlaytimeOnly && (
+              <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
+                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
+                  Unlocks:
+                </p>
+                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                  {session.achievementCount}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Achievement Icons - Only show if there are achievements */}
@@ -295,26 +376,24 @@ export function FeedSessionCard({
         </div>
 
         {/* Game Art Image - Right (MD+) - Portrait Capsule Art */}
-        <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`}>
-          <img
-            src={capsuleArtUrl}
-            alt={session.game.name}
-            className="self-stretch h-full rounded-md object-cover max-h-64 max-w-[171px] cursor-pointer hover:opacity-90 transition-opacity"
-            style={{
-              aspectRatio: '600/900', // Portrait aspect ratio for capsule art
-              boxShadow: '0px 66px 19px 0 rgba(0,0,0,0), 0px 42px 17px 0 rgba(0,0,0,0.04), 0px 24px 14px 0 rgba(0,0,0,0.12), 0px 11px 11px 0 rgba(0,0,0,0.2), 0px 3px 6px 0 rgba(0,0,0,0.23)',
-            }}
-            onError={(e) => {
-              // Fallback to header.jpg if capsule art doesn't exist
-              if (mobileImageUrl) {
-                e.currentTarget.src = mobileImageUrl;
-                e.currentTarget.style.aspectRatio = '460/215'; // Landscape for header
-              } else {
-                e.currentTarget.style.display = 'none';
-              }
-            }}
-          />
-        </Link>
+        {!desktopImageError && (
+          <Link href={`/games/${session.game.appId}?steamId=${session.user.steamId}`}>
+            <img
+              src={fallbackToHeader && mobileImageUrl ? mobileImageUrl : capsuleArtUrl}
+              alt={session.game.name}
+              className={`self-stretch h-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity ${
+                isPlaytimeOnly 
+                  ? 'max-h-[147px] max-w-[98px]' 
+                  : 'max-h-64 max-w-[171px]'
+              }`}
+              style={{
+                aspectRatio: fallbackToHeader ? '460/215' : '600/900', // Landscape for header, portrait for capsule
+                boxShadow: '0px 66px 19px 0 rgba(0,0,0,0), 0px 42px 17px 0 rgba(0,0,0,0.04), 0px 24px 14px 0 rgba(0,0,0,0.12), 0px 11px 11px 0 rgba(0,0,0,0.2), 0px 3px 6px 0 rgba(0,0,0,0.23)',
+              }}
+              onError={handleDesktopImageError}
+            />
+          </Link>
+        )}
       </div>
 
       {/* Like Button - Below achievement block */}

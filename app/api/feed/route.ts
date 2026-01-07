@@ -6,6 +6,7 @@ import { ApiErrors } from "@/lib/utils/api-errors";
 import {
   groupAchievementsIntoSessions,
   filterSessionsByCooldown,
+  createSessionFromPlaytime,
   type AchievementRow,
   type FeedSession,
 } from "@/lib/utils/feed-sessions";
@@ -253,11 +254,170 @@ export async function GET(request: NextRequest) {
     // Apply cooldown filter (additional safety check)
     sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
 
+    // Detect playtime-only sessions (sessions without achievements)
+    console.log('[Playtime Detection] Starting playtime-only session detection...');
+    // Reuse existing supabase instance from above
+    // Declare dataAccess here to use for both playtime detection and achievement counts
+    const dataAccess = getDataAccess();
+    
+    // Log current time and constants for debugging
+    console.log('[Playtime Detection] Current time (now):', now.toISOString());
+    console.log('[Playtime Detection] COOLDOWN_MINUTES:', COOLDOWN_MINUTES);
+    console.log('[Playtime Detection] MAX_LOOKBACK_DAYS:', MAX_LOOKBACK_DAYS);
+    
+    // Calculate date filters for playtime-only sessions
+    const playtimeCooldownThreshold = new Date(now.getTime() - COOLDOWN_MINUTES * 60 * 1000);
+    const playtimeLookbackDate = new Date(now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    
+    console.log('[Playtime Detection] Querying for playtime-only sessions...');
+    console.log('[Playtime Detection] Target user IDs:', targetUserIds.length);
+    console.log('[Playtime Detection] Lookback date:', playtimeLookbackDate.toISOString());
+    console.log('[Playtime Detection] Cooldown threshold:', playtimeCooldownThreshold.toISOString());
+    
+    // Query for games with playtime increases (potential playtime-only sessions)
+    // Note: We filter for playtime > previous_playtime in memory since Supabase doesn't support column comparisons
+    // We allow previous_playtime_minutes to be NULL (first sync scenario) - will treat as 0
+    const { data: allPlaytimeGames, error: playtimeError } = await supabase
+      .from('user_games')
+      .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
+      .in('user_id', targetUserIds)
+      .gte('last_played', playtimeLookbackDate.toISOString())
+      .lte('last_played', playtimeCooldownThreshold.toISOString())
+      .not('playtime_last_synced_at', 'is', null)
+      .gte('playtime_last_synced_at', playtimeLookbackDate.toISOString()); // Only recently synced data
+    
+    console.log('[Playtime Detection] Query result:', {
+      allPlaytimeGamesCount: allPlaytimeGames?.length || 0,
+      error: playtimeError?.message || null,
+    });
+    
+    // Filter in memory: playtime must be at least 5 minutes more than previous
+    // Handle NULL previous_playtime_minutes (first sync) by treating it as 0
+    const playtimeGames = (allPlaytimeGames || []).filter((g: any) => {
+      const previous = g.previous_playtime_minutes ?? 0;
+      const current = g.playtime_minutes;
+      const delta = current - previous;
+      const hasIncrease = delta >= 5; // At least 5 minutes
+      
+      // Log ALL games, not just those with increases
+      console.log(`[Playtime Detection] Game ${g.app_id} (user ${g.user_id}): current=${current}, previous=${previous}, delta=${delta}, hasIncrease=${hasIncrease}, lastPlayed=${g.last_played}, playtimeLastSyncedAt=${g.playtime_last_synced_at}`);
+      
+      return hasIncrease;
+    });
+    
+    console.log('[Playtime Detection] Games with playtime increases (>=5min):', playtimeGames.length);
+
+    if (!playtimeError && playtimeGames && playtimeGames.length > 0) {
+      // Get user and game data for playtime sessions
+      const playtimeUserIds = [...new Set(playtimeGames.map((g: any) => g.user_id))];
+      const playtimeAppIds = [...new Set(playtimeGames.map((g: any) => g.app_id))];
+      
+      const { data: playtimeUsersData } = await supabase
+        .from('users')
+        .select('steam_id, username, avatar_url, profile_url')
+        .in('steam_id', playtimeUserIds);
+      
+      const { data: playtimeGamesData } = await supabase
+        .from('user_games')
+        .select('user_id, app_id, name, cover_image_url, icon_url')
+        .in('user_id', playtimeUserIds)
+        .in('app_id', playtimeAppIds);
+      
+      const playtimeUsersMap = new Map(
+        (playtimeUsersData || []).map((u: any) => [u.steam_id, u])
+      );
+      const playtimeGamesMap = new Map(
+        (playtimeGamesData || []).map((g: any) => [`${g.user_id}-${g.app_id}`, g])
+      );
+      
+      // Create a set of (user_id, app_id) pairs that have achievement sessions
+      // to avoid duplicate playtime-only sessions
+      const achievementSessionKeys = new Set(
+        sessions.map(s => `${s.user.steamId}-${s.game.appId}`)
+      );
+      
+      // Check each playtime game to see if it has achievements in the same time window
+      const playtimeSessions: FeedSession[] = [];
+      
+      for (const playtimeGame of playtimeGames) {
+        const userId = playtimeGame.user_id;
+        const appId = playtimeGame.app_id;
+        const sessionKey = `${userId}-${appId}`;
+        
+        // Skip if we already have an achievement session for this user+game
+        if (achievementSessionKeys.has(sessionKey)) {
+          continue;
+        }
+        
+        // Check if any achievements were unlocked in the time window
+        // Calculate the time window: from previous playtime sync to last_played
+        const lastPlayed = new Date(playtimeGame.last_played);
+        const previous = playtimeGame.previous_playtime_minutes ?? 0;
+        const playtimeDelta = playtimeGame.playtime_minutes - previous;
+        const sessionStartEstimate = new Date(lastPlayed.getTime() - playtimeDelta * 60 * 1000);
+        
+        console.log(`[Playtime Detection] Checking game ${appId} (user ${userId}): delta=${playtimeDelta}min, lastPlayed=${lastPlayed.toISOString()}`);
+        
+        // Check for achievements unlocked in this window
+        const { data: achievementsInWindow } = await supabase
+          .from('user_achievements')
+          .select('unlocked_at')
+          .eq('user_id', userId)
+          .eq('app_id', appId)
+          .eq('unlocked', true)
+          .not('unlocked_at', 'is', null)
+          .gte('unlocked_at', sessionStartEstimate.toISOString())
+          .lte('unlocked_at', lastPlayed.toISOString())
+          .limit(1);
+        
+        // If no achievements in this window, it's a playtime-only session
+        if (!achievementsInWindow || achievementsInWindow.length === 0) {
+          const user = playtimeUsersMap.get(userId);
+          const game = playtimeGamesMap.get(sessionKey);
+          
+          if (user && game) {
+            console.log(`[Playtime Detection] Creating playtime-only session for ${game.name} (${playtimeDelta}min)`);
+            const playtimeSession = createSessionFromPlaytime(
+              userId,
+              appId,
+              playtimeDelta,
+              lastPlayed,
+              {
+                username: user.username,
+                avatarUrl: user.avatar_url,
+                profileUrl: user.profile_url,
+              },
+              {
+                name: game.name,
+                coverImageUrl: game.cover_image_url,
+                iconUrl: game.icon_url,
+              }
+            );
+            playtimeSessions.push(playtimeSession);
+          } else {
+            console.log(`[Playtime Detection] Missing user or game data for ${sessionKey}`);
+          }
+        } else {
+          console.log(`[Playtime Detection] Skipping ${sessionKey} - has achievements in window`);
+        }
+      }
+      
+      // Merge playtime-only sessions with achievement sessions
+      console.log(`[Playtime Detection] Created ${playtimeSessions.length} playtime-only sessions`);
+      sessions = [...sessions, ...playtimeSessions];
+    } else {
+      if (playtimeError) {
+        console.error('[Playtime Detection] Error querying playtime games:', playtimeError);
+      } else {
+        console.log('[Playtime Detection] No playtime-only sessions found');
+      }
+    }
+
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
 
     // Fetch achievement counts for each unique (user_id, app_id) combination
-    const dataAccess = getDataAccess();
+    // Reuse dataAccess instance declared above
     const uniqueGameKeys = new Set<string>();
     sessions.forEach(session => {
       uniqueGameKeys.add(`${session.user.steamId}-${session.game.appId}`);
