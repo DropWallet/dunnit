@@ -48,7 +48,10 @@ export function useFeed(): UseFeedResult {
     setError(null);
 
     try {
-      const res = await fetch(`/api/feed?limit=${DEFAULT_LIMIT}&offset=${currentOffset}`);
+      const cacheBuster = `&t=${Date.now()}`;
+      const res = await fetch(`/api/feed?limit=${DEFAULT_LIMIT}&offset=${currentOffset}${cacheBuster}`, {
+        cache: 'no-store', // Bypass browser cache
+      });
       
       if (!res.ok) {
         throw new Error(`Failed to fetch feed: ${res.status}`);

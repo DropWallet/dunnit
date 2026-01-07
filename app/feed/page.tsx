@@ -1,21 +1,29 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { FeedSessionCard } from "@/components/feed-session-card";
 import { FeedProfileMetadata } from "@/components/feed-profile-metadata";
 import { FeedRecentlyPlayed } from "@/components/feed-recently-played";
 import { useFeed } from "@/hooks/useFeed";
+import { RefreshCw } from "lucide-react";
 
 function FeedContent() {
-  const { sessions, isLoading, isLoadingMore, error, hasMore, loadMore } = useFeed();
+  const { sessions, isLoading, isLoadingMore, error, hasMore, loadMore, refetch } = useFeed();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refetch();
+    setIsRefreshing(false);
+  };
 
   return (
     <div className="min-h-screen bg-background pt-16">
       <Navbar />
       
       {/* Main Content Container */}
-      <div className="px-4 py-8 sm:px-6 md:px-8">
+      <div className="px-4 py-8 sm:px-6 md:px-8 pb-20">
         <div className="mx-auto xl:max-w-[1280px]">
           {/* Two Column Layout - lg: 3-col grid, xl: 12-col grid */}
           <div className="lg:grid lg:grid-cols-3 lg:gap-8 xl:grid-cols-12">
@@ -73,6 +81,18 @@ function FeedContent() {
             </div>
           </div>
         </div>
+      </div>
+      
+      {/* Refresh Button - Fixed at bottom */}
+      <div className="fixed bottom-0 left-0 right-0 flex justify-center md:justify-end mr-4 pb-5 z-40">
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing || isLoading}
+          className="px-4 py-2 rounded-md bg-surface-mid hover:bg-surface-high text-sm text-text-moderate font-normal transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-xl"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? "Refreshing..." : "Refresh Feed"}
+        </button>
       </div>
     </div>
   );
