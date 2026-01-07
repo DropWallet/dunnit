@@ -25,6 +25,7 @@ import { useUserFriends } from "@/hooks/useUserFriends";
 import { useGameAchievements } from "@/hooks/useGameAchievements";
 import { GameSortingControls } from "@/components/game-sorting-controls";
 import { AchievementSortingControls } from "@/components/achievement-sorting-controls";
+import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import type { Game } from "@/lib/data/types";
@@ -227,6 +228,31 @@ export default function UserDashboardPage() {
     }
     return rows;
   }, [achievementsToDisplay, columnsPerRow]);
+
+    // Calculate rarity breakdown for achievements
+    const rarityCounts = useMemo(() => {
+      const counts = {
+        legendary: 0,
+        'very-rare': 0,
+        rare: 0,
+        uncommon: 0,
+        common: 0,
+      };
+      
+      if (allAchievementsList && allAchievementsList.length > 0) {
+        allAchievementsList.forEach((ach) => {
+          // Only count unlocked achievements
+          if (ach.unlocked) {
+            const rarity = calculateRarity(ach.achievement?.globalPercentage);
+            counts[rarity]++;
+          }
+        });
+      }
+      
+      return counts;
+    }, [allAchievementsList]);
+  
+  const unlockedAchievementsCount = allAchievementsList?.filter((a) => a.unlocked).length || 0;
 
   // Infinite scroll for games
   const loadMoreGames = useCallback(async () => {
@@ -556,6 +582,12 @@ export default function UserDashboardPage() {
                     </div>
                   ) : (
                     <div className="flex flex-col justify-start items-center self-stretch px-4 md:px-8 py-8 md:py-4 rounded-lg bg-surface-low border border-border-weak">
+                      {/* Achievement Breakdown */}
+                      <AchievementBreakdown 
+                        unlockedCount={unlockedAchievementsCount}
+                        rarityCounts={rarityCounts}
+                      />
+
                       <div className="flex flex-col gap-0 w-full">
                         {achievementRows.map((row, rowIndex) => (
                           <div key={rowIndex} className="flex flex-col items-center w-full">
