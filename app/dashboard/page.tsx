@@ -381,8 +381,8 @@ export default function DashboardPage() {
 
         try {
           const url = item.lightweight
-            ? `/api/friends/${item.steamId}/statistics?lightweight=true&t=${Date.now()}`
-            : `/api/friends/${item.steamId}/statistics?t=${Date.now()}`;
+            ? `/api/friends/${item.steamId}/statistics?lightweight=true&refresh=true&t=${Date.now()}`
+            : `/api/friends/${item.steamId}/statistics?refresh=true&t=${Date.now()}`;
           
           const res = await fetch(url);
           if (res.ok) {

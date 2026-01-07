@@ -15,6 +15,8 @@ export async function GET(
     }
 
     const dataAccess = getDataAccess();
+    const searchParams = request.nextUrl.searchParams;
+    const forceRefresh = searchParams.get("refresh") === "true";
 
     // Get friend's friends count (check cache first, same 1-hour TTL as achievements)
     let friendsCount = 0;
@@ -22,7 +24,7 @@ export async function GET(
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const isStale = !cachedFriendsCount?.syncedAt || cachedFriendsCount.syncedAt < oneHourAgo;
 
-    if (cachedFriendsCount && !isStale) {
+    if (cachedFriendsCount && !isStale && !forceRefresh) {
       // Use cached value
       friendsCount = cachedFriendsCount.count;
       if (process.env.NODE_ENV === 'development') {
