@@ -8,6 +8,8 @@ const dmSans = DM_Sans({
   variable: "--font-sans",
 });
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: "Dunnit - Game Tracking",
   description: "Track your Steam games and achievements",

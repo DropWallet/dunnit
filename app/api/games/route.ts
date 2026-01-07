@@ -243,11 +243,15 @@ export async function GET(request: NextRequest) {
       games = gamesWithDerivedLastPlayed;
     }
 
+    const isRefresh = request.nextUrl.searchParams.get('refresh') === 'true';
+
     return NextResponse.json(
       { games },
       {
         headers: {
-          'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
+          'Cache-Control': isRefresh 
+            ? 'no-cache, no-store, must-revalidate, Pragma: no-cache' 
+            : 'private, max-age=300', // Browser cache for 5 minutes
         },
       }
     );

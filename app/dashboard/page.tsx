@@ -911,8 +911,12 @@ export default function DashboardPage() {
     
     const refreshGames = async () => {
       try {
-        // Add ?refresh=true to force a sync
-        const gamesRes = await fetch("/api/games?refresh=true");
+        const cacheBuster = `&t=${Date.now()}`;
+        
+        // Fetch games with cache-busting
+        const gamesRes = await fetch(`/api/games?refresh=true${cacheBuster}`, {
+          cache: 'no-store', // Bypass browser cache
+        });
         if (!gamesRes.ok) {
           setIsLoadingGames(false);
           return;
@@ -921,11 +925,24 @@ export default function DashboardPage() {
         const gamesData = await gamesRes.json();
         setAllGames(gamesData.games);
         
-        // Refresh achievements for displayed games only
+        // Refresh statistics with cache-busting
+        const statsRes = await fetch(`/api/user/statistics?force=true${cacheBuster}`, {
+          cache: 'no-store',
+        });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          if (statsData?.statistics) {
+            setStatistics(statsData.statistics);
+          }
+        }
+        
+        // Refresh achievements for displayed games only with cache-busting
         const gamesToDisplay = gamesData.games.slice(0, displayedGamesCount);
         const achievementPromises = gamesToDisplay.map(async (game: Game) => {
           try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}${cacheBuster}`, {
+              cache: 'no-store',
+            });
             if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
             // Parse dates from strings if needed
