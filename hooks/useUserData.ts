@@ -9,6 +9,7 @@ interface User {
   countryCode?: string;
   countryName?: string;
   joinDate?: string;
+  communityVisibilityState?: number;
 }
 
 interface UseUserDataResult {

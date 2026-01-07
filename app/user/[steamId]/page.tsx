@@ -28,6 +28,8 @@ import { AchievementSortingControls } from "@/components/achievement-sorting-con
 import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
+import { PrivacyMessage } from "@/components/privacy-message";
+import { detectPrivacyState } from "@/lib/utils/privacy";
 import type { Game } from "@/lib/data/types";
 import { 
   sortGames, 
@@ -119,6 +121,16 @@ export default function UserDashboardPage() {
     hasRefetchedForThisCycleRef.current = false;
     loadedAchievementAppIds.current.clear();
   }, [steamId]);
+
+  // Detect privacy state
+  const privacyState = detectPrivacyState(
+    user,
+    statistics,
+    allGames,
+    isLoadingUser,
+    isLoadingGames,
+    allAchievementsList.length // Pass achievements count
+  );
 
   // Sort and filter games
   const sortedAndFilteredGames = useMemo(() => {
@@ -473,6 +485,12 @@ export default function UserDashboardPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
+          {/* Privacy Message */}
+          <PrivacyMessage 
+            state={privacyState} 
+            username={user?.username || 'User'} 
+          />
+
           {/* User Profile Section */}
           <UserProfileHeader
             user={user}
@@ -588,7 +606,7 @@ export default function UserDashboardPage() {
                       </p>
                     </div>
                   ) : (
-                    <div className="flex flex-col justify-start items-center self-stretch px-4 md:px-8 py-8 md:py-4 rounded-lg bg-surface-low border border-border-weak">
+                    <div className="flex flex-col justify-start items-center self-stretch px-4 md:px-8 py-6 md:py-6 rounded-lg bg-surface-low border border-border-weak">
                       {/* Achievement Breakdown */}
                       <AchievementBreakdown 
                         unlockedCount={unlockedAchievementsCount}
@@ -605,12 +623,13 @@ export default function UserDashboardPage() {
                                 
                                 return (
                                   <Trophy
-                                    key={`${achievement.appId}-${achievement.achievement?.name}-${index}`}
+                                    key={`trophy-${achievement.appId}-${achievement.achievement?.apiName || achievement.achievement?.name}-${rowIndex}-${index}`}
                                     rarity={rarity}
                                     percentage={percentage}
+                                    iconUrl={achievement.unlocked ? achievement.achievement?.iconUrl : (achievement.achievement?.iconGrayUrl || achievement.achievement?.iconUrl || "")}
                                     name={achievement.achievement?.name || "Unknown"}
-                                    iconUrl={achievement.achievement?.iconUrl || ""}
-                                    unlockedAt={achievement.unlockedAt}
+                                    unlockedAt={achievement.unlockedAt ? new Date(achievement.unlockedAt) : undefined}
+                                    unlocked={achievement.unlocked}
                                   />
                                 );
                               })}

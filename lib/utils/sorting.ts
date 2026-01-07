@@ -19,7 +19,9 @@ export interface UserAchievement {
     name: string;
     description: string;
     iconUrl: string;
+    iconGrayUrl?: string;
     globalPercentage?: number;
+    apiName?: string;
   };
   unlocked: boolean;
   unlockedAt?: Date;
