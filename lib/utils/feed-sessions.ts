@@ -38,7 +38,7 @@ export interface SessionMetadata {
  * Narrative label for a session
  */
 export interface Narrative {
-  type: 'multiple-unlocks' | 'rare-achievement' | 'first-time' | 'standard';
+  type: 'multiple-unlocks' | 'rare-achievement' | 'first-time' | 'standard' | 'playtime-only';
   label: string;
 }
 
@@ -75,7 +75,7 @@ export interface FeedSession {
     rarity: AchievementRarity;
     hidden: boolean;
   }>;
-  minRarity: AchievementRarity;
+  minRarity?: AchievementRarity; // Optional for playtime-only sessions
   minRarityPercentage?: number;
   narrative?: Narrative;
   relativeTime: string;
@@ -327,6 +327,96 @@ function calculateNarrative(
     type: 'standard',
     label: `Unlocked ${achievementCount} ${achievementCount === 1 ? 'achievement' : 'achievements'}`,
   };
+}
+
+/**
+ * Calculate narrative label for a playtime-only session
+ */
+function calculatePlaytimeNarrative(playtimeMinutes: number): Narrative {
+  if (playtimeMinutes >= 180) {
+    // 3+ hours
+    return {
+      type: 'playtime-only',
+      label: 'Deep dive',
+    };
+  }
+  if (playtimeMinutes >= 60) {
+    // 1-3 hours
+    return {
+      type: 'playtime-only',
+      label: 'Put in the hours',
+    };
+  }
+  // < 1 hour
+  return {
+    type: 'playtime-only',
+    label: 'Quick session',
+  };
+}
+
+/**
+ * Create a FeedSession from playtime data (no achievements)
+ */
+export function createSessionFromPlaytime(
+  userId: string,
+  appId: number,
+  playtimeDeltaMinutes: number,
+  sessionEnd: Date,
+  user: {
+    username: string;
+    avatarUrl: string;
+    profileUrl: string;
+  },
+  game: {
+    name: string;
+    coverImageUrl?: string;
+    iconUrl?: string;
+  }
+): FeedSession {
+  // Calculate session start by subtracting playtime delta from session end
+  // Cap the duration at 4 hours (same as achievement sessions)
+  const maxSessionMinutes = 4 * 60;
+  const sessionMinutes = Math.min(playtimeDeltaMinutes, maxSessionMinutes);
+  const sessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+  const duration = sessionMinutes * 60 * 1000;
+
+  // Generate session ID (include 'playtime' suffix to avoid collisions)
+  const sessionId = `${userId}-${appId}-${sessionStart.getTime()}-playtime`;
+
+  // Create session
+  const session: FeedSession = {
+    sessionId,
+    user: {
+      steamId: userId,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
+      profileUrl: user.profileUrl,
+    },
+    game: {
+      appId,
+      name: game.name,
+      coverImageUrl: game.coverImageUrl,
+      iconUrl: game.iconUrl,
+    },
+    sessionStart,
+    sessionEnd,
+    duration,
+    durationFormatted: formatDuration(duration),
+    achievementCount: 0,
+    achievements: [],
+    // minRarity and minRarityPercentage are undefined for playtime-only sessions
+    narrative: calculatePlaytimeNarrative(sessionMinutes),
+    relativeTime: getRelativeTime(sessionEnd),
+    timestamp: sessionEnd.toISOString(),
+    // Default values - will be populated by API
+    totalGameAchievements: 0,
+    unlockedGameAchievements: 0,
+    likeCount: 0,
+    isLiked: false,
+    likedByUsers: [],
+  };
+
+  return session;
 }
 
 /**
