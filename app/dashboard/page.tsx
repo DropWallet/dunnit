@@ -320,16 +320,19 @@ export default function DashboardPage() {
 
   // Fetch friends list
   useEffect(() => {
+    // Wait for user to be loaded first
+    if (!user?.steamId) return;
+
+    const steamId = user.steamId; // Capture steamId to avoid null check issues in async function
+
     async function loadFriends() {
       setIsLoadingFriends(true);
       try {
-        const res = await fetch("/api/friends?refresh=true");
+        const res = await fetch(`/api/user/${steamId}/friends`);
         if (res.ok) {
           const data = await res.json();
           const friendsList = data.friends || [];
-          console.log("[Dashboard] Friends API response:", friendsList.length, "friends");
           setFriends(friendsList);
-          console.log("[Dashboard] Friends state set to:", friendsList.length, "friends");
         } else {
           console.error("Failed to fetch friends:", res.status);
         }
@@ -341,7 +344,7 @@ export default function DashboardPage() {
     }
     
     loadFriends();
-  }, []);
+  }, [user?.steamId]);
 
   // Queue-based friend statistics loader with rate limiting and debouncing
   const processFriendStatsQueue = useCallback(async () => {
@@ -381,8 +384,8 @@ export default function DashboardPage() {
 
         try {
           const url = item.lightweight
-            ? `/api/friends/${item.steamId}/statistics?lightweight=true&refresh=true&t=${Date.now()}`
-            : `/api/friends/${item.steamId}/statistics?refresh=true&t=${Date.now()}`;
+            ? `/api/friends/${item.steamId}/statistics?lightweight=true&t=${Date.now()}`
+            : `/api/friends/${item.steamId}/statistics?t=${Date.now()}`;
           
           const res = await fetch(url);
           if (res.ok) {
@@ -476,18 +479,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (friends.length === 0) return;
 
-    console.log("[Dashboard] Processing friends for stats:", friends.length, "friends");
-    console.log("[Dashboard] Friends array:", friends.map(f => ({ steamId: f.steamId, username: f.username })));
-
     // Find friends that need lightweight stats loaded
     const friendsNeedingLightweightStats = friends.filter(
       (friend) => 
         !friend.statsLoaded &&
         !friendsStatsLoadingRef.current.has(friend.steamId)
     );
-
-    console.log("[Dashboard] Friends needing lightweight stats:", friendsNeedingLightweightStats.length);
-    console.log("[Dashboard] Friends needing stats:", friendsNeedingLightweightStats.map(f => ({ steamId: f.steamId, username: f.username })));
 
     // Enqueue all friends needing lightweight stats
     friendsNeedingLightweightStats.forEach(friend => {
@@ -866,7 +863,7 @@ export default function DashboardPage() {
     
     const refreshGames = async () => {
       try {
-        const gamesRes = await fetch("/api/games?refresh=true");
+        const gamesRes = await fetch("/api/games");
         if (!gamesRes.ok) {
           setIsLoadingGames(false);
           return;
@@ -879,7 +876,7 @@ export default function DashboardPage() {
         const gamesToDisplay = gamesData.games.slice(0, displayedGamesCount);
         const achievementPromises = gamesToDisplay.map(async (game: Game) => {
           try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}&refresh=true`);
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
             if (!achRes.ok) return { appId: game.appId, achievements: [] };
             const achData = await achRes.json();
             // Parse dates from strings if needed

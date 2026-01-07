@@ -15,8 +15,6 @@ export async function GET(
     }
 
     const dataAccess = getDataAccess();
-    const searchParams = request.nextUrl.searchParams;
-    const forceRefresh = searchParams.get("refresh") === "true";
 
     // Get friend's friends count (check cache first, same 1-hour TTL as achievements)
     let friendsCount = 0;
@@ -24,12 +22,9 @@ export async function GET(
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const isStale = !cachedFriendsCount?.syncedAt || cachedFriendsCount.syncedAt < oneHourAgo;
 
-    if (cachedFriendsCount && !isStale && !forceRefresh) {
+    if (cachedFriendsCount && !isStale) {
       // Use cached value
       friendsCount = cachedFriendsCount.count;
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[Friend Count] Using cached count for ${friendSteamId}: ${friendsCount}`);
-      }
     } else {
       // Fetch from Steam API
       try {
@@ -39,9 +34,6 @@ export async function GET(
         
         // Save to cache
         await dataAccess.saveUserFriendsCount(friendSteamId, friendsCount);
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[Friend Count] Fetched and cached count for ${friendSteamId}: ${friendsCount}`);
-        }
       } catch (error) {
         // If Steam API fails, use cached value if available (even if stale)
         if (cachedFriendsCount) {
