@@ -653,8 +653,11 @@ export default function DashboardPage() {
     
     if (allAchievementsList && allAchievementsList.length > 0) {
       allAchievementsList.forEach((ach) => {
-        const rarity = calculateRarity(ach.achievement?.globalPercentage);
-        counts[rarity]++;
+        // Only count unlocked achievements
+        if (ach.unlocked) {
+          const rarity = calculateRarity(ach.achievement?.globalPercentage);
+          counts[rarity]++;
+        }
       });
     }
     
