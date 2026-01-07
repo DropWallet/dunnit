@@ -320,10 +320,15 @@ export default function DashboardPage() {
 
   // Fetch friends list
   useEffect(() => {
+    // Wait for user to be loaded first
+    if (!user?.steamId) return;
+
+    const steamId = user.steamId; // Capture steamId to avoid null check issues in async function
+
     async function loadFriends() {
       setIsLoadingFriends(true);
       try {
-        const res = await fetch("/api/friends?refresh=true");
+        const res = await fetch(`/api/user/${steamId}/friends`);
         if (res.ok) {
           const data = await res.json();
           const friendsList = data.friends || [];
@@ -341,7 +346,7 @@ export default function DashboardPage() {
     }
     
     loadFriends();
-  }, []);
+  }, [user?.steamId]);
 
   // Queue-based friend statistics loader with rate limiting and debouncing
   const processFriendStatsQueue = useCallback(async () => {
