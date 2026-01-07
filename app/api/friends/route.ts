@@ -34,12 +34,6 @@ export async function GET(request: NextRequest) {
       const cacheAge = now.getTime() - cachedFriendList.cachedAt.getTime();
       if (cacheAge < FRIEND_LIST_CACHE_AGE_MS) {
         friendSteamIds = cachedFriendList.friends;
-        
-        // If cache has suspiciously few friends (less than 3), force refresh
-        if (friendSteamIds.length < 3) {
-          friendListCache.delete(steamId);
-          friendSteamIds = [];
-        }
       } else {
         friendListCache.delete(steamId);
       }
