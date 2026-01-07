@@ -121,6 +121,10 @@ export default function DashboardPage() {
   const loadedAchievementAppIds = useRef<Set<number>>(new Set());
   const friendsFullStatsAttemptedRef = useRef<Set<string>>(new Set());
   
+  // Refs for statistics refetch tracking
+  const previousLoadingSizeRef = useRef<number>(0);
+  const hasRefetchedForThisCycleRef = useRef<boolean>(false);
+  
   // Friend statistics queue system with rate limiting
   const friendStatsQueueRef = useRef<Array<{ steamId: string; lightweight: boolean }>>([]);
   const friendStatsProcessingRef = useRef<boolean>(false);
@@ -317,6 +321,49 @@ export default function DashboardPage() {
     
     loadAllAchievements();
   }, []);
+
+  // Refetch statistics when achievements finish loading
+  useEffect(() => {
+    const currentLoadingSize = loadingAchievements.size;
+    const wasLoading = previousLoadingSizeRef.current > 0;
+    const isNowDone = currentLoadingSize === 0;
+
+    // Reset the refetch flag when we start loading a new batch
+    if (currentLoadingSize > 0 && previousLoadingSizeRef.current === 0) {
+      hasRefetchedForThisCycleRef.current = false;
+    }
+
+    // If we were loading and now we're done, refetch statistics
+    // We don't check hasAchievements here because achievements might be in the database
+    // even if they're not in the local map yet
+    if (wasLoading && isNowDone && !hasRefetchedForThisCycleRef.current) {
+      hasRefetchedForThisCycleRef.current = true;
+      
+      // Longer delay to ensure all database writes are complete
+      // With hundreds of concurrent achievement syncs, database writes can queue up
+      // and take several seconds to fully commit, even after API calls complete
+      const timer = setTimeout(() => {
+        fetch("/api/user/statistics")
+          .then((res) => {
+            if (res.ok) {
+              return res.json();
+            }
+            return null;
+          })
+          .then((data) => {
+            if (data?.statistics) {
+              setStatistics(data.statistics);
+            }
+          })
+          .catch(console.error);
+      }, 5000); // 5 seconds to allow queued database writes to complete
+      
+      return () => clearTimeout(timer);
+    }
+
+    // Update the ref for next comparison
+    previousLoadingSizeRef.current = currentLoadingSize;
+  }, [loadingAchievements.size]);
 
   // Fetch friends list
   useEffect(() => {
@@ -841,6 +888,7 @@ export default function DashboardPage() {
     // Clear achievement state to force fresh fetch
     setGameAchievements(new Map());
     setLoadingAchievements(new Set());
+    loadedAchievementAppIds.current.clear(); // Clear loaded achievement refs
     
     // Reset friend stats so they reload with fresh data
     setFriends((prevFriends) =>
@@ -863,7 +911,8 @@ export default function DashboardPage() {
     
     const refreshGames = async () => {
       try {
-        const gamesRes = await fetch("/api/games");
+        // Add ?refresh=true to force a sync
+        const gamesRes = await fetch("/api/games?refresh=true");
         if (!gamesRes.ok) {
           setIsLoadingGames(false);
           return;

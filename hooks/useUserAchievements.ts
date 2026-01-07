@@ -1,18 +1,8 @@
 import { useState, useEffect } from 'react';
-
-interface Achievement {
-  achievement: {
-    name: string;
-    description: string;
-    iconUrl: string;
-    globalPercentage?: number;
-  };
-  unlocked: boolean;
-  unlockedAt?: Date;
-}
+import type { UserAchievement } from '@/lib/utils/sorting';
 
 interface UseUserAchievementsResult {
-  achievements: Achievement[];
+  achievements: UserAchievement[];
   isLoading: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
@@ -23,7 +13,7 @@ interface UseUserAchievementsResult {
  * @param steamId - Optional steamId. If not provided, fetches logged-in user's achievements
  */
 export function useUserAchievements(steamId?: string): UseUserAchievementsResult {
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [achievements, setAchievements] = useState<UserAchievement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -43,9 +33,15 @@ export function useUserAchievements(steamId?: string): UseUserAchievementsResult
 
       const data = await res.json();
       // Parse dates from strings if needed
+      // The API returns UserAchievement[] which has achievement.apiName and achievement.iconGrayUrl
       const parsedAchievements = (data?.achievements || []).map((ach: any) => ({
         ...ach,
         unlockedAt: ach.unlockedAt ? new Date(ach.unlockedAt) : undefined,
+        achievement: ach.achievement ? {
+          ...ach.achievement,
+          apiName: ach.achievement.apiName,
+          iconGrayUrl: ach.achievement.iconGrayUrl,
+        } : undefined,
       }));
       setAchievements(parsedAchievements);
     } catch (err) {
