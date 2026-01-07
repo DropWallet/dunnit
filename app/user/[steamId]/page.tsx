@@ -128,7 +128,8 @@ export default function UserDashboardPage() {
     statistics,
     allGames,
     isLoadingUser,
-    isLoadingGames
+    isLoadingGames,
+    allAchievementsList.length // Pass achievements count
   );
 
   // Sort and filter games

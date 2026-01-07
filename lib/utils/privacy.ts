@@ -18,7 +18,8 @@ export function detectPrivacyState(
   statistics: Statistics | null,
   games: Game[],
   isLoadingUser: boolean,
-  isLoadingGames: boolean
+  isLoadingGames: boolean,
+  achievementsCount?: number // Add achievements count parameter
 ): PrivacyState {
   if (!user || isLoadingUser) return 'unknown';
   
@@ -32,9 +33,22 @@ export function detectPrivacyState(
     // Wait for games to finish loading before determining game-private state
     if (isLoadingGames) return 'unknown';
     
-    // Public profile but no game data = Game Private
+    // Public profile with games but no achievements = Game Private
     const hasGameData = (statistics?.totalGames ?? 0) > 0 || games.length > 0;
-    return hasGameData ? 'public' : 'game-private';
+    const hasAchievementData = (statistics?.unlockedAchievements ?? 0) > 0 || (achievementsCount ?? 0) > 0;
+    
+    // If we have games but no achievements, it's game-private
+    if (hasGameData && !hasAchievementData) {
+      return 'game-private';
+    }
+    
+    // If we have both games and achievements, it's fully public
+    if (hasGameData && hasAchievementData) {
+      return 'public';
+    }
+    
+    // If no game data at all, it's game-private (can't determine)
+    return 'game-private';
   }
   
   return 'unknown';
