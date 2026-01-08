@@ -602,6 +602,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Deduplicate sessions by sessionId (in case of duplicates from multiple queries or processing)
+    const sessionMap = new Map<string, FeedSession>();
+    sessions.forEach(session => {
+      // Keep the first occurrence (or could keep the most recent)
+      if (!sessionMap.has(session.sessionId)) {
+        sessionMap.set(session.sessionId, session);
+      }
+    });
+    sessions = Array.from(sessionMap.values());
+    console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique sessions`);
+
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
 
