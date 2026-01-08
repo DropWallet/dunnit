@@ -98,6 +98,14 @@ export function getDerivedLastPlayed(
     }
   }
 
+  // Priority 3.5: Use playtime_last_synced_at as fallback
+  // This handles cases where last_played is null but we know when playtime was last synced
+  // (e.g., friend games where Steam API doesn't return rtime_last_played)
+  // Note: This is less accurate than actual play time, but better than no date for sorting
+  if (game.playtimeLastSyncedAt) {
+    return new Date(game.playtimeLastSyncedAt);
+  }
+
   // Priority 4: No date available (will fall back to playtime sorting)
   return undefined;
 }
