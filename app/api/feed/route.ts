@@ -332,15 +332,16 @@ export async function GET(request: NextRequest) {
     }
     
     // Query for games with playtime increases
-    // Filter at database level: games where last_played OR playtime_last_synced_at is within lookback window
-    // This reduces data transfer and improves performance
-    // We still filter in memory for cooldown check (when we have last_played) and fallback logic
+    // We fetch all games and filter in memory to handle:
+    // 1. Games where last_played is within the time window
+    // 2. Games where last_played is null but playtime_last_synced_at is within the time window (fallback)
+    // This handles cases where Steam API doesn't return rtime_last_played for friend games
+    // Note: We tried database-level .or() filtering but it wasn't working reliably with null values
     const { data: allPlaytimeGamesRaw, error: playtimeError } = await supabase
       .from('user_games')
       .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
       .in('user_id', targetUserIds)
-      .or(`last_played.gte.${playtimeLookbackDate.toISOString()},playtime_last_synced_at.gte.${playtimeLookbackDate.toISOString()}`)
-      .limit(5000); // Reasonable limit that should cover most cases
+      .limit(10000); // Increased limit to ensure we get all games (in-memory filtering handles the time window)
     
     // Debug: Check if StarRupture is in raw results
     if (allPlaytimeGamesRaw) {
