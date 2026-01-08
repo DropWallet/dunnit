@@ -340,6 +340,24 @@ export async function GET(request: NextRequest) {
       .from('user_games')
       .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
       .in('user_id', targetUserIds);
+    
+    // Debug: Check if StarRupture is in raw results
+    if (allPlaytimeGamesRaw) {
+      const starRuptureInRaw = allPlaytimeGamesRaw.find((g: any) => 
+        g.user_id === DEBUG_USER_ID && g.app_id === 1631270
+      );
+      if (starRuptureInRaw) {
+        console.log(`[Playtime Detection] StarRupture found in raw query results:`, {
+          appId: starRuptureInRaw.app_id,
+          playtime: starRuptureInRaw.playtime_minutes,
+          previous: starRuptureInRaw.previous_playtime_minutes,
+          lastPlayed: starRuptureInRaw.last_played,
+          playtimeLastSyncedAt: starRuptureInRaw.playtime_last_synced_at,
+        });
+      } else {
+        console.log(`[Playtime Detection] StarRupture NOT found in raw query results (total games: ${allPlaytimeGamesRaw.length})`);
+      }
+    }
       // REMOVED: .not('playtime_last_synced_at', 'is', null)
       // REMOVED: .gte('playtime_last_synced_at', playtimeLookbackDate.toISOString())
       // We relaxed these requirements to allow friend sessions even when their data is stale
