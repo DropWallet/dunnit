@@ -338,17 +338,17 @@ export async function GET(request: NextRequest) {
     // 2. Games where last_played is null but playtime_last_synced_at is within the time window (fallback)
     // This handles cases where Steam API doesn't return rtime_last_played for friend games
     let allPlaytimeGamesRaw: any[] = [];
-    let offset = 0;
+    let gamesOffset = 0; // Renamed to avoid conflict with feed pagination offset
     const pageSize = 1000;
-    let hasMore = true;
+    let hasMoreGames = true; // Renamed to avoid conflict with feed pagination hasMore
     let playtimeError: any = null;
 
-    while (hasMore) {
+    while (hasMoreGames) {
       const { data: page, error: error } = await supabase
         .from('user_games')
         .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
         .in('user_id', targetUserIds)
-        .range(offset, offset + pageSize - 1);
+        .range(gamesOffset, gamesOffset + pageSize - 1);
       
       if (error) {
         console.error('[Playtime Detection] Error fetching games page:', error);
@@ -357,11 +357,11 @@ export async function GET(request: NextRequest) {
       }
       
       if (!page || page.length === 0) {
-        hasMore = false;
+        hasMoreGames = false;
       } else {
         allPlaytimeGamesRaw = allPlaytimeGamesRaw.concat(page);
-        offset += pageSize;
-        hasMore = page.length === pageSize; // Continue if we got a full page
+        gamesOffset += pageSize;
+        hasMoreGames = page.length === pageSize; // Continue if we got a full page
       }
     }
     
