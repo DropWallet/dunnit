@@ -19,6 +19,7 @@ export function detectPrivacyState(
   games: Game[],
   isLoadingUser: boolean,
   isLoadingGames: boolean,
+  isLoadingStats: boolean,
   achievementsCount?: number // Add achievements count parameter
 ): PrivacyState {
   if (!user || isLoadingUser) return 'unknown';
@@ -30,8 +31,9 @@ export function detectPrivacyState(
   
   // Public profile (communityVisibilityState: 3 = Public)
   if (user.communityVisibilityState === 3) {
-    // Wait for games to finish loading before determining game-private state
-    if (isLoadingGames) return 'unknown';
+    // Wait for both games AND statistics to finish loading before determining game-private state
+    // This prevents privacy alerts from flashing during initial page load
+    if (isLoadingGames || isLoadingStats) return 'unknown';
     
     // Public profile with games but no achievements = Game Private
     const hasGameData = (statistics?.totalGames ?? 0) > 0 || games.length > 0;
@@ -52,8 +54,9 @@ export function detectPrivacyState(
   }
   
   // Handle missing/undefined/0 communityVisibilityState
-  // If we have no data at all and games have finished loading, treat as private
-  if (isLoadingGames) return 'unknown';
+  // If we have no data at all and games/statistics have finished loading, treat as private
+  // Wait for both to finish loading to prevent privacy alerts from flashing
+  if (isLoadingGames || isLoadingStats) return 'unknown';
   
   const hasGameData = (statistics?.totalGames ?? 0) > 0 || games.length > 0;
   const hasAchievementData = (statistics?.unlockedAchievements ?? 0) > 0 || (achievementsCount ?? 0) > 0;
