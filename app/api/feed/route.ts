@@ -285,15 +285,81 @@ export async function GET(request: NextRequest) {
     // This allows friend sessions to appear even if their data hasn't been synced recently.
     // The trade-off is that playtime deltas might be slightly stale, but this is better than missing sessions entirely.
     // Data will self-correct when someone visits the friend's profile.
-    const { data: allPlaytimeGames, error: playtimeError } = await supabase
+    
+    // Debug: Check ALL games for this user (no time filter) to see what's in the database
+    const { data: allUserGames, error: allGamesError } = await supabase
+      .from('user_games')
+      .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at, name')
+      .eq('user_id', DEBUG_USER_ID);
+
+    if (allUserGames) {
+      console.log(`[Playtime Detection] ALL games for user ${DEBUG_USER_ID} (no time filter):`, allUserGames.length);
+      // Find StarRupture specifically
+      const starRupture = allUserGames.find((g: any) => 
+        g.name?.toLowerCase().includes('starrupture') || 
+        g.name?.toLowerCase().includes('star-rupture')
+      );
+      if (starRupture) {
+        const lastPlayedDate = starRupture.last_played ? new Date(starRupture.last_played) : null;
+        const isInTimeWindow = lastPlayedDate && 
+          lastPlayedDate >= playtimeLookbackDate &&
+          lastPlayedDate <= playtimeCooldownThreshold;
+        console.log(`[Playtime Detection] StarRupture found:`, {
+          appId: starRupture.app_id,
+          name: starRupture.name,
+          playtime: starRupture.playtime_minutes,
+          previous: starRupture.previous_playtime_minutes,
+          lastPlayed: starRupture.last_played,
+          lastPlayedDate: lastPlayedDate?.toISOString(),
+          playtimeLastSyncedAt: starRupture.playtime_last_synced_at,
+          isInTimeWindow,
+          lookbackDate: playtimeLookbackDate.toISOString(),
+          cooldownThreshold: playtimeCooldownThreshold.toISOString(),
+        });
+      } else {
+        console.log(`[Playtime Detection] StarRupture NOT found in database for user ${DEBUG_USER_ID}`);
+        // Log first few games to see what we have
+        console.log(`[Playtime Detection] First 5 games for user ${DEBUG_USER_ID}:`, 
+          allUserGames.slice(0, 5).map((g: any) => ({
+            appId: g.app_id,
+            name: g.name,
+            lastPlayed: g.last_played,
+            playtime: g.playtime_minutes,
+            previous: g.previous_playtime_minutes,
+          }))
+        );
+      }
+    }
+    
+    // Query for games with playtime increases
+    // We query without last_played filter, then filter in memory to handle:
+    // 1. Games where last_played is within the time window
+    // 2. Games where last_played is null but playtime_last_synced_at is within the time window (fallback)
+    // This handles cases where Steam API doesn't return rtime_last_played for friend games
+    const { data: allPlaytimeGamesRaw, error: playtimeError } = await supabase
       .from('user_games')
       .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
-      .in('user_id', targetUserIds)
-      .gte('last_played', playtimeLookbackDate.toISOString())
-      .lte('last_played', playtimeCooldownThreshold.toISOString());
+      .in('user_id', targetUserIds);
       // REMOVED: .not('playtime_last_synced_at', 'is', null)
       // REMOVED: .gte('playtime_last_synced_at', playtimeLookbackDate.toISOString())
       // We relaxed these requirements to allow friend sessions even when their data is stale
+      // Now we also handle games where last_played is null by using playtime_last_synced_at as fallback
+    
+    // Filter in memory: games must have last_played OR playtime_last_synced_at within the time window
+    const allPlaytimeGames = (allPlaytimeGamesRaw || []).filter((g: any) => {
+      const lastPlayed = g.last_played ? new Date(g.last_played) : null;
+      const playtimeLastSynced = g.playtime_last_synced_at ? new Date(g.playtime_last_synced_at) : null;
+      
+      // Use last_played if available, otherwise fall back to playtime_last_synced_at
+      const sessionDate = lastPlayed || playtimeLastSynced;
+      
+      if (!sessionDate) {
+        return false; // No date available at all
+      }
+      
+      // Check if session date is within the time window
+      return sessionDate >= playtimeLookbackDate && sessionDate <= playtimeCooldownThreshold;
+    });
     
     console.log('[Playtime Detection] Query result:', {
       allPlaytimeGamesCount: allPlaytimeGames?.length || 0,
@@ -384,10 +450,21 @@ export async function GET(request: NextRequest) {
         console.log(`[Playtime Detection] Processing game ${appId} (user ${userId})`);
         
         // Calculate the time window for this playtime session
-        const lastPlayed = new Date(playtimeGame.last_played);
+        // Use last_played if available, otherwise fall back to playtime_last_synced_at
+        const lastPlayedDate = playtimeGame.last_played 
+          ? new Date(playtimeGame.last_played)
+          : playtimeGame.playtime_last_synced_at 
+            ? new Date(playtimeGame.playtime_last_synced_at)
+            : null;
+        
+        if (!lastPlayedDate) {
+          console.log(`[Playtime Detection] Skipping ${sessionKey} - no date available (last_played or playtime_last_synced_at)`);
+          continue;
+        }
+        
         const previous = playtimeGame.previous_playtime_minutes ?? 0;
         const playtimeDelta = playtimeGame.playtime_minutes - previous;
-        const sessionStartEstimate = new Date(lastPlayed.getTime() - playtimeDelta * 60 * 1000);
+        const sessionStartEstimate = new Date(lastPlayedDate.getTime() - playtimeDelta * 60 * 1000);
         
         // Check if there's an achievement session that overlaps with this time window
         const hasOverlappingAchievementSession = sessions.some(session => {
@@ -395,7 +472,7 @@ export async function GET(request: NextRequest) {
             return false;
           }
           // Check if the achievement session overlaps with the playtime session window
-          return session.sessionEnd >= sessionStartEstimate && session.sessionStart <= lastPlayed;
+          return session.sessionEnd >= sessionStartEstimate && session.sessionStart <= lastPlayedDate;
         });
         
         if (hasOverlappingAchievementSession) {
@@ -403,7 +480,7 @@ export async function GET(request: NextRequest) {
           continue;
         }
         
-        console.log(`[Playtime Detection] Checking game ${appId} (user ${userId}): delta=${playtimeDelta}min, lastPlayed=${lastPlayed.toISOString()}`);
+        console.log(`[Playtime Detection] Checking game ${appId} (user ${userId}): delta=${playtimeDelta}min, sessionDate=${lastPlayedDate.toISOString()}, usingLastPlayed=${!!playtimeGame.last_played}`);
         
         // Check for achievements unlocked in this window
         const { data: achievementsInWindow } = await supabase
@@ -414,7 +491,7 @@ export async function GET(request: NextRequest) {
           .eq('unlocked', true)
           .not('unlocked_at', 'is', null)
           .gte('unlocked_at', sessionStartEstimate.toISOString())
-          .lte('unlocked_at', lastPlayed.toISOString())
+          .lte('unlocked_at', lastPlayedDate.toISOString())
           .limit(1);
         
         // If no achievements in this window, it's a playtime-only session
@@ -428,7 +505,7 @@ export async function GET(request: NextRequest) {
               userId,
               appId,
               playtimeDelta,
-              lastPlayed,
+              lastPlayedDate, // Use the fallback date (last_played or playtime_last_synced_at)
               {
                 username: user.username,
                 avatarUrl: user.avatar_url,
