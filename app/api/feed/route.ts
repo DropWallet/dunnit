@@ -481,10 +481,23 @@ export async function GET(request: NextRequest) {
     
     console.log('[Playtime Detection] Games with playtime increases (>=5min):', playtimeGames.length);
 
-    if (!playtimeError && playtimeGames && playtimeGames.length > 0) {
+    // Deduplicate playtimeGames by (user_id, app_id) before processing
+    // This prevents processing the same game multiple times (can happen with pagination)
+    const playtimeGamesDedupMap = new Map<string, typeof playtimeGames[0]>();
+    playtimeGames.forEach(game => {
+      const key = `${game.user_id}-${game.app_id}`;
+      // Keep the first occurrence (or could keep the one with highest delta)
+      if (!playtimeGamesDedupMap.has(key)) {
+        playtimeGamesDedupMap.set(key, game);
+      }
+    });
+    const uniquePlaytimeGames = Array.from(playtimeGamesDedupMap.values());
+    console.log(`[Playtime Detection] Deduplicated playtime games: ${playtimeGames.length} -> ${uniquePlaytimeGames.length}`);
+
+    if (!playtimeError && uniquePlaytimeGames && uniquePlaytimeGames.length > 0) {
       // Get user and game data for playtime sessions
-      const playtimeUserIds = [...new Set(playtimeGames.map((g: any) => g.user_id))];
-      const playtimeAppIds = [...new Set(playtimeGames.map((g: any) => g.app_id))];
+      const playtimeUserIds = [...new Set(uniquePlaytimeGames.map((g: any) => g.user_id))];
+      const playtimeAppIds = [...new Set(uniquePlaytimeGames.map((g: any) => g.app_id))];
       
       const { data: playtimeUsersData } = await supabase
         .from('users')
@@ -507,7 +520,7 @@ export async function GET(request: NextRequest) {
       // Check each playtime game to see if it has achievements in the same time window
       const playtimeSessions: FeedSession[] = [];
       
-      for (const playtimeGame of playtimeGames) {
+      for (const playtimeGame of uniquePlaytimeGames) {
         const userId = playtimeGame.user_id;
         const appId = playtimeGame.app_id;
         const sessionKey = `${userId}-${appId}`;
