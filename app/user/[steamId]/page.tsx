@@ -129,6 +129,7 @@ export default function UserDashboardPage() {
     allGames,
     isLoadingUser,
     isLoadingGames,
+    isLoadingStats,
     allAchievementsList.filter(a => a.unlocked).length // Only count unlocked achievements
   );
 
