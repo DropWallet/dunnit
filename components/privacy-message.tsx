@@ -12,7 +12,7 @@ export function PrivacyMessage({ state, username }: PrivacyMessageProps) {
 
   if (state === 'private') {
     return (
-      <Alert className="mt-6">
+      <Alert className="mt-6 mb-7">
         <PrivateIcon className="h-4 w-4" />
         <AlertTitle>This user's profile is set to private</AlertTitle>
         <AlertDescription>
@@ -25,7 +25,7 @@ export function PrivacyMessage({ state, username }: PrivacyMessageProps) {
 
   // game-private
   return (
-    <Alert className="mt-6">
+    <Alert className="mt-6 mb-7">
       <PrivateIcon className="h-4 w-4" />
       <AlertTitle>Game details are set to private</AlertTitle>
       <AlertDescription>

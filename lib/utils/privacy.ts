@@ -51,5 +51,23 @@ export function detectPrivacyState(
     return 'game-private';
   }
   
+  // Handle missing/undefined/0 communityVisibilityState
+  // If we have no data at all and games have finished loading, treat as private
+  if (isLoadingGames) return 'unknown';
+  
+  const hasGameData = (statistics?.totalGames ?? 0) > 0 || games.length > 0;
+  const hasAchievementData = (statistics?.unlockedAchievements ?? 0) > 0 || (achievementsCount ?? 0) > 0;
+  
+  // If communityVisibilityState is missing/undefined/0 and there's no data,
+  // it's likely a private profile (we can't access any data)
+  if (!hasGameData && !hasAchievementData) {
+    return 'private';
+  }
+  
+  // If we have some data but communityVisibilityState is missing, assume game-private
+  if (hasGameData && !hasAchievementData) {
+    return 'game-private';
+  }
+  
   return 'unknown';
 }

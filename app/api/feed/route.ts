@@ -330,12 +330,6 @@ export async function GET(request: NextRequest) {
         (playtimeGamesData || []).map((g: any) => [`${g.user_id}-${g.app_id}`, g])
       );
       
-      // Create a set of (user_id, app_id) pairs that have achievement sessions
-      // to avoid duplicate playtime-only sessions
-      const achievementSessionKeys = new Set(
-        sessions.map(s => `${s.user.steamId}-${s.game.appId}`)
-      );
-      
       // Check each playtime game to see if it has achievements in the same time window
       const playtimeSessions: FeedSession[] = [];
       
@@ -344,17 +338,27 @@ export async function GET(request: NextRequest) {
         const appId = playtimeGame.app_id;
         const sessionKey = `${userId}-${appId}`;
         
-        // Skip if we already have an achievement session for this user+game
-        if (achievementSessionKeys.has(sessionKey)) {
-          continue;
-        }
+        console.log(`[Playtime Detection] Processing game ${appId} (user ${userId})`);
         
-        // Check if any achievements were unlocked in the time window
-        // Calculate the time window: from previous playtime sync to last_played
+        // Calculate the time window for this playtime session
         const lastPlayed = new Date(playtimeGame.last_played);
         const previous = playtimeGame.previous_playtime_minutes ?? 0;
         const playtimeDelta = playtimeGame.playtime_minutes - previous;
         const sessionStartEstimate = new Date(lastPlayed.getTime() - playtimeDelta * 60 * 1000);
+        
+        // Check if there's an achievement session that overlaps with this time window
+        const hasOverlappingAchievementSession = sessions.some(session => {
+          if (session.user.steamId !== userId || session.game.appId !== appId) {
+            return false;
+          }
+          // Check if the achievement session overlaps with the playtime session window
+          return session.sessionEnd >= sessionStartEstimate && session.sessionStart <= lastPlayed;
+        });
+        
+        if (hasOverlappingAchievementSession) {
+          console.log(`[Playtime Detection] Skipping ${sessionKey} - has overlapping achievement session in time window`);
+          continue;
+        }
         
         console.log(`[Playtime Detection] Checking game ${appId} (user ${userId}): delta=${playtimeDelta}min, lastPlayed=${lastPlayed.toISOString()}`);
         
@@ -395,10 +399,10 @@ export async function GET(request: NextRequest) {
             );
             playtimeSessions.push(playtimeSession);
           } else {
-            console.log(`[Playtime Detection] Missing user or game data for ${sessionKey}`);
+            console.log(`[Playtime Detection] Missing user or game data for ${sessionKey} - user: ${!!user}, game: ${!!game}`);
           }
         } else {
-          console.log(`[Playtime Detection] Skipping ${sessionKey} - has achievements in window`);
+          console.log(`[Playtime Detection] Skipping ${sessionKey} - has ${achievementsInWindow.length} achievement(s) in window`);
         }
       }
       
