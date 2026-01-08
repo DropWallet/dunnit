@@ -882,6 +882,7 @@ export default function DashboardPage() {
 
   // Manual refresh handler
   const handleRefresh = () => {
+    console.log('[Dashboard] Refresh button clicked');
     setIsLoadingGames(true);
     setDisplayedGamesCount(15); // Reset to initial batch
     
@@ -912,17 +913,29 @@ export default function DashboardPage() {
     const refreshGames = async () => {
       try {
         const cacheBuster = `&t=${Date.now()}`;
+        const refreshUrl = `/api/games?refresh=true${cacheBuster}`;
+        console.log('[Dashboard] Fetching games with refresh:', refreshUrl);
         
         // Fetch games with cache-busting
-        const gamesRes = await fetch(`/api/games?refresh=true${cacheBuster}`, {
+        const gamesRes = await fetch(refreshUrl, {
           cache: 'no-store', // Bypass browser cache
         });
+        console.log('[Dashboard] Games API response status:', gamesRes.status);
         if (!gamesRes.ok) {
           setIsLoadingGames(false);
           return;
         }
         
         const gamesData = await gamesRes.json();
+        console.log('[Dashboard] Received games data:', {
+          totalGames: gamesData.games?.length || 0,
+          sampleGames: gamesData.games?.slice(0, 3).map((g: Game) => ({
+            appId: g.appId,
+            name: g.name,
+            lastPlayed: g.lastPlayed,
+            playtimeMinutes: g.playtimeMinutes,
+          })),
+        });
         setAllGames(gamesData.games);
         
         // Refresh statistics with cache-busting
@@ -936,11 +949,46 @@ export default function DashboardPage() {
           }
         }
         
-        // Refresh achievements for displayed games only with cache-busting
-        const gamesToDisplay = gamesData.games.slice(0, displayedGamesCount);
-        const achievementPromises = gamesToDisplay.map(async (game: Game) => {
+        // Refresh achievements for recently played games + full sync if needed
+        const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+        
+        // Get recently played games (within last 14 days)
+        // Convert string dates to Date objects if needed
+        const recentlyPlayedGames = gamesData.games.filter((game: Game) => {
+          if (!game.lastPlayed) return false;
+          // Convert string to Date if needed
+          const lastPlayedDate = game.lastPlayed instanceof Date 
+            ? game.lastPlayed 
+            : new Date(game.lastPlayed);
+          // Check if date is valid and within 14 days
+          return !isNaN(lastPlayedDate.getTime()) && lastPlayedDate > fourteenDaysAgo;
+        });
+        
+        console.log(`[Dashboard] Recently played games (within 14 days): ${recentlyPlayedGames.length} out of ${gamesData.games.length} total games`);
+        
+        // Check if we need a full sync (user hasn't refreshed in >14 days)
+        // Get steamId from user state or fetch user data
+        const currentUser = user || (await fetch("/api/user").then(r => r.ok ? r.json() : null).then(d => d?.user || null));
+        if (!currentUser?.steamId) {
+          console.warn('[Dashboard] Cannot determine steamId for achievement sync');
+          setIsLoadingGames(false);
+          return;
+        }
+        
+        // Use lastSyncAt from the fetched user data (already includes it from /api/user)
+        const userLastSyncAt = currentUser.lastSyncAt ? new Date(currentUser.lastSyncAt) : null;
+        const needsFullSync = !userLastSyncAt || userLastSyncAt < fourteenDaysAgo;
+        
+        // Determine which games to sync
+        const gamesToSync = needsFullSync 
+          ? gamesData.games // Full sync: all games
+          : recentlyPlayedGames; // Partial sync: only recently played
+        
+        console.log(`[Dashboard] Syncing achievements: ${gamesToSync.length} games (${needsFullSync ? 'full sync' : 'recently played only'})`);
+        
+        const achievementPromises = gamesToSync.map(async (game: Game) => {
           try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}${cacheBuster}`, {
+            const achRes = await fetch(`/api/achievements?appId=${game.appId}&refresh=true${cacheBuster}`, {
               cache: 'no-store',
             });
             if (!achRes.ok) return { appId: game.appId, achievements: [] };

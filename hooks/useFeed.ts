@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { type FeedSession } from "@/lib/utils/feed-sessions";
 
 interface UseFeedResult {
@@ -25,6 +25,7 @@ export function useFeed(): UseFeedResult {
   const [error, setError] = useState<Error | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
+  const isFetchingRef = useRef(false); // Prevent concurrent fetches
 
   const parseSessions = (sessionsData: any[]): FeedSession[] => {
     return (sessionsData || []).map((session: any) => ({
@@ -39,6 +40,13 @@ export function useFeed(): UseFeedResult {
   };
 
   const fetchFeed = async (currentOffset: number = 0, append: boolean = false) => {
+    // Prevent concurrent fetches (unless it's a "load more" which is intentional)
+    if (isFetchingRef.current && !append) {
+      return;
+    }
+    
+    isFetchingRef.current = true;
+    
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -77,6 +85,7 @@ export function useFeed(): UseFeedResult {
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
+      isFetchingRef.current = false; // Reset the flag
     }
   };
 
