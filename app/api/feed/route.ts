@@ -332,16 +332,40 @@ export async function GET(request: NextRequest) {
     }
     
     // Query for games with playtime increases
+    // Use pagination to fetch all games (Supabase may have hard limit on single queries)
     // We fetch all games and filter in memory to handle:
     // 1. Games where last_played is within the time window
     // 2. Games where last_played is null but playtime_last_synced_at is within the time window (fallback)
     // This handles cases where Steam API doesn't return rtime_last_played for friend games
-    // Note: We tried database-level .or() filtering but it wasn't working reliably with null values
-    const { data: allPlaytimeGamesRaw, error: playtimeError } = await supabase
-      .from('user_games')
-      .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
-      .in('user_id', targetUserIds)
-      .limit(10000); // Increased limit to ensure we get all games (in-memory filtering handles the time window)
+    let allPlaytimeGamesRaw: any[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    let playtimeError: any = null;
+
+    while (hasMore) {
+      const { data: page, error: error } = await supabase
+        .from('user_games')
+        .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
+        .in('user_id', targetUserIds)
+        .range(offset, offset + pageSize - 1);
+      
+      if (error) {
+        console.error('[Playtime Detection] Error fetching games page:', error);
+        playtimeError = error;
+        break;
+      }
+      
+      if (!page || page.length === 0) {
+        hasMore = false;
+      } else {
+        allPlaytimeGamesRaw = allPlaytimeGamesRaw.concat(page);
+        offset += pageSize;
+        hasMore = page.length === pageSize; // Continue if we got a full page
+      }
+    }
+    
+    console.log(`[Playtime Detection] Fetched ${allPlaytimeGamesRaw.length} games total (paginated)`);
     
     // Debug: Check if StarRupture is in raw results
     if (allPlaytimeGamesRaw) {
