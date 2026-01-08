@@ -276,15 +276,19 @@ export async function GET(request: NextRequest) {
     
     // Query for games with playtime increases (potential playtime-only sessions)
     // Note: We filter for playtime > previous_playtime in memory since Supabase doesn't support column comparisons
-    // We allow previous_playtime_minutes to be NULL (first sync scenario) - will treat as 0
+    // RELAXED REQUIREMENT: We check last_played instead of playtime_last_synced_at
+    // This allows friend sessions to appear even if their data hasn't been synced recently.
+    // The trade-off is that playtime deltas might be slightly stale, but this is better than missing sessions entirely.
+    // Data will self-correct when someone visits the friend's profile.
     const { data: allPlaytimeGames, error: playtimeError } = await supabase
       .from('user_games')
       .select('user_id, app_id, playtime_minutes, previous_playtime_minutes, last_played, playtime_last_synced_at')
       .in('user_id', targetUserIds)
       .gte('last_played', playtimeLookbackDate.toISOString())
-      .lte('last_played', playtimeCooldownThreshold.toISOString())
-      .not('playtime_last_synced_at', 'is', null)
-      .gte('playtime_last_synced_at', playtimeLookbackDate.toISOString()); // Only recently synced data
+      .lte('last_played', playtimeCooldownThreshold.toISOString());
+      // REMOVED: .not('playtime_last_synced_at', 'is', null)
+      // REMOVED: .gte('playtime_last_synced_at', playtimeLookbackDate.toISOString())
+      // We relaxed these requirements to allow friend sessions even when their data is stale
     
     console.log('[Playtime Detection] Query result:', {
       allPlaytimeGamesCount: allPlaytimeGames?.length || 0,
@@ -292,9 +296,15 @@ export async function GET(request: NextRequest) {
     });
     
     // Filter in memory: playtime must be at least 5 minutes more than previous
-    // Handle NULL previous_playtime_minutes (first sync) by treating it as 0
+    // IMPORTANT: We require previous_playtime_minutes to exist - we can't calculate a delta without it
+    // If previous_playtime_minutes is null/undefined, this is likely a first sync and we skip it
     const playtimeGames = (allPlaytimeGames || []).filter((g: any) => {
-      const previous = g.previous_playtime_minutes ?? 0;
+      // Skip if we don't have previous playtime (can't calculate delta)
+      if (g.previous_playtime_minutes === null || g.previous_playtime_minutes === undefined) {
+        return false;
+      }
+      
+      const previous = g.previous_playtime_minutes;
       const current = g.playtime_minutes;
       const delta = current - previous;
       const hasIncrease = delta >= 5; // At least 5 minutes
