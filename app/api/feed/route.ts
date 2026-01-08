@@ -66,6 +66,11 @@ export async function GET(request: NextRequest) {
 
     // Include the logged-in user's own activity in the feed
     const targetUserIds = [steamId, ...friendSteamIds];
+    
+    // Debug: Check if specific user is in the list
+    const DEBUG_USER_ID = '76561198024338178';
+    console.log('[Playtime Detection] Target user IDs:', targetUserIds.length, 'users');
+    console.log('[Playtime Detection] Looking for user', DEBUG_USER_ID + ':', targetUserIds.includes(DEBUG_USER_ID));
 
     // Apply friend filter if provided
     if (friendId) {
@@ -295,12 +300,35 @@ export async function GET(request: NextRequest) {
       error: playtimeError?.message || null,
     });
     
+    // Debug: Check games for specific user
+    if (allPlaytimeGames) {
+      const debugUserGames = allPlaytimeGames.filter((g: any) => g.user_id === DEBUG_USER_ID);
+      console.log(`[Playtime Detection] Games for user ${DEBUG_USER_ID}:`, debugUserGames.length);
+      if (debugUserGames.length > 0) {
+        debugUserGames.forEach((g: any) => {
+          console.log(`[Playtime Detection] User ${DEBUG_USER_ID} game ${g.app_id}:`, {
+            current: g.playtime_minutes,
+            previous: g.previous_playtime_minutes,
+            lastPlayed: g.last_played,
+            hasPrevious: g.previous_playtime_minutes !== null && g.previous_playtime_minutes !== undefined,
+            playtimeLastSyncedAt: g.playtime_last_synced_at,
+          });
+        });
+      } else {
+        console.log(`[Playtime Detection] No games found for user ${DEBUG_USER_ID} in query results`);
+      }
+    }
+    
     // Filter in memory: playtime must be at least 5 minutes more than previous
     // IMPORTANT: We require previous_playtime_minutes to exist - we can't calculate a delta without it
     // If previous_playtime_minutes is null/undefined, this is likely a first sync and we skip it
     const playtimeGames = (allPlaytimeGames || []).filter((g: any) => {
       // Skip if we don't have previous playtime (can't calculate delta)
       if (g.previous_playtime_minutes === null || g.previous_playtime_minutes === undefined) {
+        // Debug: Log why we're skipping games for the specific user
+        if (g.user_id === DEBUG_USER_ID) {
+          console.log(`[Playtime Detection] Skipping game ${g.app_id} for user ${DEBUG_USER_ID}: missing previous_playtime_minutes`);
+        }
         return false;
       }
       
@@ -311,6 +339,11 @@ export async function GET(request: NextRequest) {
       
       // Log ALL games, not just those with increases
       console.log(`[Playtime Detection] Game ${g.app_id} (user ${g.user_id}): current=${current}, previous=${previous}, delta=${delta}, hasIncrease=${hasIncrease}, lastPlayed=${g.last_played}, playtimeLastSyncedAt=${g.playtime_last_synced_at}`);
+      
+      // Debug: Log if this game for the specific user didn't pass the filter
+      if (g.user_id === DEBUG_USER_ID && !hasIncrease) {
+        console.log(`[Playtime Detection] Game ${g.app_id} for user ${DEBUG_USER_ID} filtered out: delta=${delta} < 5 minutes`);
+      }
       
       return hasIncrease;
     });
