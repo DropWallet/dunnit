@@ -357,8 +357,28 @@ export async function GET(request: NextRequest) {
         return false; // No date available at all
       }
       
-      // Check if session date is within the time window
-      return sessionDate >= playtimeLookbackDate && sessionDate <= playtimeCooldownThreshold;
+      // Check if session date is within the lookback window (14 days)
+      const isWithinLookback = sessionDate >= playtimeLookbackDate;
+      
+      // Cooldown only applies if we have an actual last_played date
+      // If we're using playtime_last_synced_at as fallback, we don't know when they actually played
+      // so we skip the cooldown check to avoid filtering out valid sessions
+      if (lastPlayed) {
+        // We have an actual last_played date, so apply both lookback and cooldown
+        const passes = isWithinLookback && sessionDate <= playtimeCooldownThreshold;
+        // Debug: Log if StarRupture is being filtered
+        if (g.user_id === DEBUG_USER_ID && g.app_id === 1631270) {
+          console.log(`[Playtime Detection] StarRupture filter check (has last_played): isWithinLookback=${isWithinLookback}, passesCooldown=${sessionDate <= playtimeCooldownThreshold}, passes=${passes}`);
+        }
+        return passes;
+      } else {
+        // Using fallback date, only check lookback (not cooldown)
+        // Debug: Log if StarRupture is being filtered
+        if (g.user_id === DEBUG_USER_ID && g.app_id === 1631270) {
+          console.log(`[Playtime Detection] StarRupture filter check (using fallback): isWithinLookback=${isWithinLookback}, sessionDate=${sessionDate.toISOString()}, lookbackDate=${playtimeLookbackDate.toISOString()}`);
+        }
+        return isWithinLookback;
+      }
     });
     
     console.log('[Playtime Detection] Query result:', {
