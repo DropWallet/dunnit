@@ -1078,7 +1078,7 @@ export class SupabaseDataAccess implements DataAccess {
   async getGameSessionCount(userIds: string[], lookbackDays: number = 14): Promise<number> {
     const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
-    const { data, error } = await this.supabase
+    const { count, error } = await this.supabase
       .from('game_sessions')
       .select('id', { count: 'exact', head: true })
       .in('user_id', userIds)
@@ -1089,6 +1089,6 @@ export class SupabaseDataAccess implements DataAccess {
       throw error;
     }
 
-    return data || 0;
+    return count || 0;
   }
 }
