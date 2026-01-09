@@ -10,6 +10,10 @@ import {
   type AchievementRow,
   type FeedSession,
 } from "@/lib/utils/feed-sessions";
+import {
+  getStaleFriends,
+  syncFriendsInBackground,
+} from "@/lib/utils/friend-sync";
 
 // Cooldown period: sessions only appear 30 minutes after completion
 const COOLDOWN_MINUTES = 30;
@@ -699,6 +703,42 @@ export async function GET(request: NextRequest) {
       isLiked: userLikes.has(session.sessionId),
       likedByUsers: likedByUsersMap.get(session.sessionId) || [],
     }));
+
+    // Sync-on-Read: Sync stale friends visible in current feed page
+    // Extract friend IDs from visible sessions (exclude logged-in user)
+    const visibleFriendIds = new Set<string>();
+    paginatedSessions.forEach(session => {
+      if (session.user.steamId !== steamId) {
+        visibleFriendIds.add(session.user.steamId);
+      }
+    });
+
+    if (visibleFriendIds.size > 0) {
+      // Check staleness (2 hour threshold)
+      const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const staleFriends = await getStaleFriends(Array.from(visibleFriendIds), staleThreshold);
+
+      if (staleFriends.length > 0) {
+        console.log(`[Feed] Found ${staleFriends.length} stale friends in visible feed, triggering background sync`);
+        
+        // Trigger background sync (fire-and-forget)
+        // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
+        const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
+        
+        // Try to use waitUntil if available (Next.js 13+)
+        if (typeof (globalThis as any).waitUntil === 'function') {
+          (globalThis as any).waitUntil(syncPromise);
+        } else {
+          // Fire-and-forget - don't await, let it run in background
+          syncPromise.catch(error => {
+            console.error('[Feed] Background friend sync failed:', error);
+            // Don't throw - this is non-critical
+          });
+        }
+      } else {
+        console.log(`[Feed] All ${visibleFriendIds.size} visible friends are fresh (synced within 2 hours)`);
+      }
+    }
 
     return NextResponse.json(
       {
