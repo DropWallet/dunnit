@@ -757,7 +757,7 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          "Cache-Control": "private, max-age=60", // Cache for 1 minute (feed updates frequently)
+          "Cache-Control": "no-cache, must-revalidate", // Don't cache feed - users expect immediate updates
         },
       }
     );
