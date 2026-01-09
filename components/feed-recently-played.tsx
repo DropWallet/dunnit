@@ -4,6 +4,28 @@ import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useUserGames } from "@/hooks/useUserGames";
 
+/**
+ * Skeleton loading state for a single recently played game card
+ */
+function RecentlyPlayedGameCardSkeleton() {
+  return (
+    <div className="flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-3 p-2 rounded-md bg-surface-low border border-border-weak">
+      {/* Image Skeleton */}
+      <div className="flex-grow-0 flex-shrink-0 w-32 h-[59.83px] rounded-sm bg-surface-mid animate-pulse" />
+      
+      {/* Content Skeleton */}
+      <div className="flex flex-col justify-center items-start self-stretch flex-grow gap-3 min-w-0">
+        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative min-w-0 gap-2">
+          {/* Game Name Skeleton */}
+          <div className="h-5 w-40 bg-surface-mid animate-pulse rounded" />
+          {/* Playtime Skeleton */}
+          <div className="h-4 w-24 bg-surface-mid animate-pulse rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FeedRecentlyPlayed() {
   const { games, isLoading: isLoadingGames } = useUserGames();
 
@@ -33,7 +55,11 @@ export function FeedRecentlyPlayed() {
         Recently played
       </p>
       {isLoadingGames ? (
-        <p className="text-text-subdued text-sm">Loading games...</p>
+        <div className="flex flex-col justify-center items-start self-stretch flex-grow-0 flex-shrink-0 gap-2.5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <RecentlyPlayedGameCardSkeleton key={i} />
+          ))}
+        </div>
       ) : recentlyPlayedGames.length === 0 ? (
         <p className="text-text-subdued text-sm">No recently played games</p>
       ) : (

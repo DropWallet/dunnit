@@ -7,6 +7,107 @@ import { type FeedSession } from "@/lib/utils/feed-sessions";
 import { getRarityBorderClass } from "@/lib/utils/achievements";
 import { FeedLikeButton } from "@/components/feed-like-button";
 
+/**
+ * Skeleton loading state for FeedSessionCard
+ */
+export function FeedSessionCardSkeleton() {
+  return (
+    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 px-4 pt-4 pb-3 sm:p-5 sm:pb-3 rounded-lg bg-surface-low border border-border-weak">
+      {/* User Header Skeleton */}
+      <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 w-full relative gap-3 sm:gap-4">
+        <div className="flex-grow-0 flex-shrink-0 w-10 h-10 rounded-full bg-surface-mid animate-pulse" />
+        <div className="flex flex-col justify-start items-start flex-grow relative gap-2">
+          <div className="h-4 w-32 bg-surface-mid animate-pulse rounded" />
+          <div className="h-3 w-24 bg-surface-mid animate-pulse rounded" />
+        </div>
+      </div>
+
+      {/* Mobile Layout Skeleton */}
+      <div className="flex md:hidden flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-4 rounded">
+        {/* Game Image Skeleton */}
+        <div className="self-stretch h-[156px] bg-surface-mid animate-pulse rounded" />
+
+        {/* Content Section Skeleton */}
+        <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
+          {/* Badge and Label Skeleton */}
+          <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
+            <div className="w-10 h-[35px] bg-surface-mid animate-pulse rounded" />
+            <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative gap-2">
+              <div className="h-6 w-48 bg-surface-mid animate-pulse rounded" />
+              <div className="h-4 w-32 bg-surface-mid animate-pulse rounded" />
+            </div>
+          </div>
+
+          {/* Session Details Skeleton */}
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-2">
+            <div className="h-5 w-40 bg-surface-mid animate-pulse rounded" />
+            <div className="h-5 w-32 bg-surface-mid animate-pulse rounded" />
+          </div>
+
+          {/* Achievement Icons Skeleton */}
+          <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-10 w-10 bg-surface-mid animate-pulse rounded border border-border-weak" />
+            ))}
+          </div>
+
+          {/* Progress Bar Skeleton */}
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 px-3 pt-2.5 pb-2 rounded bg-surface-transparent-mid">
+            <div className="flex justify-center items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-2">
+              <div className="flex-grow h-3 bg-surface-mid animate-pulse rounded" />
+              <div className="flex-shrink-0 w-12 h-3 bg-surface-mid animate-pulse rounded" />
+            </div>
+            <div className="self-stretch h-[5px] bg-surface-mid animate-pulse rounded-full" />
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Layout Skeleton */}
+      <div className="hidden md:flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-8 p-4 rounded bg-surface-mid">
+        {/* Content Section Skeleton - Left */}
+        <div className="flex flex-col justify-start items-start flex-grow gap-4">
+          {/* Badge and Label Skeleton */}
+          <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
+            <div className="w-10 h-[35px] bg-surface-low animate-pulse rounded" />
+            <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative gap-2">
+              <div className="h-6 w-48 bg-surface-low animate-pulse rounded" />
+              <div className="h-4 w-32 bg-surface-low animate-pulse rounded" />
+            </div>
+          </div>
+
+          {/* Session Details Skeleton */}
+          <div className="flex flex-row justify-start items-start flex-grow-0 flex-shrink-0 gap-3">
+            <div className="h-5 w-40 bg-surface-low animate-pulse rounded" />
+            <div className="h-5 w-32 bg-surface-low animate-pulse rounded" />
+          </div>
+
+          {/* Achievement Icons Skeleton */}
+          <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-12 w-12 bg-surface-low animate-pulse rounded border border-border-weak" />
+            ))}
+          </div>
+
+          {/* Progress Bar Skeleton */}
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-1 pb-2 rounded-md bg-surface-mid">
+            <div className="flex justify-center items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-2">
+              <div className="flex-grow h-3 bg-surface-low animate-pulse rounded" />
+              <div className="flex-shrink-0 w-12 h-3 bg-surface-low animate-pulse rounded" />
+            </div>
+            <div className="self-stretch h-[5px] bg-surface-low animate-pulse rounded-full" />
+          </div>
+        </div>
+
+        {/* Game Image Skeleton - Right */}
+        <div className="h-64 w-[98px] bg-surface-low animate-pulse rounded-md" />
+      </div>
+
+      {/* Like Button Area Skeleton */}
+      <div className="h-8 w-20 bg-surface-mid animate-pulse rounded" />
+    </div>
+  );
+}
+
 interface FeedSessionCardProps {
   session: FeedSession;
   // Total achievements in the game (for progress bar)

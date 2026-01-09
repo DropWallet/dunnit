@@ -34,7 +34,6 @@ export type GameSortOption =
   | "last-played" 
   | "most-played" 
   | "least-played" 
-  | "recent-playtime" 
   | "name-asc" 
   | "name-desc" 
   | "achievement-progress";
@@ -151,13 +150,6 @@ export function sortGames(
       }
       case "least-played": {
         return (a.playtimeMinutes || 0) - (b.playtimeMinutes || 0);
-      }
-      case "recent-playtime": {
-        const aRecent = a.playtime2WeeksMinutes || 0;
-        const bRecent = b.playtime2WeeksMinutes || 0;
-        
-        if (aRecent !== bRecent) return bRecent - aRecent;
-        return (b.playtimeMinutes || 0) - (a.playtimeMinutes || 0);
       }
       case "name-asc": {
         return a.name.localeCompare(b.name);
