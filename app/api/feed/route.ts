@@ -15,8 +15,10 @@ import {
   syncFriendsInBackground,
 } from "@/lib/utils/friend-sync";
 
-// Cooldown period: sessions only appear 30 minutes after completion
-const COOLDOWN_MINUTES = 30;
+// Cooldown period: sessions only appear 5 minutes after completion
+// Reduced from 30 minutes - playtime sessions are already complete when created,
+// and achievement sessions benefit from a shorter delay for better feed freshness
+const COOLDOWN_MINUTES = 5;
 const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
 
@@ -98,15 +100,15 @@ export async function GET(request: NextRequest) {
     const dataAccess = getDataAccess();
     
     console.log('[Feed] Querying achievement sessions from game_sessions table...');
+    console.log(`[Feed] Lookback window: ${MAX_LOOKBACK_DAYS} days, lookback date: ${lookbackDate.toISOString()}`);
     
     // Query achievement sessions from game_sessions (already filtered by lookback in getGameSessions)
     const allGameSessions = await dataAccess.getGameSessions(targetUserIds, 1000, 0, MAX_LOOKBACK_DAYS);
+    console.log(`[Feed] Query returned ${allGameSessions.length} total sessions`);
     
     // Filter by cooldown and type (only achievement sessions)
     const achievementSessionsFromDB = allGameSessions.filter(session => {
-      // Only achievement sessions
       if (session.type !== 'achievement') return false;
-      // Apply cooldown filter
       return session.sessionEnd <= cooldownThreshold;
     });
     
@@ -165,7 +167,7 @@ export async function GET(request: NextRequest) {
           .order("unlocked_at", { ascending: true });
         
         if (!sessionAchievementsData || sessionAchievementsData.length === 0) {
-          console.log(`[Feed] No achievements found for session ${userId}-${appId} in time window ${gameSession.sessionStart.toISOString()} to ${gameSession.sessionEnd.toISOString()}`);
+          console.log(`[Feed] ⚠️ No achievements found for session ${userId}-${appId} in time window ${gameSession.sessionStart.toISOString()} to ${gameSession.sessionEnd.toISOString()}`);
           continue;
         }
         
@@ -174,7 +176,7 @@ export async function GET(request: NextRequest) {
         const game = gamesMap.get(`${userId}-${appId}`);
         
         if (!user || !game) {
-          console.log(`[Feed] Missing user or game data for session ${userId}-${appId}`);
+          console.log(`[Feed] ⚠️ Missing user or game data for session ${userId}-${appId}`);
           continue;
         }
         
@@ -209,7 +211,13 @@ export async function GET(request: NextRequest) {
       }
       
       // Apply cooldown filter (additional safety check)
+      const beforeCooldownFilter = sessions.length;
       sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
+      const afterCooldownFilter = sessions.length;
+      
+      if (beforeCooldownFilter !== afterCooldownFilter) {
+        console.log(`[Feed] Cooldown filter removed ${beforeCooldownFilter - afterCooldownFilter} sessions`);
+      }
     } else {
       console.log('[Feed] No achievement sessions found in game_sessions table');
     }
@@ -221,20 +229,12 @@ export async function GET(request: NextRequest) {
     const playtimeCooldownThreshold = new Date(now.getTime() - COOLDOWN_MINUTES * 60 * 1000);
     const playtimeLookbackDate = new Date(now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     
-    // LEDGER APPROACH: Query playtime sessions from game_sessions table
-    console.log('[Feed] Querying playtime sessions from game_sessions table...');
-    console.log('[Feed] Target user IDs:', targetUserIds.length);
-    console.log('[Feed] Lookback date:', playtimeLookbackDate.toISOString());
-    console.log('[Feed] Cooldown threshold:', playtimeCooldownThreshold.toISOString());
-    
     // Query playtime sessions from game_sessions (already filtered by lookback in getGameSessions)
     const gameSessions = await dataAccess.getGameSessions(targetUserIds, 1000, 0, MAX_LOOKBACK_DAYS);
     
     // Filter by cooldown and type (only playtime sessions)
     const playtimeSessionsFromDB = gameSessions.filter(session => {
-      // Only playtime sessions
       if (session.type !== 'playtime') return false;
-      // Apply cooldown filter
       return session.sessionEnd <= playtimeCooldownThreshold;
     });
     
@@ -270,19 +270,18 @@ export async function GET(request: NextRequest) {
         const userId = gameSession.userId;
         const appId = gameSession.appId;
         const sessionKey = `${userId}-${appId}`;
+        const gameName = playtimeGamesMap.get(sessionKey)?.name || 'unknown';
         
         // Check if there's an achievement session that overlaps with this time window
         const hasOverlappingAchievementSession = sessions.some(session => {
           if (session.user.steamId !== userId || session.game.appId !== appId) {
             return false;
           }
-          // Check if the achievement session overlaps with the playtime session window
           return session.sessionEnd >= gameSession.sessionStart && session.sessionStart <= gameSession.sessionEnd;
         });
         
         if (hasOverlappingAchievementSession) {
-          console.log(`[Feed] Skipping playtime session ${sessionKey} - has overlapping achievement session`);
-          continue;
+          continue; // Skip playtime session if achievement session exists
         }
         
         const user = playtimeUsersMap.get(userId);
@@ -307,7 +306,7 @@ export async function GET(request: NextRequest) {
           );
           playtimeSessions.push(playtimeSession);
         } else {
-          console.log(`[Feed] Missing user or game data for playtime session ${sessionKey}`);
+          console.log(`[Feed] ⚠️ Missing user or game data for playtime session ${sessionKey} (${gameName}): user=${!!user}, game=${!!game}`);
         }
       }
       
@@ -321,7 +320,6 @@ export async function GET(request: NextRequest) {
     // Deduplicate sessions by sessionId (in case of duplicates from multiple queries or processing)
     const sessionMap = new Map<string, FeedSession>();
     sessions.forEach(session => {
-      // Keep the first occurrence (or could keep the most recent)
       if (!sessionMap.has(session.sessionId)) {
         sessionMap.set(session.sessionId, session);
       }

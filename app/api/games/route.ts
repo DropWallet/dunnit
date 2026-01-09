@@ -23,20 +23,13 @@ export async function GET(request: NextRequest) {
 
     // Check if we should refresh: no games, no user, or cache is stale (older than 1 hour)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    // Debug: Log the full request URL to see what parameters are being received
     const refreshParam = request.nextUrl.searchParams.get('refresh');
     const shouldRefresh = games.length === 0 || 
       !user?.lastSyncAt || 
       user.lastSyncAt < oneHourAgo ||
       refreshParam === 'true';
-    
-    console.log('[Games API] Refresh check:', {
-      steamId,
-      hasGames: games.length > 0,
-      lastSyncAt: user?.lastSyncAt,
-      isStale: user?.lastSyncAt ? user.lastSyncAt < oneHourAgo : true,
-      refreshParam,
-      shouldRefresh,
-    });
     
     if (shouldRefresh) {
       console.log('[Games API] Starting refresh - fetching from Steam API');
@@ -316,7 +309,6 @@ export async function GET(request: NextRequest) {
       
       // LEDGER APPROACH: Write playtime sessions to game_sessions table
       // This ensures sessions persist even after deltas are reset
-      const sessionWriteTime = new Date(); // Use current time for session end
       let sessionsCreated = 0;
       let sessionsMerged = 0;
       
@@ -324,12 +316,29 @@ export async function GET(request: NextRequest) {
         const existingGame = existingGamesMapForPlaytime.get(game.appId);
         
         // Calculate playtime delta
-        const previousPlaytime = existingGame?.playtimeMinutes ?? 0;
+        // Use previousPlaytimeMinutes (from last sync) not playtimeMinutes (current DB value)
+        // This ensures we detect deltas even if playtime was already synced in a previous refresh
+        const previousPlaytime = existingGame?.previousPlaytimeMinutes ?? existingGame?.playtimeMinutes ?? 0;
         const currentPlaytime = game.playtimeMinutes;
         const playtimeDelta = currentPlaytime - previousPlaytime;
         
         // Only create sessions for games with meaningful playtime increases (>= 5 minutes)
         if (playtimeDelta >= 5) {
+          // Calculate session end time: use lastPlayed if available and recent, otherwise use current time
+          // If lastPlayed is too old (> 24 hours), use current time minus a small offset to make it more realistic
+          const now = new Date();
+          const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          let sessionEnd: Date;
+          
+          if (game.lastPlayed && game.lastPlayed > oneDayAgo) {
+            // Use lastPlayed if it's recent (within 24 hours)
+            sessionEnd = game.lastPlayed;
+          } else {
+            // Use current time minus a small random offset (0-5 minutes) to avoid all sessions having identical timestamps
+            const randomOffset = Math.floor(Math.random() * 5 * 60 * 1000); // 0-5 minutes in milliseconds
+            sessionEnd = new Date(now.getTime() - randomOffset);
+          }
+          
           // Check for recent session (within 30 minutes) for cooldown merging
           const recentSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30);
           
@@ -341,7 +350,7 @@ export async function GET(request: NextRequest) {
               appId: game.appId,
               playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
               sessionStart: recentSession.sessionStart, // Keep original start time
-              sessionEnd: sessionWriteTime, // Update end time to now
+              sessionEnd: sessionEnd, // Use calculated session end time
               type: 'playtime',
             };
             await dataAccess.saveGameSession(mergedSession);
@@ -353,8 +362,8 @@ export async function GET(request: NextRequest) {
               userId: steamId,
               appId: game.appId,
               playtimeDelta,
-              sessionStart: game.lastPlayed || sessionWriteTime,
-              sessionEnd: sessionWriteTime,
+              sessionStart: game.lastPlayed || sessionEnd,
+              sessionEnd: sessionEnd, // Use calculated session end time
               type: 'playtime',
             };
             await dataAccess.saveGameSession(newSession);
