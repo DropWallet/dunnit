@@ -296,7 +296,7 @@ export function FeedSessionCard({
           </div>
 
           {/* Session Details */}
-          <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
+          <div className="flex flex-row justify-start items-start flex-grow-0 flex-shrink-0 gap-3">
             <div className="flex justify-start items-start self-stretch flex-grow-0 relative gap-1">
               <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
                 Session:
@@ -350,7 +350,7 @@ export function FeedSessionCard({
           )}
 
           {/* Achievement Progress Bar */}
-          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-2.5 pb-2 rounded-md bg-surface-mid">
+          <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-3 pt-1 pb-2 rounded-md bg-surface-mid">
             <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-1.5">
               {/* Progress Text */}
               <div className="flex justify-center items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-2">
@@ -384,7 +384,7 @@ export function FeedSessionCard({
               className={`self-stretch h-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity ${
                 isPlaytimeOnly 
                   ? 'max-h-[147px] max-w-[98px]' 
-                  : 'max-h-64 max-w-[171px]'
+                  : 'max-h-64 max-w-[98px]'
               }`}
               style={{
                 aspectRatio: fallbackToHeader ? '460/215' : '600/900', // Landscape for header, portrait for capsule
