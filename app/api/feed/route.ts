@@ -499,7 +499,7 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("[Feed] Error:", error);
-    return ApiErrors.internalServerError();
+    return ApiErrors.internalError("Failed to fetch feed", error instanceof Error ? error.message : String(error));
   }
 }
 
