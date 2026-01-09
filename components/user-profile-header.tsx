@@ -74,8 +74,27 @@ export function UserProfileHeader({
         <div className="flex flex-col md:flex-row gap-2 w-full">
           {/* Statistics Section */}
           {isLoadingStats ? (
-            <div className="flex justify-start items-center gap-3 p-2 rounded-lg bg-surface-mid border border-border-strong w-full">
-              <p className="text-text-moderate">Loading statistics...</p>
+            <div className="grid grid-cols-2 gap-0.5 p-1 rounded-lg bg-surface-mid border border-border-strong w-full md:w-auto md:flex md:justify-start md:items-center animate-pulse">
+              {/* Achievements Skeleton */}
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <div className="h-9 md:h-8 w-20 bg-surface-low rounded" />
+                <div className="h-3 w-16 bg-surface-low rounded mt-0.5" />
+              </div>
+              {/* Avg Completion Rate Skeleton */}
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <div className="h-9 md:h-8 w-12 bg-surface-low rounded" />
+                <div className="h-3 w-24 bg-surface-low rounded mt-0.5" />
+              </div>
+              {/* Games Skeleton */}
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <div className="h-9 md:h-8 w-16 bg-surface-low rounded" />
+                <div className="h-3 w-12 bg-surface-low rounded mt-0.5" />
+              </div>
+              {/* Started Games Skeleton */}
+              <div className="flex flex-col justify-start items-start gap-0.5 px-3 py-2.5 rounded">
+                <div className="h-9 md:h-8 w-16 bg-surface-low rounded" />
+                <div className="h-3 w-20 bg-surface-low rounded mt-0.5" />
+              </div>
             </div>
           ) : statistics ? (
             <div className="grid grid-cols-2 gap-0.5 p-1 rounded-lg bg-surface-mid border border-border-strong w-full md:w-auto md:flex md:justify-start md:items-center">

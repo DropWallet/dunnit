@@ -46,9 +46,6 @@ export function GameSortingControls({
             <SelectItem value="least-played" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
               Least played
             </SelectItem>
-            <SelectItem value="recent-playtime" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
-              Recent playtime
-            </SelectItem>
             <SelectItem value="name-asc" className="text-text-strong focus:bg-surface-mid focus:text-text-strong">
               Name (A-Z)
             </SelectItem>

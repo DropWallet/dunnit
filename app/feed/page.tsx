@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { Navbar } from "@/components/navbar";
-import { FeedSessionCard } from "@/components/feed-session-card";
+import { FeedSessionCard, FeedSessionCardSkeleton } from "@/components/feed-session-card";
 import { FeedProfileMetadata } from "@/components/feed-profile-metadata";
 import { FeedRecentlyPlayed } from "@/components/feed-recently-played";
 import { useFeed } from "@/hooks/useFeed";
@@ -31,8 +31,10 @@ function FeedContent() {
             {/* lg: 2/3 width, xl: 7/12 width */}
             <div className="lg:col-span-2 xl:col-span-7">
               {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <p className="text-text-subdued">Loading feed...</p>
+                <div className="flex flex-col gap-4">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <FeedSessionCardSkeleton key={i} />
+                  ))}
                 </div>
               ) : error ? (
                 <div className="flex items-center justify-center py-12">
@@ -55,7 +57,13 @@ function FeedContent() {
                   
                   {/* Load More Button */}
                   {hasMore && (
-                    <div className="flex items-center justify-center py-8">
+                    <div className="flex flex-col items-center gap-4 py-8">
+                      {isLoadingMore && (
+                        <>
+                          <FeedSessionCardSkeleton />
+                          <FeedSessionCardSkeleton />
+                        </>
+                      )}
                       <button
                         onClick={loadMore}
                         disabled={isLoadingMore}
