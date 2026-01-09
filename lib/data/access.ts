@@ -96,9 +96,10 @@ export interface DataAccess {
   getLikedByUsers(sessionId: string, limit?: number): Promise<Array<{ userId: string; avatarUrl: string }>>;
   // Game session methods
   saveGameSession(session: GameSession): Promise<void>;
-  getRecentGameSession(userId: string, appId: number, withinMinutes?: number): Promise<GameSession | null>;
+  getRecentGameSession(userId: string, appId: number, withinMinutes?: number, type?: 'playtime' | 'achievement'): Promise<GameSession | null>;
   getGameSessions(userIds: string[], limit?: number, offset?: number, lookbackDays?: number): Promise<GameSession[]>;
   getGameSessionCount(userIds: string[], lookbackDays?: number): Promise<number>;
+  deleteGameSession(sessionId: string): Promise<void>;
 }
 
 // Singleton instance

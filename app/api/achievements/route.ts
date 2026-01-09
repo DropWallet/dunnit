@@ -3,6 +3,7 @@ import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import { ApiErrors } from '@/lib/utils/api-errors';
 import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
+import { detectNewAchievementSessions, writeAchievementSessions } from '@/lib/utils/achievement-sessions';
 import type { UserAchievement } from '@/lib/data/types';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,8 @@ export async function GET(request: NextRequest) {
 
     // If no cached achievements, stale cache, or force refresh, fetch from Steam
     if (userAchievements.length === 0 || isStale || forceRefresh) {
+      // Get old achievements BEFORE saving (to detect new unlocks)
+      const oldAchievements = userAchievements;
       if (forceRefresh) {
         // Clear cache for this game
         await dataAccess.clearUserAchievements(steamId, appIdNum);
@@ -123,6 +126,23 @@ export async function GET(request: NextRequest) {
         unlockTimes,
         globalPercentages
       );
+
+      // LEDGER APPROACH: Write achievement sessions to game_sessions table
+      // Fetch new achievements after save to detect new unlocks
+      const newAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
+      
+      // Detect new unlocks and group into sessions
+      const achievementSessions = detectNewAchievementSessions(
+        oldAchievements,
+        newAchievements,
+        steamId,
+        appIdNum
+      );
+
+      // Write achievement sessions to database
+      if (achievementSessions.length > 0) {
+        await writeAchievementSessions(steamId, appIdNum, achievementSessions);
+      }
 
       // Recalculate derived_last_played for this game if it doesn't have lastPlayed
       // This ensures sorting works immediately without waiting for achievements to load
