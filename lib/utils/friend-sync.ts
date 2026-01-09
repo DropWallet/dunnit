@@ -1,6 +1,6 @@
 import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
-import type { Game } from '@/lib/data/access';
+import type { Game, GameSession } from '@/lib/data/access';
 import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 
 /**
@@ -197,15 +197,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
       const playtimeDelta = currentPlaytimeMinutes - previousPlaytimeMinutes;
 
-      // Track games with meaningful playtime increases (>= 5 minutes)
-      // These are candidates for achievement syncing
-      if (playtimeDelta >= 5) {
-        gamesWithPlaytimeIncreases.push({
-          appId: steamGame.appid,
-          playtimeDelta,
-        });
-      }
-
       // Determine last_played timestamp
       let lastPlayed: Date | undefined;
       if (steamGame.rtime_last_played) {
@@ -219,6 +210,47 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         lastPlayed = syncTime;
       }
 
+      // LEDGER APPROACH: Write session to game_sessions table if delta >= 5 minutes
+      if (playtimeDelta >= 5) {
+        // Check for recent session (within 30 minutes) for cooldown merging
+        const recentSession = await dataAccess.getRecentGameSession(friendId, steamGame.appid, 30);
+        
+        if (recentSession) {
+          // Merge with existing session: add delta and update session_end
+          const mergedSession: GameSession = {
+            id: recentSession.id,
+            userId: friendId,
+            appId: steamGame.appid,
+            playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
+            sessionStart: recentSession.sessionStart, // Keep original start time
+            sessionEnd: syncTime, // Update end time to now
+            type: 'playtime',
+          };
+          await dataAccess.saveGameSession(mergedSession);
+          console.log(`[Friend Sync] Merged session for game ${steamGame.appid}: added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min)`);
+        } else {
+          // Create new session
+          const newSession: GameSession = {
+            userId: friendId,
+            appId: steamGame.appid,
+            playtimeDelta,
+            sessionStart: lastPlayed || syncTime,
+            sessionEnd: syncTime,
+            type: 'playtime',
+          };
+          await dataAccess.saveGameSession(newSession);
+          console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min`);
+        }
+
+        // Track games with meaningful playtime increases (>= 5 minutes)
+        // These are candidates for achievement syncing
+        gamesWithPlaytimeIncreases.push({
+          appId: steamGame.appid,
+          playtimeDelta,
+        });
+      }
+
+      // Update user_games: set previous_playtime = current_playtime (reset delta for next sync)
       const game: Game = {
         appId: steamGame.appid,
         name: steamGame.name || 'Unknown Game',
@@ -232,7 +264,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           : undefined,
         coverImageUrl: existingGame?.coverImageUrl, // Preserve existing cover image
         lastPlayed,
-        previousPlaytimeMinutes: previousPlaytimeMinutes,
+        previousPlaytimeMinutes: currentPlaytimeMinutes, // Reset to current (delta is now 0, session is persisted)
         playtimeLastSyncedAt: syncTime,
       };
 

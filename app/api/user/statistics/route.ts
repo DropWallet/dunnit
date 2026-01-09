@@ -8,6 +8,7 @@ import type { UserAchievement } from '@/lib/data/types';
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Disable ISR caching
 
 export async function GET(request: NextRequest) {
   try {
@@ -71,6 +72,8 @@ export async function GET(request: NextRequest) {
               {
                 headers: {
                   'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
+                  'CDN-Cache-Control': 'no-store',
+                  'Vercel-CDN-Cache-Control': 'no-store',
                 },
               }
             );
@@ -144,6 +147,8 @@ export async function GET(request: NextRequest) {
       {
         headers: {
           'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
+          'CDN-Cache-Control': 'no-store',
+          'Vercel-CDN-Cache-Control': 'no-store',
         },
       }
     );
