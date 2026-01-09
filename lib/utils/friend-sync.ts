@@ -2,6 +2,7 @@ import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import type { Game, GameSession } from '@/lib/data/access';
 import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
+import { detectNewAchievementSessions, writeAchievementSessions } from '@/lib/utils/achievement-sessions';
 
 /**
  * Sync achievements for a single game
@@ -17,10 +18,12 @@ async function syncGameAchievements(
     // Check if we have cached achievements that are fresh (less than 1 hour old)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const lastSyncedAt = await dataAccess.getAchievementLastSyncedAt(friendId, appId);
-    const userAchievements = await dataAccess.getUserAchievements(friendId, appId);
+    
+    // Get old achievements BEFORE saving (to detect new unlocks)
+    const oldAchievements = await dataAccess.getUserAchievements(friendId, appId);
     
     // Skip if we have fresh cached achievements
-    if (userAchievements.length > 0 && lastSyncedAt && lastSyncedAt > oneHourAgo) {
+    if (oldAchievements.length > 0 && lastSyncedAt && lastSyncedAt > oneHourAgo) {
       return true;
     }
 
@@ -35,7 +38,7 @@ async function syncGameAchievements(
     // If Steam API fails, return false (but don't throw)
     if (!playerAchievementsResponse || !gameSchemaResponse) {
       // If we have cached data, that's okay - return true
-      if (userAchievements.length > 0) {
+      if (oldAchievements.length > 0) {
         return true;
       }
       // No cached data and Steam failed - game might not have achievements or profile is private
@@ -90,6 +93,23 @@ async function syncGameAchievements(
       unlockTimes,
       globalPercentages
     );
+
+    // LEDGER APPROACH: Write achievement sessions to game_sessions table
+    // Fetch new achievements after save to detect new unlocks
+    const newAchievements = await dataAccess.getUserAchievements(friendId, appId);
+    
+    // Detect new unlocks and group into sessions
+    const achievementSessions = detectNewAchievementSessions(
+      oldAchievements,
+      newAchievements,
+      friendId,
+      appId
+    );
+
+    // Write achievement sessions to database
+    if (achievementSessions.length > 0) {
+      await writeAchievementSessions(friendId, appId, achievementSessions);
+    }
 
     // Update derived_last_played if game doesn't have lastPlayed
     try {

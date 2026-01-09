@@ -93,180 +93,129 @@ export async function GET(request: NextRequest) {
     const lookbackDate = new Date(now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const sinceDate = since ? new Date(since) : null;
 
-    // Query achievements from friends
-    // Use raw SQL for complex joins (Supabase PostgREST joins can be tricky with composite keys)
+    // LEDGER APPROACH: Query achievement sessions from game_sessions table
     const supabase = getSupabaseAdmin();
-
-    // Build WHERE conditions
-    const conditions: string[] = [
-      "ua.unlocked = true",
-      "ua.unlocked_at IS NOT NULL",
-      `ua.unlocked_at >= '${lookbackDate.toISOString()}'`,
-      `ua.unlocked_at <= '${cooldownThreshold.toISOString()}'`,
-      `ua.user_id = ANY(ARRAY[${friendSteamIds.map(id => `'${id}'`).join(',')}])`,
-    ];
-
-    if (gameId) {
-      conditions.push(`ua.app_id = ${parseInt(gameId, 10)}`);
-    }
-
-    if (sinceDate) {
-      conditions.push(`ua.unlocked_at >= '${sinceDate.toISOString()}'`);
-    }
-
-    const whereClause = conditions.join(" AND ");
-
-    // Use RPC or raw query - for now, let's use multiple queries (simpler and more reliable)
-    // First, get achievement unlocks
-    let achievementQuery = supabase
-      .from("user_achievements")
-      .select("user_id, app_id, achievement_api_name, unlocked_at")
-      .eq("unlocked", true)
-      .not("unlocked_at", "is", null)
-      .gte("unlocked_at", lookbackDate.toISOString())
-      .lte("unlocked_at", cooldownThreshold.toISOString())
-      .in("user_id", targetUserIds)
-      .order("unlocked_at", { ascending: true });
-
-    if (gameId) {
-      achievementQuery = achievementQuery.eq("app_id", parseInt(gameId, 10));
-    }
-
-    if (sinceDate) {
-      achievementQuery = achievementQuery.gte("unlocked_at", sinceDate.toISOString());
-    }
-
-    const { data: achievementData, error: achievementError } = await achievementQuery;
-
-    if (achievementError) {
-      console.error("Error fetching achievements:", achievementError);
-      return ApiErrors.internalError("Failed to fetch achievements", achievementError.message);
-    }
-
-    if (!achievementData || achievementData.length === 0) {
-      return NextResponse.json({
-        sessions: [],
-        pagination: {
-          total: 0,
-          limit,
-          offset: 0,
-          hasMore: false,
-        },
-        meta: {
-          fetchedAt: new Date().toISOString(),
-          friendCount: friendSteamIds.length,
-          cooldownMinutes: COOLDOWN_MINUTES,
-        },
-      });
-    }
-
-    // Get unique user IDs and app IDs for batch fetching
-    const userIds = [...new Set(achievementData.map((a: any) => a.user_id))];
-    const appIds = [...new Set(achievementData.map((a: any) => a.app_id))];
-    const achievementKeys = [...new Set(
-      achievementData.map((a: any) => `${a.app_id}-${a.achievement_api_name}`)
-    )];
-
-    // Batch fetch users
-    const { data: usersData } = await supabase
-      .from("users")
-      .select("steam_id, username, avatar_url, profile_url")
-      .in("steam_id", userIds);
-
-    // Batch fetch games - get all games for these users, then filter in memory
-    const { data: allGamesData } = await supabase
-      .from("user_games")
-      .select("user_id, app_id, name, cover_image_url, icon_url")
-      .in("user_id", userIds)
-      .in("app_id", appIds);
-
-    // Filter to only games we need (composite key match)
-    const neededGameKeys = new Set(
-      achievementData.map((a: any) => `${a.user_id}-${a.app_id}`)
-    );
-    const gamesData = (allGamesData || []).filter((g: any) =>
-      neededGameKeys.has(`${g.user_id}-${g.app_id}`)
-    );
-
-    // Batch fetch achievements - get all achievements for these app_ids, then filter
-    const achievementAppIds = [...new Set(achievementData.map((a: any) => a.app_id))];
-    const { data: allAchievementsData } = await supabase
-      .from("achievements")
-      .select("app_id, api_name, name, description, icon_url, icon_gray_url, global_percentage, hidden")
-      .in("app_id", achievementAppIds);
-
-    // Build map of achievements we need
-    const achievementsMap = new Map<string, any>();
-    const neededAchievementKeys = new Set(
-      achievementData.map((a: any) => `${a.app_id}-${a.achievement_api_name}`)
-    );
-    (allAchievementsData || []).forEach((ach: any) => {
-      const key = `${ach.app_id}-${ach.api_name}`;
-      if (neededAchievementKeys.has(key)) {
-        achievementsMap.set(key, ach);
+    const dataAccess = getDataAccess();
+    
+    console.log('[Feed] Querying achievement sessions from game_sessions table...');
+    
+    // Query achievement sessions from game_sessions (already filtered by lookback in getGameSessions)
+    const allGameSessions = await dataAccess.getGameSessions(targetUserIds, 1000, 0, MAX_LOOKBACK_DAYS);
+    
+    // Filter by cooldown and type (only achievement sessions)
+    const achievementSessionsFromDB = allGameSessions.filter(session => {
+      // Only achievement sessions
+      if (session.type !== 'achievement') return false;
+      // Apply cooldown filter
+      return session.sessionEnd <= cooldownThreshold;
+    });
+    
+    console.log(`[Feed] Found ${achievementSessionsFromDB.length} achievement sessions from game_sessions (after cooldown filter)`);
+    
+    // Convert GameSession to FeedSession by fetching achievement details
+    let sessions: FeedSession[] = [];
+    
+    if (achievementSessionsFromDB.length > 0) {
+      // Get unique user IDs and app IDs for batch fetching
+      const achievementUserIds = [...new Set(achievementSessionsFromDB.map(s => s.userId))];
+      const achievementAppIds = [...new Set(achievementSessionsFromDB.map(s => s.appId))];
+      
+      // Batch fetch users and games
+      const [usersData, gamesData, allAchievementsData] = await Promise.all([
+        supabase
+          .from("users")
+          .select("steam_id, username, avatar_url, profile_url")
+          .in("steam_id", achievementUserIds),
+        supabase
+          .from("user_games")
+          .select("user_id, app_id, name, cover_image_url, icon_url")
+          .in("user_id", achievementUserIds)
+          .in("app_id", achievementAppIds),
+        supabase
+          .from("achievements")
+          .select("app_id, api_name, name, description, icon_url, icon_gray_url, global_percentage, hidden")
+          .in("app_id", achievementAppIds),
+      ]);
+      
+      const usersMap = new Map(
+        (usersData.data || []).map((u: any) => [u.steam_id, u])
+      );
+      const gamesMap = new Map(
+        (gamesData.data || []).map((g: any) => [`${g.user_id}-${g.app_id}`, g])
+      );
+      const achievementsMap = new Map(
+        (allAchievementsData.data || []).map((ach: any) => [`${ach.app_id}-${ach.api_name}`, ach])
+      );
+      
+      // For each achievement session, fetch achievements within the time window
+      for (const gameSession of achievementSessionsFromDB) {
+        const userId = gameSession.userId;
+        const appId = gameSession.appId;
+        
+        // Fetch achievements for this user/game within the session time window
+        const { data: sessionAchievementsData } = await supabase
+          .from("user_achievements")
+          .select("user_id, app_id, achievement_api_name, unlocked_at")
+          .eq("user_id", userId)
+          .eq("app_id", appId)
+          .eq("unlocked", true)
+          .not("unlocked_at", "is", null)
+          .gte("unlocked_at", gameSession.sessionStart.toISOString())
+          .lte("unlocked_at", gameSession.sessionEnd.toISOString())
+          .order("unlocked_at", { ascending: true });
+        
+        if (!sessionAchievementsData || sessionAchievementsData.length === 0) {
+          console.log(`[Feed] No achievements found for session ${userId}-${appId} in time window ${gameSession.sessionStart.toISOString()} to ${gameSession.sessionEnd.toISOString()}`);
+          continue;
+        }
+        
+        // Transform to AchievementRow format
+        const user = usersMap.get(userId);
+        const game = gamesMap.get(`${userId}-${appId}`);
+        
+        if (!user || !game) {
+          console.log(`[Feed] Missing user or game data for session ${userId}-${appId}`);
+          continue;
+        }
+        
+        const achievements: AchievementRow[] = sessionAchievementsData.map((row: any) => {
+          const achievement = achievementsMap.get(`${row.app_id}-${row.achievement_api_name}`);
+          
+          return {
+            user_id: row.user_id,
+            app_id: row.app_id,
+            achievement_api_name: row.achievement_api_name,
+            unlocked_at: new Date(row.unlocked_at),
+            username: user.username,
+            avatar_url: user.avatar_url,
+            profile_url: user.profile_url,
+            game_name: game.name,
+            cover_image_url: game.cover_image_url || undefined,
+            icon_url: game.icon_url || undefined,
+            achievement_name: achievement?.name || "",
+            description: achievement?.description || "",
+            achievement_icon_url: achievement?.icon_url || "",
+            achievement_icon_gray_url: achievement?.icon_gray_url || "",
+            global_percentage: achievement?.global_percentage ?? undefined,
+            hidden: achievement?.hidden || false,
+          };
+        });
+        
+        // Create FeedSession from achievements (reuse existing function)
+        // Note: groupAchievementsIntoSessions might split into multiple sessions if there are gaps > 4 hours
+        // This is fine - we'll create multiple FeedSessions from one GameSession if needed
+        const achievementSessions = groupAchievementsIntoSessions(achievements);
+        sessions.push(...achievementSessions);
       }
-    });
-
-    // Build lookup maps
-    const usersMap = new Map(
-      (usersData || []).map((u: any) => [u.steam_id, u])
-    );
-    const gamesMap2 = new Map(
-      gamesData.map((g: any) => [`${g.user_id}-${g.app_id}`, g])
-    );
-
-    // Transform to AchievementRow format
-    const achievements: AchievementRow[] = achievementData.map((row: any) => {
-      const user = usersMap.get(row.user_id);
-      const game = gamesMap2.get(`${row.user_id}-${row.app_id}`);
-      const achievement = achievementsMap.get(`${row.app_id}-${row.achievement_api_name}`);
-
-      return {
-        user_id: row.user_id,
-        app_id: row.app_id,
-        achievement_api_name: row.achievement_api_name,
-        unlocked_at: new Date(row.unlocked_at),
-        username: user?.username || "",
-        avatar_url: user?.avatar_url || "",
-        profile_url: user?.profile_url || "",
-        game_name: game?.name || "",
-        cover_image_url: game?.cover_image_url || undefined,
-        icon_url: game?.icon_url || undefined,
-        achievement_name: achievement?.name || "",
-        description: achievement?.description || "",
-        achievement_icon_url: achievement?.icon_url || "",
-        achievement_icon_gray_url: achievement?.icon_gray_url || "",
-        global_percentage: achievement?.global_percentage ?? undefined,
-        hidden: achievement?.hidden || false,
-      };
-    });
-
-    if (!achievements || achievements.length === 0) {
-      return NextResponse.json({
-        sessions: [],
-        pagination: {
-          total: 0,
-          limit,
-          offset: 0,
-          hasMore: false,
-        },
-        meta: {
-          fetchedAt: new Date().toISOString(),
-          friendCount: friendSteamIds.length,
-          cooldownMinutes: COOLDOWN_MINUTES,
-        },
-      });
+      
+      // Apply cooldown filter (additional safety check)
+      sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
+    } else {
+      console.log('[Feed] No achievement sessions found in game_sessions table');
     }
-
-    // Group achievements into sessions
-    let sessions = groupAchievementsIntoSessions(achievements);
-
-    // Apply cooldown filter (additional safety check)
-    sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
 
     // LEDGER APPROACH: Query playtime sessions from game_sessions table
     console.log('[Feed] Querying playtime sessions from game_sessions table...');
-    const dataAccess = getDataAccess();
     
     // Calculate date filters
     const playtimeCooldownThreshold = new Date(now.getTime() - COOLDOWN_MINUTES * 60 * 1000);

@@ -1008,19 +1008,27 @@ export class SupabaseDataAccess implements DataAccess {
     }
   }
 
-  async getRecentGameSession(userId: string, appId: number, withinMinutes: number = 30): Promise<GameSession | null> {
+  async getRecentGameSession(userId: string, appId: number, withinMinutes: number = 30, type?: 'playtime' | 'achievement'): Promise<GameSession | null> {
     const cutoffTime = new Date(Date.now() - withinMinutes * 60 * 1000);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('game_sessions')
       .select('*')
       .eq('user_id', userId)
       .eq('app_id', appId)
-      .eq('type', 'playtime')
       .gte('session_end', cutoffTime.toISOString())
       .order('session_end', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
+
+    // Filter by type if specified (for backward compatibility, default to 'playtime' if not specified)
+    if (type) {
+      query = query.eq('type', type);
+    } else {
+      // Default to 'playtime' for backward compatibility
+      query = query.eq('type', 'playtime');
+    }
+
+    const { data, error } = await query.single();
 
     if (error) {
       if (error.code === 'PGRST116') {
@@ -1090,5 +1098,17 @@ export class SupabaseDataAccess implements DataAccess {
     }
 
     return count || 0;
+  }
+
+  async deleteGameSession(sessionId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('game_sessions')
+      .delete()
+      .eq('id', sessionId);
+
+    if (error) {
+      console.error('Error deleting game session:', error);
+      throw error;
+    }
   }
 }
