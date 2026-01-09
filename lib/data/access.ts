@@ -52,6 +52,18 @@ export interface UserAchievement {
   apiName?: string;
 }
 
+export interface GameSession {
+  id?: string;
+  userId: string;
+  appId: number;
+  playtimeDelta: number;
+  sessionStart: Date;
+  sessionEnd: Date;
+  type: 'playtime' | 'achievement';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 // DataAccess interface - defines all methods that data access implementations must provide
 export interface DataAccess {
   saveUser(user: User): Promise<void>;
@@ -82,6 +94,11 @@ export interface DataAccess {
   getLikeCounts(sessionIds: string[]): Promise<Map<string, number>>;
   getUserLikes(sessionIds: string[], userId: string): Promise<Set<string>>;
   getLikedByUsers(sessionId: string, limit?: number): Promise<Array<{ userId: string; avatarUrl: string }>>;
+  // Game session methods
+  saveGameSession(session: GameSession): Promise<void>;
+  getRecentGameSession(userId: string, appId: number, withinMinutes?: number): Promise<GameSession | null>;
+  getGameSessions(userIds: string[], limit?: number, offset?: number, lookbackDays?: number): Promise<GameSession[]>;
+  getGameSessionCount(userIds: string[], lookbackDays?: number): Promise<number>;
 }
 
 // Singleton instance

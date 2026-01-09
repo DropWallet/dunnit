@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from '@/lib/supabase/client';
 import type { DataAccess } from './access';
-import type { User, Game, Achievement, UserAchievement } from './types';
+import type { User, Game, Achievement, UserAchievement, GameSession } from './access';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseDataAccess implements DataAccess {
@@ -984,5 +984,111 @@ export class SupabaseDataAccess implements DataAccess {
       userId: row.user_id,
       avatarUrl: (row.users as any)?.avatar_url || '',
     }));
+  }
+
+  async saveGameSession(session: GameSession): Promise<void> {
+    const { error } = await this.supabase
+      .from('game_sessions')
+      .upsert({
+        id: session.id,
+        user_id: session.userId,
+        app_id: session.appId,
+        playtime_delta: session.playtimeDelta,
+        session_start: session.sessionStart.toISOString(),
+        session_end: session.sessionEnd.toISOString(),
+        type: session.type,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) {
+      console.error('Error saving game session:', error);
+      throw error;
+    }
+  }
+
+  async getRecentGameSession(userId: string, appId: number, withinMinutes: number = 30): Promise<GameSession | null> {
+    const cutoffTime = new Date(Date.now() - withinMinutes * 60 * 1000);
+
+    const { data, error } = await this.supabase
+      .from('game_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('app_id', appId)
+      .eq('type', 'playtime')
+      .gte('session_end', cutoffTime.toISOString())
+      .order('session_end', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      console.error('Error getting recent game session:', error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      appId: data.app_id,
+      playtimeDelta: data.playtime_delta,
+      sessionStart: new Date(data.session_start),
+      sessionEnd: new Date(data.session_end),
+      type: data.type as 'playtime' | 'achievement',
+      createdAt: data.created_at ? new Date(data.created_at) : undefined,
+      updatedAt: data.updated_at ? new Date(data.updated_at) : undefined,
+    };
+  }
+
+  async getGameSessions(userIds: string[], limit: number = 50, offset: number = 0, lookbackDays: number = 14): Promise<GameSession[]> {
+    const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+
+    const { data, error } = await this.supabase
+      .from('game_sessions')
+      .select('*')
+      .in('user_id', userIds)
+      .gte('session_end', lookbackDate.toISOString())
+      .order('session_end', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error getting game sessions:', error);
+      throw error;
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      appId: row.app_id,
+      playtimeDelta: row.playtime_delta,
+      sessionStart: new Date(row.session_start),
+      sessionEnd: new Date(row.session_end),
+      type: row.type as 'playtime' | 'achievement',
+      createdAt: row.created_at ? new Date(row.created_at) : undefined,
+      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined,
+    }));
+  }
+
+  async getGameSessionCount(userIds: string[], lookbackDays: number = 14): Promise<number> {
+    const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+
+    const { count, error } = await this.supabase
+      .from('game_sessions')
+      .select('id', { count: 'exact', head: true })
+      .in('user_id', userIds)
+      .gte('session_end', lookbackDate.toISOString());
+
+    if (error) {
+      console.error('Error getting game session count:', error);
+      throw error;
+    }
+
+    return count || 0;
   }
 }

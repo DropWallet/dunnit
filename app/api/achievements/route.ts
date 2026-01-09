@@ -6,6 +6,7 @@ import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
 import type { UserAchievement } from '@/lib/data/types';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Disable ISR caching
 
 export async function GET(request: NextRequest) {
   try {
@@ -163,7 +164,7 @@ export async function GET(request: NextRequest) {
     // Set HTTP cache headers
     // If force refresh, don't cache; otherwise cache for 5 minutes
     const cacheControl = forceRefresh
-      ? 'no-cache, no-store, must-revalidate'
+      ? 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
       : 'private, max-age=300'; // 5 minutes browser cache
 
     return NextResponse.json(
@@ -171,6 +172,8 @@ export async function GET(request: NextRequest) {
       {
         headers: {
           'Cache-Control': cacheControl,
+          'CDN-Cache-Control': 'no-store',
+          'Vercel-CDN-Cache-Control': 'no-store',
         },
       }
     );

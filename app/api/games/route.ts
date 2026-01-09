@@ -3,9 +3,10 @@ import { getSteamClient } from '@/lib/steam/client';
 import { getDataAccess } from '@/lib/data/access';
 import { ApiErrors } from '@/lib/utils/api-errors';
 import { getLatestAchievementUnlockTime } from '@/lib/utils/achievements';
-import type { Game } from '@/lib/data/types';
+import type { Game, GameSession } from '@/lib/data/types';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0; // Disable ISR caching
 
 export async function GET(request: NextRequest) {
   try {
@@ -313,6 +314,60 @@ export async function GET(request: NextRequest) {
       await dataAccess.saveUserGames(steamId, gamesToSave);
       console.log('[Games API] Games saved successfully');
       
+      // LEDGER APPROACH: Write playtime sessions to game_sessions table
+      // This ensures sessions persist even after deltas are reset
+      const sessionWriteTime = new Date(); // Use current time for session end
+      let sessionsCreated = 0;
+      let sessionsMerged = 0;
+      
+      for (const game of gamesToSave) {
+        const existingGame = existingGamesMapForPlaytime.get(game.appId);
+        
+        // Calculate playtime delta
+        const previousPlaytime = existingGame?.playtimeMinutes ?? 0;
+        const currentPlaytime = game.playtimeMinutes;
+        const playtimeDelta = currentPlaytime - previousPlaytime;
+        
+        // Only create sessions for games with meaningful playtime increases (>= 5 minutes)
+        if (playtimeDelta >= 5) {
+          // Check for recent session (within 30 minutes) for cooldown merging
+          const recentSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30);
+          
+          if (recentSession) {
+            // Merge with existing session: add delta and update session_end
+            const mergedSession: GameSession = {
+              id: recentSession.id,
+              userId: steamId,
+              appId: game.appId,
+              playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
+              sessionStart: recentSession.sessionStart, // Keep original start time
+              sessionEnd: sessionWriteTime, // Update end time to now
+              type: 'playtime',
+            };
+            await dataAccess.saveGameSession(mergedSession);
+            sessionsMerged++;
+            console.log(`[Games API] Merged session for game ${game.appId} (${game.name}): added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min)`);
+          } else {
+            // Create new session
+            const newSession: GameSession = {
+              userId: steamId,
+              appId: game.appId,
+              playtimeDelta,
+              sessionStart: game.lastPlayed || sessionWriteTime,
+              sessionEnd: sessionWriteTime,
+              type: 'playtime',
+            };
+            await dataAccess.saveGameSession(newSession);
+            sessionsCreated++;
+            console.log(`[Games API] Created new session for game ${game.appId} (${game.name}): ${playtimeDelta}min`);
+          }
+        }
+      }
+      
+      if (sessionsCreated > 0 || sessionsMerged > 0) {
+        console.log(`[Games API] Session writing complete: ${sessionsCreated} created, ${sessionsMerged} merged`);
+      }
+      
       // Update user's last sync time
       await dataAccess.updateUser(steamId, { lastSyncAt: new Date() });
       console.log('[Games API] User lastSyncAt updated');
@@ -403,8 +458,10 @@ export async function GET(request: NextRequest) {
       {
         headers: {
           'Cache-Control': isRefresh 
-            ? 'no-cache, no-store, must-revalidate, Pragma: no-cache' 
+            ? 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0' 
             : 'private, max-age=300', // Browser cache for 5 minutes
+          'CDN-Cache-Control': 'no-store',
+          'Vercel-CDN-Cache-Control': 'no-store',
         },
       }
     );

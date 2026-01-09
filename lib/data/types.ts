@@ -4,4 +4,5 @@ export type {
   Game,
   Achievement,
   UserAchievement,
+  GameSession,
 } from './access';
