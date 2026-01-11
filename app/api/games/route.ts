@@ -311,6 +311,8 @@ export async function GET(request: NextRequest) {
       // This ensures sessions persist even after deltas are reset
       let sessionsCreated = 0;
       let sessionsMerged = 0;
+      let gamesWithZeroDelta = 0;
+      let gamesWithSmallDelta = 0;
       
       for (const game of gamesToSave) {
         const existingGame = existingGamesMapForPlaytime.get(game.appId);
@@ -322,59 +324,134 @@ export async function GET(request: NextRequest) {
         const currentPlaytime = game.playtimeMinutes;
         const playtimeDelta = currentPlaytime - previousPlaytime;
         
+        // Enhanced logging: Show baseline values for verification
+        if (playtimeDelta !== 0 || existingGame) {
+          console.log(`[Games API] 📊 Baseline check for ${game.appId} (${game.name}): previous=${previousPlaytime}min, current=${currentPlaytime}min, delta=${playtimeDelta}min${playtimeDelta === 0 ? ' ✅ (FIX 1 working - no phantom session)' : ''}`);
+        }
+        
         // Only create sessions for games with meaningful playtime increases (>= 5 minutes)
         if (playtimeDelta >= 5) {
-          // Calculate session end time: use lastPlayed if available and recent, otherwise use current time
-          // If lastPlayed is too old (> 24 hours), use current time minus a small offset to make it more realistic
+          // FIX 2: Calculate session end time - use lastPlayed if available (regardless of age)
+          // If lastPlayed is not available, use current time minus a small offset
           const now = new Date();
-          const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
           let sessionEnd: Date;
+          let timestampSource: string;
           
-          if (game.lastPlayed && game.lastPlayed > oneDayAgo) {
-            // Use lastPlayed if it's recent (within 24 hours)
+          if (game.lastPlayed) {
+            // Use lastPlayed if available - trust Steam's timestamp, no matter how old
             sessionEnd = game.lastPlayed;
+            const ageInHours = (now.getTime() - game.lastPlayed.getTime()) / (1000 * 60 * 60);
+            timestampSource = `lastPlayed (${ageInHours.toFixed(1)}h ago) ✅ FIX 2 working`;
           } else {
-            // Use current time minus a small random offset (0-5 minutes) to avoid all sessions having identical timestamps
+            // Fallback: Use current time minus a small random offset (0-5 minutes) to avoid all sessions having identical timestamps
             const randomOffset = Math.floor(Math.random() * 5 * 60 * 1000); // 0-5 minutes in milliseconds
             sessionEnd = new Date(now.getTime() - randomOffset);
+            timestampSource = 'fallback (now - random offset)';
           }
           
-          // Check for recent session (within 30 minutes) for cooldown merging
-          const recentSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30);
+          // Calculate sessionStart (rounded to nearest second for deduplication matching)
+          const calculatedSessionStart = game.lastPlayed || sessionEnd;
+          const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
           
-          if (recentSession) {
+          // Debug: Log session creation details
+          console.log(`[Games API] 🔍 Session check for ${game.appId} (${game.name}): delta=${playtimeDelta}min, timestampSource=${timestampSource}, calculatedSessionEnd=${sessionEnd.toISOString()}, sessionStartRounded=${sessionStartRounded.toISOString()}`);
+          
+          // FIX 3: Check for existing session with same (userId, appId, sessionStart rounded to nearest second)
+          // This prevents duplicate sessions even if they're older than 30 minutes
+          const existingSession = await dataAccess.getGameSessionByStartTime(steamId, game.appId, sessionStartRounded);
+          
+          if (existingSession) {
+            console.log(`[Games API] 🔗 FIX 3: Found existing session with same start time: id=${existingSession.id}, existingEnd=${existingSession.sessionEnd.toISOString()}, newEnd=${sessionEnd.toISOString()}, existingEndIsNewer=${existingSession.sessionEnd > sessionEnd}`);
+          } else {
+            console.log(`[Games API] ✅ FIX 3: No existing session found with same start time - will create new session`);
+          }
+          
+          if (existingSession) {
             // Merge with existing session: add delta and update session_end
+            // BUT: Only update sessionEnd if the new time is actually AFTER the existing sessionEnd
+            // This prevents sessions from appearing "newer" than they actually are
+            const shouldUpdateEnd = sessionEnd > existingSession.sessionEnd;
             const mergedSession: GameSession = {
-              id: recentSession.id,
+              id: existingSession.id,
               userId: steamId,
               appId: game.appId,
-              playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
-              sessionStart: recentSession.sessionStart, // Keep original start time
-              sessionEnd: sessionEnd, // Use calculated session end time
+              playtimeDelta: existingSession.playtimeDelta + playtimeDelta,
+              sessionStart: existingSession.sessionStart, // Keep original start time
+              sessionEnd: shouldUpdateEnd ? sessionEnd : existingSession.sessionEnd, // Only update if actually newer
               type: 'playtime',
             };
             await dataAccess.saveGameSession(mergedSession);
             sessionsMerged++;
-            console.log(`[Games API] Merged session for game ${game.appId} (${game.name}): added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min)`);
+            console.log(`[Games API] 🔗 Merged session for game ${game.appId} (${game.name}): added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min), ${shouldUpdateEnd ? 'updated end time' : 'kept original end time'}`);
+            
+            // FIX 1: Update baseline AFTER successful session save
+            // This "empties" the delta tank so the next sync won't process the same delta again
+            await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+            console.log(`[Games API] ✅ FIX 1: Updated baseline for game ${game.appId} (${game.name}): previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
           } else {
+            // Before creating new session, check for existing achievement session within 30 minutes
+            // Achievement sessions take precedence - if one exists for this play session, skip playtime session
+            const existingAchievementSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30, 'achievement');
+            
+            if (existingAchievementSession) {
+              // Check if the achievement session is close in time to this playtime session
+              // Use proximity check: distance between start of one and end of the other (both ways)
+              const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+              const timeDiff = Math.min(
+                Math.abs(existingAchievementSession.sessionStart.getTime() - sessionEnd.getTime()),
+                Math.abs(calculatedSessionStart.getTime() - existingAchievementSession.sessionEnd.getTime())
+              );
+              
+              if (timeDiff <= THIRTY_MINUTES_MS) {
+                // Achievement session exists for this play session - skip playtime session
+                console.log(`[Games API] ⏭️ Skipping playtime session for game ${game.appId} (${game.name}): achievement session exists (achievement end: ${existingAchievementSession.sessionEnd.toISOString()}, playtime would be: ${sessionEnd.toISOString()}, timeDiff: ${(timeDiff / 1000 / 60).toFixed(1)}min)`);
+                
+                // Still update baseline to prevent phantom sessions
+                await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                console.log(`[Games API] ✅ Updated baseline for game ${game.appId} (${game.name}): previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
+                continue; // Skip to next game
+              }
+            }
+            
             // Create new session
             const newSession: GameSession = {
               userId: steamId,
               appId: game.appId,
               playtimeDelta,
-              sessionStart: game.lastPlayed || sessionEnd,
+              sessionStart: calculatedSessionStart,
               sessionEnd: sessionEnd, // Use calculated session end time
               type: 'playtime',
             };
             await dataAccess.saveGameSession(newSession);
             sessionsCreated++;
-            console.log(`[Games API] Created new session for game ${game.appId} (${game.name}): ${playtimeDelta}min`);
+            console.log(`[Games API] ✨ Created new session for game ${game.appId} (${game.name}): ${playtimeDelta}min`);
+            
+            // FIX 1: Update baseline AFTER successful session save
+            // This "empties" the delta tank so the next sync won't process the same delta again
+            await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+            console.log(`[Games API] ✅ FIX 1: Updated baseline for game ${game.appId} (${game.name}): previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
           }
+        } else if (playtimeDelta > 0) {
+          // FIX 1: Even if delta < 5, update baseline if playtime changed
+          // This ensures the baseline stays in sync even for small changes
+          gamesWithSmallDelta++;
+          await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+          console.log(`[Games API] ✅ FIX 1: Updated baseline for game ${game.appId} (${game.name}): delta=${playtimeDelta}min (too small for session), previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
+        } else if (playtimeDelta === 0) {
+          // Delta is 0 - baseline is already correct, no action needed
+          gamesWithZeroDelta++;
         }
       }
       
+      // Summary log
       if (sessionsCreated > 0 || sessionsMerged > 0) {
-        console.log(`[Games API] Session writing complete: ${sessionsCreated} created, ${sessionsMerged} merged`);
+        console.log(`[Games API] 📊 Session writing complete: ${sessionsCreated} created, ${sessionsMerged} merged`);
+      }
+      if (gamesWithZeroDelta > 0) {
+        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithZeroDelta} game(s) with delta=0min (baseline working correctly - no phantom sessions)`);
+      }
+      if (gamesWithSmallDelta > 0) {
+        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithSmallDelta} game(s) with small delta (<5min) - baseline updated to prevent future phantoms`);
       }
       
       // Update user's last sync time

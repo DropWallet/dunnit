@@ -95,7 +95,8 @@ export interface FeedSession {
  * where consecutive achievements are within 4 hours of each other
  */
 export function groupAchievementsIntoSessions(
-  achievements: AchievementRow[]
+  achievements: AchievementRow[],
+  playtimeDeltaMinutes?: number
 ): FeedSession[] {
   if (achievements.length === 0) {
     return [];
@@ -109,6 +110,7 @@ export function groupAchievementsIntoSessions(
   const sessions: FeedSession[] = [];
   let currentSession: AchievementRow[] = [];
   const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+  let isFirstSession = true; // Track if this is the first session to apply playtimeDelta
 
   for (const achievement of sorted) {
     if (currentSession.length === 0) {
@@ -128,7 +130,10 @@ export function groupAchievementsIntoSessions(
         currentSession.push(achievement);
       } else {
         // End current session, start new one
-        sessions.push(createSessionFromAchievements(currentSession));
+        // Apply playtimeDelta only to the first session
+        const playtimeDelta = isFirstSession ? playtimeDeltaMinutes : undefined;
+        sessions.push(createSessionFromAchievements(currentSession, playtimeDelta));
+        isFirstSession = false;
         currentSession = [achievement];
       }
     }
@@ -136,7 +141,8 @@ export function groupAchievementsIntoSessions(
 
   // Don't forget the last session
   if (currentSession.length > 0) {
-    sessions.push(createSessionFromAchievements(currentSession));
+    const playtimeDelta = isFirstSession ? playtimeDeltaMinutes : undefined;
+    sessions.push(createSessionFromAchievements(currentSession, playtimeDelta));
   }
 
   return sessions;
@@ -144,9 +150,11 @@ export function groupAchievementsIntoSessions(
 
 /**
  * Create a FeedSession from a group of achievements
+ * @param playtimeDeltaMinutes Optional playtime delta in minutes. If provided, this will be used for duration instead of achievement unlock time span.
  */
 function createSessionFromAchievements(
-  achievements: AchievementRow[]
+  achievements: AchievementRow[],
+  playtimeDeltaMinutes?: number
 ): FeedSession {
   if (achievements.length === 0) {
     throw new Error('Cannot create session from empty achievements array');
@@ -156,9 +164,23 @@ function createSessionFromAchievements(
   const last = achievements[achievements.length - 1];
 
   // Calculate session metadata
-  const sessionStart = first.unlocked_at;
+  let sessionStart = first.unlocked_at;
   const sessionEnd = last.unlocked_at;
-  const duration = sessionEnd.getTime() - sessionStart.getTime();
+  
+  // Use playtimeDelta if provided, otherwise calculate from achievement unlock times
+  let duration: number;
+  if (playtimeDeltaMinutes !== undefined && playtimeDeltaMinutes > 0) {
+    // Use actual playtime (convert minutes to milliseconds)
+    duration = playtimeDeltaMinutes * 60 * 1000;
+    // Adjust sessionStart to match the duration (sessionEnd - duration)
+    const calculatedSessionStart = new Date(sessionEnd.getTime() - duration);
+    // Use the earlier of: calculated start or first achievement unlock
+    sessionStart = calculatedSessionStart < first.unlocked_at ? calculatedSessionStart : first.unlocked_at;
+  } else {
+    // Fallback to achievement unlock time span
+    duration = sessionEnd.getTime() - sessionStart.getTime();
+  }
+  
   const metadata = calculateSessionMetadata(achievements);
 
   // Build achievement details

@@ -97,9 +97,12 @@ export interface DataAccess {
   // Game session methods
   saveGameSession(session: GameSession): Promise<void>;
   getRecentGameSession(userId: string, appId: number, withinMinutes?: number, type?: 'playtime' | 'achievement'): Promise<GameSession | null>;
+  getGameSessionByStartTime(userId: string, appId: number, sessionStart: Date, type?: 'playtime' | 'achievement'): Promise<GameSession | null>;
   getGameSessions(userIds: string[], limit?: number, offset?: number, lookbackDays?: number): Promise<GameSession[]>;
   getGameSessionCount(userIds: string[], lookbackDays?: number): Promise<number>;
   deleteGameSession(sessionId: string): Promise<void>;
+  // Game baseline update method
+  updateGameBaseline(userId: string, appId: number, currentPlaytimeMinutes: number): Promise<void>;
 }
 
 // Singleton instance

@@ -146,13 +146,14 @@ async function findOverlappingPlaytimeSessions(
 
 /**
  * Delete overlapping playtime sessions (achievement sessions take precedence)
+ * Returns both the count of deleted sessions and the total playtimeDelta
  */
 async function deleteOverlappingPlaytimeSessions(
   userId: string,
   appId: number,
   sessionStart: Date,
   sessionEnd: Date
-): Promise<number> {
+): Promise<{ deletedCount: number; totalPlaytimeDelta: number }> {
   const dataAccess = getDataAccess();
   const overlappingSessions = await findOverlappingPlaytimeSessions(
     userId,
@@ -162,15 +163,18 @@ async function deleteOverlappingPlaytimeSessions(
   );
 
   let deletedCount = 0;
+  let totalPlaytimeDelta = 0;
   for (const session of overlappingSessions) {
     if (session.id) {
+      // Capture playtimeDelta before deleting
+      totalPlaytimeDelta += session.playtimeDelta || 0;
       await dataAccess.deleteGameSession(session.id);
       deletedCount++;
-      console.log(`[Achievement Sessions] Deleted overlapping playtime session ${session.id} for user ${userId}, game ${appId}`);
+      console.log(`[Achievement Sessions] Deleted overlapping playtime session ${session.id} for user ${userId}, game ${appId} (playtimeDelta: ${session.playtimeDelta}min)`);
     }
   }
 
-  return deletedCount;
+  return { deletedCount, totalPlaytimeDelta };
 }
 
 /**
@@ -192,25 +196,27 @@ export async function writeAchievementSessions(
   let playtimeSessionsDeleted = 0;
 
   for (const sessionData of sessions) {
-    // Delete overlapping playtime sessions (achievement sessions take precedence)
-    const deleted = await deleteOverlappingPlaytimeSessions(
+    // Delete overlapping playtime sessions and capture their playtimeDelta
+    const { deletedCount, totalPlaytimeDelta } = await deleteOverlappingPlaytimeSessions(
       userId,
       appId,
       sessionData.sessionStart,
       sessionData.sessionEnd
     );
-    playtimeSessionsDeleted += deleted;
+    playtimeSessionsDeleted += deletedCount;
 
     // Check for recent achievement session (within 30 minutes) for cooldown merging
     const recentSession = await dataAccess.getRecentGameSession(userId, appId, 30, 'achievement');
     
     if (recentSession) {
       // Merge: extend session_end to the later one, keep earlier session_start
+      // Preserve playtimeDelta from recent session, add any new playtimeDelta from deleted sessions
+      const mergedPlaytimeDelta = (recentSession.playtimeDelta || 0) + totalPlaytimeDelta;
       const mergedSession: GameSession = {
         id: recentSession.id,
         userId,
         appId,
-        playtimeDelta: 0, // Not applicable for achievement sessions
+        playtimeDelta: mergedPlaytimeDelta, // Use captured playtimeDelta
         sessionStart: sessionData.sessionStart < recentSession.sessionStart 
           ? sessionData.sessionStart 
           : recentSession.sessionStart, // Keep earlier start
@@ -221,20 +227,20 @@ export async function writeAchievementSessions(
       };
       await dataAccess.saveGameSession(mergedSession);
       sessionsMerged++;
-      console.log(`[Achievement Sessions] Merged session for game ${appId}: extended to ${mergedSession.sessionEnd.toISOString()}`);
+      console.log(`[Achievement Sessions] Merged session for game ${appId}: extended to ${mergedSession.sessionEnd.toISOString()}, playtimeDelta: ${mergedPlaytimeDelta}min`);
     } else {
-      // Create new achievement session
+      // Create new achievement session with captured playtimeDelta
       const newSession: GameSession = {
         userId,
         appId,
-        playtimeDelta: 0, // Not applicable for achievement sessions
+        playtimeDelta: totalPlaytimeDelta, // Use captured playtimeDelta
         sessionStart: sessionData.sessionStart,
         sessionEnd: sessionData.sessionEnd,
         type: 'achievement',
       };
       await dataAccess.saveGameSession(newSession);
       sessionsCreated++;
-      console.log(`[Achievement Sessions] Created new session for game ${appId}: ${sessionData.achievementCount} achievements, ${sessionData.sessionStart.toISOString()} to ${sessionData.sessionEnd.toISOString()}`);
+      console.log(`[Achievement Sessions] Created new session for game ${appId}: ${sessionData.achievementCount} achievements, ${sessionData.sessionStart.toISOString()} to ${sessionData.sessionEnd.toISOString()}, playtimeDelta: ${totalPlaytimeDelta}min`);
     }
   }
 

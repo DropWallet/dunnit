@@ -1054,6 +1054,55 @@ export class SupabaseDataAccess implements DataAccess {
     };
   }
 
+  async getGameSessionByStartTime(userId: string, appId: number, sessionStart: Date, type?: 'playtime' | 'achievement'): Promise<GameSession | null> {
+    // Round sessionStart to nearest second (matching deduplication logic)
+    const sessionStartRounded = new Date(Math.floor(sessionStart.getTime() / 1000) * 1000);
+    const sessionStartRoundedPlusOne = new Date(sessionStartRounded.getTime() + 1000); // Add 1 second for range query
+
+    let query = this.supabase
+      .from('game_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('app_id', appId)
+      .gte('session_start', sessionStartRounded.toISOString())
+      .lt('session_start', sessionStartRoundedPlusOne.toISOString())
+      .order('session_end', { ascending: false })
+      .limit(1);
+
+    // Filter by type if specified (for backward compatibility, default to 'playtime' if not specified)
+    if (type) {
+      query = query.eq('type', type);
+    } else {
+      // Default to 'playtime' for backward compatibility
+      query = query.eq('type', 'playtime');
+    }
+
+    const { data, error } = await query.single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      console.error('Error getting game session by start time:', error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      appId: data.app_id,
+      playtimeDelta: data.playtime_delta,
+      sessionStart: new Date(data.session_start),
+      sessionEnd: new Date(data.session_end),
+      type: data.type as 'playtime' | 'achievement',
+      createdAt: data.created_at ? new Date(data.created_at) : undefined,
+      updatedAt: data.updated_at ? new Date(data.updated_at) : undefined,
+    };
+  }
+
   async getGameSessions(userIds: string[], limit: number = 50, offset: number = 0, lookbackDays: number = 14): Promise<GameSession[]> {
     const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
@@ -1108,6 +1157,22 @@ export class SupabaseDataAccess implements DataAccess {
 
     if (error) {
       console.error('Error deleting game session:', error);
+      throw error;
+    }
+  }
+
+  async updateGameBaseline(userId: string, appId: number, currentPlaytimeMinutes: number): Promise<void> {
+    const { error } = await this.supabase
+      .from('user_games')
+      .update({
+        previous_playtime_minutes: currentPlaytimeMinutes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('app_id', appId);
+
+    if (error) {
+      console.error('Error updating game baseline:', error);
       throw error;
     }
   }
