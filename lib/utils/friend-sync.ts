@@ -230,36 +230,60 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         lastPlayed = syncTime;
       }
 
+      // Track if we updated the baseline (to ensure batch save uses correct value)
+      let baselineUpdated = false;
+
       // LEDGER APPROACH: Write session to game_sessions table if delta >= 5 minutes
       if (playtimeDelta >= 5) {
-        // Check for recent session (within 30 minutes) for cooldown merging
-        const recentSession = await dataAccess.getRecentGameSession(friendId, steamGame.appid, 30);
+        // FIX 2: Use lastPlayed if available (regardless of age), otherwise use syncTime
+        const sessionEnd = lastPlayed || syncTime;
+        const calculatedSessionStart = lastPlayed || syncTime;
+        const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
         
-        if (recentSession) {
+        // FIX 3: Check for existing session with same (userId, appId, sessionStart rounded to nearest second)
+        // This prevents duplicate sessions even if they're older than 30 minutes
+        const existingSession = await dataAccess.getGameSessionByStartTime(friendId, steamGame.appid, sessionStartRounded);
+        
+        if (existingSession) {
           // Merge with existing session: add delta and update session_end
+          // BUT: Only update sessionEnd if the new time is actually AFTER the existing sessionEnd
+          // This prevents sessions from appearing "newer" than they actually are
+          const shouldUpdateEnd = sessionEnd > existingSession.sessionEnd;
           const mergedSession: GameSession = {
-            id: recentSession.id,
+            id: existingSession.id,
             userId: friendId,
             appId: steamGame.appid,
-            playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
-            sessionStart: recentSession.sessionStart, // Keep original start time
-            sessionEnd: syncTime, // Update end time to now
+            playtimeDelta: existingSession.playtimeDelta + playtimeDelta,
+            sessionStart: existingSession.sessionStart, // Keep original start time
+            sessionEnd: shouldUpdateEnd ? sessionEnd : existingSession.sessionEnd, // Only update if actually newer
             type: 'playtime',
           };
           await dataAccess.saveGameSession(mergedSession);
-          console.log(`[Friend Sync] Merged session for game ${steamGame.appid}: added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min)`);
+          console.log(`[Friend Sync] Merged session for game ${steamGame.appid}: added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min), ${shouldUpdateEnd ? 'updated end time' : 'kept original end time'}`);
+          
+          // FIX 1: Update baseline AFTER successful session save
+          // This "empties" the delta tank so the next sync won't process the same delta again
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          baselineUpdated = true;
+          console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
         } else {
           // Create new session
           const newSession: GameSession = {
             userId: friendId,
             appId: steamGame.appid,
             playtimeDelta,
-            sessionStart: lastPlayed || syncTime,
-            sessionEnd: syncTime,
+            sessionStart: calculatedSessionStart,
+            sessionEnd: sessionEnd,
             type: 'playtime',
           };
           await dataAccess.saveGameSession(newSession);
           console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min`);
+          
+          // FIX 1: Update baseline AFTER successful session save
+          // This "empties" the delta tank so the next sync won't process the same delta again
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          baselineUpdated = true;
+          console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
         }
 
         // Track games with meaningful playtime increases (>= 5 minutes)
@@ -268,9 +292,15 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           appId: steamGame.appid,
           playtimeDelta,
         });
+      } else if (playtimeDelta > 0) {
+        // FIX 1: Even if delta < 5, update baseline if playtime changed
+        // This ensures the baseline stays in sync even for small changes
+        await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+        baselineUpdated = true;
+        console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: delta=${playtimeDelta}min (too small for session), previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
       }
 
-      // Update user_games: set previous_playtime = current_playtime (reset delta for next sync)
+      // Update user_games: use updated baseline value if we just updated it, otherwise preserve existing
       const game: Game = {
         appId: steamGame.appid,
         name: steamGame.name || 'Unknown Game',
@@ -284,7 +314,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           : undefined,
         coverImageUrl: existingGame?.coverImageUrl, // Preserve existing cover image
         lastPlayed,
-        previousPlaytimeMinutes: currentPlaytimeMinutes, // Reset to current (delta is now 0, session is persisted)
+        // Use currentPlaytimeMinutes if we just updated the baseline, otherwise preserve existing
+        previousPlaytimeMinutes: baselineUpdated ? currentPlaytimeMinutes : (existingGame?.previousPlaytimeMinutes ?? currentPlaytimeMinutes),
         playtimeLastSyncedAt: syncTime,
       };
 
