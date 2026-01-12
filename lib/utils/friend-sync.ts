@@ -186,9 +186,38 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     const steamClient = getSteamClient();
     const dataAccess = getDataAccess();
 
-    // Fetch recently played games from Steam
-    const response = await steamClient.getRecentlyPlayedGames(friendId);
-    const recentlyPlayedGames = response.response?.games || [];
+    // Try GetRecentlyPlayedGames first (more accurate for recent games)
+    let recentlyPlayedGames: any[] = [];
+    try {
+      const response = await steamClient.getRecentlyPlayedGames(friendId);
+      recentlyPlayedGames = response.response?.games || [];
+    } catch (error) {
+      // GetRecentlyPlayedGames failed (likely privacy) - fall back to GetOwnedGames
+      console.log(`[Friend Sync] GetRecentlyPlayedGames failed for ${friendId}, falling back to GetOwnedGames`);
+    }
+
+    // If GetRecentlyPlayedGames returned empty, try GetOwnedGames as fallback
+    // This handles cases where game details are private but profile is public
+    if (recentlyPlayedGames.length === 0) {
+      try {
+        const ownedGamesResponse = await steamClient.getOwnedGames(friendId, true);
+        const allGames = ownedGamesResponse.response?.games || [];
+        
+        // Filter to games played in last 14 days (similar to GetRecentlyPlayedGames scope)
+        const fourteenDaysAgo = Math.floor(Date.now() / 1000) - (14 * 24 * 60 * 60);
+        recentlyPlayedGames = allGames.filter((game: any) => {
+          // Include if has rtime_last_played within 14 days
+          return game.rtime_last_played && game.rtime_last_played > fourteenDaysAgo;
+        });
+        
+        if (recentlyPlayedGames.length > 0) {
+          console.log(`[Friend Sync] Using GetOwnedGames fallback for ${friendId}: found ${recentlyPlayedGames.length} recently played games`);
+        }
+      } catch (error) {
+        // Both APIs failed - profile likely fully private
+        console.log(`[Friend Sync] Both GetRecentlyPlayedGames and GetOwnedGames failed for ${friendId}`);
+      }
+    }
 
     if (recentlyPlayedGames.length === 0) {
       // No recently played games - just update lastSyncAt timestamp
@@ -267,23 +296,75 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           baselineUpdated = true;
           console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
         } else {
-          // Create new session
-          const newSession: GameSession = {
-            userId: friendId,
-            appId: steamGame.appid,
-            playtimeDelta,
-            sessionStart: calculatedSessionStart,
-            sessionEnd: sessionEnd,
-            type: 'playtime',
-          };
-          await dataAccess.saveGameSession(newSession);
-          console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min`);
+          // Check for recent playtime session within 30 minutes (for continuous play sessions)
+          // This handles cases where game.lastPlayed changes between syncs, causing different sessionStart values
+          const recentSession = await dataAccess.getRecentGameSession(friendId, steamGame.appid, 30, 'playtime');
           
-          // FIX 1: Update baseline AFTER successful session save
-          // This "empties" the delta tank so the next sync won't process the same delta again
-          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
-          baselineUpdated = true;
-          console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
+          if (recentSession) {
+            // Check if sessions are actually close in time (proximity check)
+            // Use same logic as achievement session proximity check
+            const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+            const timeDiff = Math.min(
+              Math.abs(recentSession.sessionStart.getTime() - sessionEnd.getTime()),
+              Math.abs(calculatedSessionStart.getTime() - recentSession.sessionEnd.getTime())
+            );
+            
+            if (timeDiff <= THIRTY_MINUTES_MS) {
+              // Sessions are close enough - merge with recent session
+              const shouldUpdateEnd = sessionEnd > recentSession.sessionEnd;
+              const mergedSession: GameSession = {
+                id: recentSession.id,
+                userId: friendId,
+                appId: steamGame.appid,
+                playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
+                sessionStart: recentSession.sessionStart, // Keep original start time
+                sessionEnd: shouldUpdateEnd ? sessionEnd : recentSession.sessionEnd, // Only update if actually newer
+                type: 'playtime',
+              };
+              await dataAccess.saveGameSession(mergedSession);
+              console.log(`[Friend Sync] Merged with recent session for game ${steamGame.appid}: added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min), timeDiff: ${(timeDiff / 1000 / 60).toFixed(1)}min, ${shouldUpdateEnd ? 'updated end time' : 'kept original end time'}`);
+              
+              // FIX 1: Update baseline AFTER successful session save
+              await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+              baselineUpdated = true;
+              console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
+            } else {
+              // Sessions are not close enough - create new session
+              const newSession: GameSession = {
+                userId: friendId,
+                appId: steamGame.appid,
+                playtimeDelta,
+                sessionStart: calculatedSessionStart,
+                sessionEnd: sessionEnd,
+                type: 'playtime',
+              };
+              await dataAccess.saveGameSession(newSession);
+              console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min (recent session found but too far: ${(timeDiff / 1000 / 60).toFixed(1)}min)`);
+              
+              // FIX 1: Update baseline AFTER successful session save
+              await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+              baselineUpdated = true;
+              console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
+            }
+          } else {
+            // Create new session
+            const newSession: GameSession = {
+              userId: friendId,
+              appId: steamGame.appid,
+              playtimeDelta,
+              sessionStart: calculatedSessionStart,
+              sessionEnd: sessionEnd,
+              type: 'playtime',
+            };
+            await dataAccess.saveGameSession(newSession);
+            console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min`);
+            
+            // FIX 1: Update baseline AFTER successful session save
+            // This "empties" the delta tank so the next sync won't process the same delta again
+            await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+            baselineUpdated = true;
+            console.log(`[Friend Sync] ✅ Updated baseline for game ${steamGame.appid}: previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (was ${previousPlaytimeMinutes}min)`);
+          }
         }
 
         // Track games with meaningful playtime increases (>= 5 minutes)
