@@ -431,6 +431,67 @@ export async function GET(request: NextRequest) {
       `${s.sessionId} - ${s.user.steamId === steamId ? 'YOU' : 'FRIEND'} - ${s.game.name} - ${s.sessionEnd.toISOString()}`
     ).join(', '));
 
+    // Sync-on-Read: Sync stale friends who have recently played games (within 14 days)
+    // Similar to dashboard logic - sync friends who are actively playing
+    // This keeps the feed fresh for the 14-day window, even if their last session is old
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    
+    // Query user_games to find friends with recently played games
+    // Query all friends' games and filter in JavaScript (more reliable than complex SQL OR)
+    const { data: allFriendsGamesData, error: gamesQueryError } = await supabase
+      .from('user_games')
+      .select('user_id, last_played, derived_last_played')
+      .in('user_id', friendSteamIds);
+    
+    if (gamesQueryError) {
+      console.error('[Feed] Error querying user_games for recently played games:', gamesQueryError);
+    }
+    
+    // Extract unique friend IDs who have recently played games
+    // Check both last_played and derived_last_played
+    const friendsWithRecentPlaytime = new Set<string>();
+    if (allFriendsGamesData) {
+      allFriendsGamesData.forEach((game: any) => {
+        const lastPlayed = game.last_played ? new Date(game.last_played) : null;
+        const derivedLastPlayed = game.derived_last_played ? new Date(game.derived_last_played) : null;
+        
+        // Check if either last_played or derived_last_played is within 14 days
+        if ((lastPlayed && lastPlayed > fourteenDaysAgo) || 
+            (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo)) {
+          friendsWithRecentPlaytime.add(game.user_id);
+        }
+      });
+    }
+    
+    if (friendsWithRecentPlaytime.size > 0) {
+      // Check staleness (2 hour threshold)
+      const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const staleFriends = await getStaleFriends(Array.from(friendsWithRecentPlaytime), staleThreshold);
+
+      if (staleFriends.length > 0) {
+        console.log(`[Feed] Found ${staleFriends.length} stale friends with recently played games (out of ${friendsWithRecentPlaytime.size} total), triggering background sync`);
+        
+        // Trigger background sync (fire-and-forget)
+        // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
+        const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
+        
+        // Try to use waitUntil if available (Next.js 13+)
+        if (typeof (globalThis as any).waitUntil === 'function') {
+          (globalThis as any).waitUntil(syncPromise);
+        } else {
+          // Fire-and-forget - don't await, let it run in background
+          syncPromise.catch(error => {
+            console.error('[Feed] Background friend sync failed:', error);
+            // Don't throw - this is non-critical
+          });
+        }
+      } else {
+        console.log(`[Feed] All ${friendsWithRecentPlaytime.size} friends with recently played games are fresh (synced within 2 hours)`);
+      }
+    } else {
+      console.log(`[Feed] No friends with recently played games (within 14 days) found`);
+    }
+
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
 
@@ -488,42 +549,6 @@ export async function GET(request: NextRequest) {
       isLiked: userLikes.has(session.sessionId),
       likedByUsers: [], // Will be populated on-demand
     }));
-
-    // Sync-on-Read: Sync stale friends visible in current feed page
-    // Extract friend IDs from visible sessions (exclude logged-in user)
-    const visibleFriendIds = new Set<string>();
-    paginatedSessions.forEach(session => {
-      if (session.user.steamId !== steamId) {
-        visibleFriendIds.add(session.user.steamId);
-      }
-    });
-
-    if (visibleFriendIds.size > 0) {
-      // Check staleness (2 hour threshold)
-      const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      const staleFriends = await getStaleFriends(Array.from(visibleFriendIds), staleThreshold);
-
-      if (staleFriends.length > 0) {
-        console.log(`[Feed] Found ${staleFriends.length} stale friends in visible feed, triggering background sync`);
-        
-        // Trigger background sync (fire-and-forget)
-        // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
-        const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
-        
-        // Try to use waitUntil if available (Next.js 13+)
-        if (typeof (globalThis as any).waitUntil === 'function') {
-          (globalThis as any).waitUntil(syncPromise);
-        } else {
-          // Fire-and-forget - don't await, let it run in background
-          syncPromise.catch(error => {
-            console.error('[Feed] Background friend sync failed:', error);
-            // Don't throw - this is non-critical
-          });
-        }
-      } else {
-        console.log(`[Feed] All ${visibleFriendIds.size} visible friends are fresh (synced within 2 hours)`);
-      }
-    }
 
     // Sync-on-Read: Sync logged-in user's own data if stale
     // Check if user's data is stale (older than 1 hour)

@@ -186,9 +186,38 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     const steamClient = getSteamClient();
     const dataAccess = getDataAccess();
 
-    // Fetch recently played games from Steam
-    const response = await steamClient.getRecentlyPlayedGames(friendId);
-    const recentlyPlayedGames = response.response?.games || [];
+    // Try GetRecentlyPlayedGames first (more accurate for recent games)
+    let recentlyPlayedGames: any[] = [];
+    try {
+      const response = await steamClient.getRecentlyPlayedGames(friendId);
+      recentlyPlayedGames = response.response?.games || [];
+    } catch (error) {
+      // GetRecentlyPlayedGames failed (likely privacy) - fall back to GetOwnedGames
+      console.log(`[Friend Sync] GetRecentlyPlayedGames failed for ${friendId}, falling back to GetOwnedGames`);
+    }
+
+    // If GetRecentlyPlayedGames returned empty, try GetOwnedGames as fallback
+    // This handles cases where game details are private but profile is public
+    if (recentlyPlayedGames.length === 0) {
+      try {
+        const ownedGamesResponse = await steamClient.getOwnedGames(friendId, true);
+        const allGames = ownedGamesResponse.response?.games || [];
+        
+        // Filter to games played in last 14 days (similar to GetRecentlyPlayedGames scope)
+        const fourteenDaysAgo = Math.floor(Date.now() / 1000) - (14 * 24 * 60 * 60);
+        recentlyPlayedGames = allGames.filter((game: any) => {
+          // Include if has rtime_last_played within 14 days
+          return game.rtime_last_played && game.rtime_last_played > fourteenDaysAgo;
+        });
+        
+        if (recentlyPlayedGames.length > 0) {
+          console.log(`[Friend Sync] Using GetOwnedGames fallback for ${friendId}: found ${recentlyPlayedGames.length} recently played games`);
+        }
+      } catch (error) {
+        // Both APIs failed - profile likely fully private
+        console.log(`[Friend Sync] Both GetRecentlyPlayedGames and GetOwnedGames failed for ${friendId}`);
+      }
+    }
 
     if (recentlyPlayedGames.length === 0) {
       // No recently played games - just update lastSyncAt timestamp
