@@ -304,8 +304,9 @@ export async function GET(
     }
 
     // Fetch all cached achievements (including newly synced ones)
-    // Only return achievements for recently played games (Fix 3)
-    const achievementPromises = gamesWithRecentPlaytime.map(async (game) => {
+    // Return ALL cached achievements from ALL games (not just recently played)
+    // The sync optimization above only affects which games get synced, not what's returned
+    const achievementPromises = games.map(async (game) => {
       try {
         const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
         return achievements.map(ach => ({
