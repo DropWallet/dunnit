@@ -15,10 +15,10 @@ import {
   syncFriendsInBackground,
 } from "@/lib/utils/friend-sync";
 
-// Cooldown period: sessions only appear 5 minutes after completion
-// Reduced from 30 minutes - playtime sessions are already complete when created,
-// and achievement sessions benefit from a shorter delay for better feed freshness
-const COOLDOWN_MINUTES = 5;
+// Cooldown period: sessions only appear 30 minutes after completion
+// This prevents showing incomplete or rapidly changing data, and allows
+// achievement sessions to be properly grouped together (30-minute merge window)
+const COOLDOWN_MINUTES = 30;
 const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
 
