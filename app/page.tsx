@@ -185,15 +185,15 @@ export default function LoginPage() {
           </div>
           {/* Placeholder for screenshot/mockup */}
           <div className="flex flex-col justify-center items-center self-stretch md:max-w-lg md:mx-auto relative ">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-xl md:text-3xl font-semibold text-left text-foreground">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full mb-0.5 leading-tight text-xl md:text-3xl font-semibold text-left text-text-strong">
               Your Steam community, at a glance.
             </p>
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-xl md:text-3xl font-semibold text-left text-muted-foreground">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full leading-tight text-xl md:text-3xl font-semibold text-left text-text-weak">
               See your friends' achievements and progress (or lack of).
             </p>
           </div>
           <div className="flex flex-col justify-center items-center self-stretch md:max-w-lg md:mx-auto relative">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-md md:text-xl font-semibold text-left text-muted-foreground">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-md md:text-xl font-semibold text-left text-text-weak">
               No suggestions, no noise, no ads. Just a simple feed of what your friends are actually
               playing. That's it.
             </p>
