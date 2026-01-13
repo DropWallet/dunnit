@@ -30,12 +30,19 @@ export function FeedRecentlyPlayed() {
   const { games, isLoading: isLoadingGames } = useUserGames();
 
   // Get recently played games (last 3, sorted by lastPlayed)
+  // Only show games played within the last 14 days (matches achievement sync filter)
   const recentlyPlayedGames = useMemo(() => {
     if (!games || games.length === 0) return [];
     
-    // Filter games with lastPlayed and sort by most recent
+    // Filter games with lastPlayed within the last 14 days
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    
     const gamesWithLastPlayed = games
-      .filter(game => game.lastPlayed)
+      .filter(game => {
+        if (!game.lastPlayed) return false;
+        // Check if lastPlayed is within 14 days
+        return game.lastPlayed > fourteenDaysAgo;
+      })
       .sort((a, b) => {
         if (!a.lastPlayed || !b.lastPlayed) return 0;
         return b.lastPlayed.getTime() - a.lastPlayed.getTime();

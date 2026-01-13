@@ -317,6 +317,85 @@ export async function GET(request: NextRequest) {
       for (const game of gamesToSave) {
         const existingGame = existingGamesMapForPlaytime.get(game.appId);
         
+        // REFINED FIX: On first sync, only skip if game is NOT in recently played list
+        // If game IS in recently played list, it was played within 14 days, so create a session
+        // This handles edge case: user signs up, plays game, refreshes feed before second sync
+        if (!existingGame) {
+          // Check if this game is in the recently played list (played within 14 days)
+          const recentGame = recentlyPlayedMap.get(game.appId);
+          const isRecentlyPlayed = !!recentGame;
+          
+          if (isRecentlyPlayed && game.lastPlayed) {
+            // Game is recently played - create session even on first sync
+            // Use total playtime as delta (acceptable because it's recent playtime, not lifetime)
+            const playtimeDelta = game.playtimeMinutes; // All playtime is "new" on first sync
+            
+            // Only create session if delta >= 5 minutes
+            if (playtimeDelta >= 5) {
+              const sessionEnd = game.lastPlayed;
+              const calculatedSessionStart = game.lastPlayed;
+              const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
+              
+              // Check for existing session first
+              const existingSession = await dataAccess.getGameSessionByStartTime(steamId, game.appId, sessionStartRounded);
+              
+              if (!existingSession) {
+                // Check for recent playtime session within 30 minutes (for continuous play sessions)
+                const recentSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30, 'playtime');
+                
+                if (!recentSession) {
+                  // Before creating new session, check for existing achievement session within 30 minutes
+                  const existingAchievementSession = await dataAccess.getRecentGameSession(steamId, game.appId, 30, 'achievement');
+                  
+                  if (!existingAchievementSession) {
+                    // Create new session for recently played game on first sync
+                    const newSession: GameSession = {
+                      userId: steamId,
+                      appId: game.appId,
+                      playtimeDelta,
+                      sessionStart: calculatedSessionStart,
+                      sessionEnd: sessionEnd,
+                      type: 'playtime',
+                    };
+                    await dataAccess.saveGameSession(newSession);
+                    sessionsCreated++;
+                    console.log(`[Games API] ✨ Created first-sync session for recently played game ${game.appId} (${game.name}): ${playtimeDelta}min`);
+                    
+                    // Update baseline after creating session
+                    await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                    console.log(`[Games API] ✅ Updated baseline for game ${game.appId} (${game.name}): previousPlaytimeMinutes = ${game.playtimeMinutes}min (first sync, recently played)`);
+                    continue; // Skip to next game
+                  } else {
+                    // Achievement session exists - skip playtime session
+                    console.log(`[Games API] ⏭️ Skipping first-sync playtime session for ${game.appId} (${game.name}): achievement session exists`);
+                    await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                    continue;
+                  }
+                } else {
+                  // Recent session exists - merge logic would go here, but for first sync this is unlikely
+                  console.log(`[Games API] ⚠️ Found recent session for first-sync game ${game.appId} (${game.name}) - unexpected, skipping`);
+                  await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                  continue;
+                }
+              } else {
+                // Session already exists
+                await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                continue;
+              }
+            } else {
+              // Delta too small
+              await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+              console.log(`[Games API] ⏭️ Skipping first-sync session for ${game.appId} (${game.name}): delta too small (${playtimeDelta}min < 5min)`);
+              continue;
+            }
+          } else {
+            // Game is NOT recently played - skip session creation (lifetime playtime)
+            await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+            console.log(`[Games API] ⏭️ Skipping session creation for ${game.appId} (${game.name}) on first sync (not recently played): setting baseline to ${game.playtimeMinutes}min`);
+            continue; // Skip to next game
+          }
+        }
+        
         // Calculate playtime delta
         // Use previousPlaytimeMinutes (from last sync) not playtimeMinutes (current DB value)
         // This ensures we detect deltas even if playtime was already synced in a previous refresh

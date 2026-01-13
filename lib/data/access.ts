@@ -13,6 +13,7 @@ export interface User {
   createdAt: Date;
   updatedAt: Date;
   lastSyncAt?: Date;
+  lastFeedSyncAttempt?: Date; // OPTIMIZATION #5: Prevents refresh spamming by tracking last sync attempt
 }
 
 export interface Game {

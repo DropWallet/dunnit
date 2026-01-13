@@ -55,14 +55,19 @@ export function GameCard({
   
   // Handle image load error - try to fetch from Store API on-demand
   const handleImageError = async () => {
-    // Only try Store API if this is a default header.jpg URL (not already a Store API image)
+    // Try Store API if:
+    // 1. This is a default header.jpg URL (not already a Store API image), OR
+    // 2. coverImageUrl is undefined (friend games may not have it set initially)
     const isDefaultHeader = coverImageUrl?.includes('/steam/apps/') && coverImageUrl?.endsWith('/header.jpg');
+    const shouldTryStoreApi = (isDefaultHeader || !coverImageUrl) && !isFetchingStoreImage && !storeApiImageUrl;
     
-    if (isDefaultHeader && !isFetchingStoreImage && !storeApiImageUrl) {
+    if (shouldTryStoreApi) {
       setIsFetchingStoreImage(true);
       // Don't set imageError yet - we'll show loading state instead
       try {
-        const response = await fetch(`/api/games/${appId}/image`);
+        // Include steamId if viewing a friend's games so cache can be updated for the correct user
+        const url = steamId ? `/api/games/${appId}/image?steamId=${steamId}` : `/api/games/${appId}/image`;
+        const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
           if (data.coverImageUrl) {
@@ -119,7 +124,9 @@ export function GameCard({
   
   // Determine which image to show
   // Use Store API image if available, otherwise use original coverImageUrl
-  const effectiveCoverImageUrl = storeApiImageUrl || coverImageUrl;
+  // If coverImageUrl is undefined, try default header.jpg URL before falling back to logo/icon
+  const defaultCoverImageUrl = coverImageUrl || `https://steamcdn-a.akamaihd.net/steam/apps/${appId}/header.jpg`;
+  const effectiveCoverImageUrl = storeApiImageUrl || defaultCoverImageUrl;
   const showCoverImage = effectiveCoverImageUrl && !imageError && !isFetchingStoreImage;
   const showLogo = !showCoverImage && !isFetchingStoreImage && logoUrl && !fallbackError;
   const showIcon = !showCoverImage && !showLogo && !isFetchingStoreImage && iconUrl && !iconError;

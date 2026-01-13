@@ -28,11 +28,13 @@ async function syncGameAchievements(
     }
 
     // Fetch from Steam API
-    const [playerAchievementsResponse, gameSchemaResponse, globalPercentages, xmlAchievements] = await Promise.all([
+    // OPTIMIZATION #4: Removed XML API call - it's slow and rate-limited
+    // XML was only used as fallback for descriptions, but player achievements API
+    // provides descriptions for unlocked achievements, and schema provides them for locked ones
+    const [playerAchievementsResponse, gameSchemaResponse, globalPercentages] = await Promise.all([
       steamClient.getPlayerAchievements(friendId, appId).catch(() => null),
       steamClient.getGameSchema(appId).catch(() => null),
       steamClient.getGlobalAchievementPercentages(appId).catch(() => new Map<string, number>()),
-      steamClient.getPlayerAchievementsXML(friendId, appId).catch(() => new Map()),
     ]);
 
     // If Steam API fails, return false (but don't throw)
@@ -68,9 +70,10 @@ async function syncGameAchievements(
     const achievements = (gameSchemaResponse.game.availableGameStats?.achievements || []).map(
       (schemaAch) => {
         const playerDescription = achievementDescriptions.get(schemaAch.name);
-        const xmlDescription = xmlAchievements.get(schemaAch.name)?.description || '';
         const schemaDescription = schemaAch.description || '';
-        const finalDescription = playerDescription || xmlDescription || schemaDescription || '';
+        // OPTIMIZATION #4: Removed XML fallback - player achievements API provides descriptions for unlocked,
+        // and schema provides descriptions for locked achievements (except hidden ones, which are hidden by design)
+        const finalDescription = playerDescription || schemaDescription || '';
         
         return {
           appId,
@@ -188,9 +191,19 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
 
     // Try GetRecentlyPlayedGames first (more accurate for recent games)
     let recentlyPlayedGames: any[] = [];
+    let usedGetOwnedGames = false;
     try {
       const response = await steamClient.getRecentlyPlayedGames(friendId);
       recentlyPlayedGames = response.response?.games || [];
+      if (recentlyPlayedGames.length > 0) {
+        console.log(`[Friend Sync] GetRecentlyPlayedGames for ${friendId}: found ${recentlyPlayedGames.length} games`);
+        console.log(`[Friend Sync] Games with timestamps:`);
+        recentlyPlayedGames.forEach((g: any) => {
+          const lastPlayed = g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : 'MISSING';
+          const playtime2Weeks = g.playtime_2weeks || 0;
+          console.log(`  - ${g.appid} (${g.name || 'unknown'}): rtime_last_played=${lastPlayed}, playtime_2weeks=${playtime2Weeks}min`);
+        });
+      }
     } catch (error) {
       // GetRecentlyPlayedGames failed (likely privacy) - fall back to GetOwnedGames
       console.log(`[Friend Sync] GetRecentlyPlayedGames failed for ${friendId}, falling back to GetOwnedGames`);
@@ -211,7 +224,9 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         });
         
         if (recentlyPlayedGames.length > 0) {
-          console.log(`[Friend Sync] Using GetOwnedGames fallback for ${friendId}: found ${recentlyPlayedGames.length} recently played games`);
+          usedGetOwnedGames = true;
+          console.log(`[Friend Sync] Using GetOwnedGames fallback for ${friendId}: found ${recentlyPlayedGames.length} recently played games (out of ${allGames.length} total)`);
+          console.log(`[Friend Sync] Games: ${recentlyPlayedGames.map((g: any) => `${g.appid} (${g.name || 'unknown'}) - last played: ${g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : 'unknown'}`).join(', ')}`);
         }
       } catch (error) {
         // Both APIs failed - profile likely fully private
@@ -238,8 +253,117 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     const gamesToUpsert: Game[] = [];
     const gamesWithPlaytimeIncreases: Array<{ appId: number; playtimeDelta: number }> = [];
 
+    // Create a set of recently played game appIds for quick lookup
+    const recentlyPlayedAppIds = new Set(recentlyPlayedGames.map(g => g.appid));
+
     for (const steamGame of recentlyPlayedGames) {
       const existingGame = existingGamesMap.get(steamGame.appid);
+      
+      // REFINED FIX: On first sync, only skip if game is NOT in recently played list
+      // If game IS in recently played list, it was played within 14 days, so create a session
+      // This handles edge case: friend signs up, plays game, you refresh feed before they sync
+      if (!existingGame) {
+        // Check if this game is in the recently played list (played within 14 days)
+        const isRecentlyPlayed = recentlyPlayedAppIds.has(steamGame.appid);
+        
+        if (isRecentlyPlayed) {
+          // Game is recently played - create session even on first sync
+          // Use total playtime as delta (acceptable because it's recent playtime, not lifetime)
+          const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
+          const playtimeDelta = currentPlaytimeMinutes; // All playtime is "new" on first sync
+          
+          // Determine last_played timestamp
+          let lastPlayed: Date | undefined;
+          if (steamGame.rtime_last_played) {
+            lastPlayed = new Date(steamGame.rtime_last_played * 1000);
+          } else {
+            // FIX: When rtime_last_played is missing, calculate lastPlayed by subtracting playtime from syncTime
+            // This prevents games from appearing as "just played" when they were actually played earlier
+            // Use playtime_2weeks if available (recent playtime), otherwise use total playtime (capped)
+            const playtimeForEstimate = steamGame.playtime_2weeks 
+              ? Math.min(steamGame.playtime_2weeks, 4 * 60) // Cap at 4 hours
+              : Math.min(currentPlaytimeMinutes, 4 * 60); // Cap at 4 hours
+            lastPlayed = new Date(syncTime.getTime() - playtimeForEstimate * 60 * 1000);
+          }
+          
+          // Only create session if delta >= 5 minutes
+          if (playtimeDelta >= 5) {
+            // FIX: When lastPlayed is missing, calculate sessionEnd by subtracting playtime from syncTime
+            // This prevents sessions from appearing to have happened "just now" (at sync time)
+            // Cap duration at 4 hours (240 minutes) to match feed-sessions.ts logic
+            const maxSessionMinutes = 4 * 60;
+            const sessionMinutes = Math.min(playtimeDelta, maxSessionMinutes);
+            
+            let sessionEnd: Date;
+            let calculatedSessionStart: Date;
+            
+            if (lastPlayed) {
+              // If we have lastPlayed, use it for both start and end
+              sessionEnd = lastPlayed;
+              calculatedSessionStart = lastPlayed;
+            } else {
+              // Calculate end by subtracting playtime from syncTime (so it's in the past)
+              // This prevents sessions from appearing to have happened "just now"
+              sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
+              // Calculate start by subtracting playtime from end (to create proper duration)
+              calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+            }
+            
+            const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
+            
+            // Check for existing session first
+            const existingSession = await dataAccess.getGameSessionByStartTime(friendId, steamGame.appid, sessionStartRounded);
+            
+            if (!existingSession) {
+              // Create new session for recently played game on first sync
+              const newSession: GameSession = {
+                userId: friendId,
+                appId: steamGame.appid,
+                playtimeDelta,
+                sessionStart: calculatedSessionStart,
+                sessionEnd: sessionEnd,
+                type: 'playtime',
+              };
+              await dataAccess.saveGameSession(newSession);
+              console.log(`[Friend Sync] ✨ Created first-sync session for recently played game ${steamGame.appid} (${steamGame.name || 'unknown'}): ${playtimeDelta}min`);
+            }
+          }
+          
+          // Update baseline after creating session (or if delta too small)
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          
+          // FIX: Save the game with lastPlayed so it appears in "Recently played"
+          // Always use default header.jpg URL to ensure correct images (matches user games API)
+          const coverImageUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+          
+          const game: Game = {
+            appId: steamGame.appid,
+            name: steamGame.name || 'Unknown Game',
+            playtimeMinutes: currentPlaytimeMinutes,
+            playtime2WeeksMinutes: steamGame.playtime_2weeks,
+            iconUrl: steamGame.img_icon_url 
+              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_icon_url}.jpg`
+              : undefined,
+            logoUrl: steamGame.img_logo_url
+              ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
+              : undefined,
+            coverImageUrl,
+            lastPlayed,
+            previousPlaytimeMinutes: currentPlaytimeMinutes,
+            playtimeLastSyncedAt: syncTime,
+          };
+          
+          gamesToUpsert.push(game);
+          console.log(`[Friend Sync] ✅ Updated baseline for ${steamGame.appid} (${steamGame.name || 'unknown'}): previousPlaytimeMinutes = ${currentPlaytimeMinutes}min (first sync, recently played)`);
+          continue; // Skip to next game
+        } else {
+          // Game is NOT recently played - skip session creation (lifetime playtime)
+          const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          console.log(`[Friend Sync] ⏭️ Skipping session creation for ${steamGame.appid} (${steamGame.name || 'unknown'}) on first sync (not recently played): setting baseline to ${currentPlaytimeMinutes}min`);
+          continue; // Skip to next game
+        }
+      }
       
       // Move current playtime to previous_playtime_minutes
       const previousPlaytimeMinutes = existingGame?.playtimeMinutes ?? steamGame.playtime_forever ?? 0;
@@ -255,8 +379,13 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         // Preserve existing lastPlayed if Steam didn't provide one
         lastPlayed = existingGame.lastPlayed;
       } else {
-        // Fallback to sync time
-        lastPlayed = syncTime;
+        // FIX: When rtime_last_played is missing, calculate lastPlayed by subtracting playtime from syncTime
+        // This prevents games from appearing as "just played" when they were actually played earlier
+        // Use playtime_2weeks if available (recent playtime), otherwise use playtime delta (capped)
+        const playtimeForEstimate = steamGame.playtime_2weeks 
+          ? Math.min(steamGame.playtime_2weeks, 4 * 60) // Cap at 4 hours
+          : Math.min(Math.max(playtimeDelta, 0), 4 * 60); // Cap at 4 hours, ensure non-negative
+        lastPlayed = new Date(syncTime.getTime() - playtimeForEstimate * 60 * 1000);
       }
 
       // Track if we updated the baseline (to ensure batch save uses correct value)
@@ -264,9 +393,27 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
 
       // LEDGER APPROACH: Write session to game_sessions table if delta >= 5 minutes
       if (playtimeDelta >= 5) {
-        // FIX 2: Use lastPlayed if available (regardless of age), otherwise use syncTime
-        const sessionEnd = lastPlayed || syncTime;
-        const calculatedSessionStart = lastPlayed || syncTime;
+        // FIX: When lastPlayed is missing, calculate sessionEnd by subtracting playtime from syncTime
+        // This prevents sessions from appearing to have happened "just now" (at sync time)
+        // Cap duration at 4 hours (240 minutes) to match feed-sessions.ts logic
+        const maxSessionMinutes = 4 * 60;
+        const sessionMinutes = Math.min(playtimeDelta, maxSessionMinutes);
+        
+        let sessionEnd: Date;
+        let calculatedSessionStart: Date;
+        
+        if (lastPlayed) {
+          // If we have lastPlayed, use it for both start and end
+          sessionEnd = lastPlayed;
+          calculatedSessionStart = lastPlayed;
+        } else {
+          // Calculate end by subtracting playtime from syncTime (so it's in the past)
+          // This prevents sessions from appearing to have happened "just now"
+          sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
+          // Calculate start by subtracting playtime from end (to create proper duration)
+          calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+        }
+        
         const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
         
         // FIX 3: Check for existing session with same (userId, appId, sessionStart rounded to nearest second)
@@ -382,6 +529,9 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       }
 
       // Update user_games: use updated baseline value if we just updated it, otherwise preserve existing
+      // Always ensure coverImageUrl is set (use existing if available, otherwise default header.jpg)
+      const coverImageUrl = existingGame?.coverImageUrl || `https://steamcdn-a.akamaihd.net/steam/apps/${steamGame.appid}/header.jpg`;
+      
       const game: Game = {
         appId: steamGame.appid,
         name: steamGame.name || 'Unknown Game',
@@ -393,7 +543,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         logoUrl: existingGame?.logoUrl || steamGame.img_logo_url
           ? `https://media.steampowered.com/steamcommunity/public/images/apps/${steamGame.appid}/${steamGame.img_logo_url}.jpg`
           : undefined,
-        coverImageUrl: existingGame?.coverImageUrl, // Preserve existing cover image
+        coverImageUrl,
         lastPlayed,
         // Use currentPlaytimeMinutes if we just updated the baseline, otherwise preserve existing
         previousPlaytimeMinutes: baselineUpdated ? currentPlaytimeMinutes : (existingGame?.previousPlaytimeMinutes ?? currentPlaytimeMinutes),
@@ -411,7 +561,18 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     // Update user's lastSyncAt
     await dataAccess.updateUser(friendId, { lastSyncAt: syncTime });
 
-    console.log(`[Friend Sync] Synced ${gamesToUpsert.length} games for ${friendId}`);
+    // Enhanced logging: Show which games were synced
+    const syncedGameNames = gamesToUpsert.map(g => `${g.appId} (${g.name})`).join(', ');
+    console.log(`[Friend Sync] Synced ${gamesToUpsert.length} games for ${friendId}: ${syncedGameNames}`);
+    
+    // Check if Skyrim (489830) was in recently played but not synced
+    const skyrimInRecentlyPlayed = recentlyPlayedGames.some((g: any) => g.appid === 489830);
+    const skyrimSynced = gamesToUpsert.some(g => g.appId === 489830);
+    if (skyrimInRecentlyPlayed && !skyrimSynced) {
+      console.log(`[Friend Sync] ⚠️ Skyrim (489830) was in recently played list but not synced - check filtering logic`);
+    } else if (!skyrimInRecentlyPlayed) {
+      console.log(`[Friend Sync] ℹ️ Skyrim (489830) not in recently played list (played >14 days ago or not in Steam API response)`);
+    }
 
     // Phase 2: Sync achievements for games with playtime increases
     // This enables achievement sessions to appear in the feed
