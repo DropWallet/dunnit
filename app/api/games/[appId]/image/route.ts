@@ -61,12 +61,15 @@ export async function GET(
     }
 
     // If we got an image from Store API, update the cache
+    // Check if this is for a friend's game (steamId query param) or logged-in user
+    const targetSteamId = request.nextUrl.searchParams.get('steamId') || steamId;
+    
     if (coverImageUrl) {
       try {
-        const game = await dataAccess.getUserGame(steamId, appId);
+        const game = await dataAccess.getUserGame(targetSteamId, appId);
         if (game) {
           // Update the game's coverImageUrl in cache
-          await dataAccess.saveUserGames(steamId, [{
+          await dataAccess.saveUserGames(targetSteamId, [{
             ...game,
             coverImageUrl,
           }]);
