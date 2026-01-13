@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
   join_date TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_sync_at TIMESTAMPTZ
+  last_sync_at TIMESTAMPTZ,
+  last_feed_sync_attempt TIMESTAMPTZ
 );
 
 -- Games table (stores user's games)

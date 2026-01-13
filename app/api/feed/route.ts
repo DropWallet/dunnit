@@ -498,32 +498,66 @@ export async function GET(request: NextRequest) {
     }
     
     if (friendsNeedingSync.size > 0) {
-      // Check staleness (2 hour threshold) - only sync if stale
-      const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      const staleFriends = await getStaleFriends(Array.from(friendsNeedingSync), staleThreshold);
-
-      if (staleFriends.length > 0) {
-        console.log(`[Feed] Found ${staleFriends.length} stale friends needing sync (out of ${friendsNeedingSync.size} total):`);
-        console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
-        console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
-        console.log(`  - Triggering background sync`);
-        
-        // Trigger background sync (fire-and-forget)
-        // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
-        const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
-        
-        // Try to use waitUntil if available (Next.js 13+)
-        if (typeof (globalThis as any).waitUntil === 'function') {
-          (globalThis as any).waitUntil(syncPromise);
-        } else {
-          // Fire-and-forget - don't await, let it run in background
-          syncPromise.catch(error => {
-            console.error('[Feed] Background friend sync failed:', error);
-            // Don't throw - this is non-critical
-          });
-        }
+      // OPTIMIZATION #5: Check last_feed_sync_attempt to prevent refresh spamming
+      // Only trigger sync if last attempt was >15 minutes ago
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      
+      // Fetch last_feed_sync_attempt for all friends needing sync
+      const friendsNeedingSyncArray = Array.from(friendsNeedingSync);
+      const friendsToCheck = await Promise.all(
+        friendsNeedingSyncArray.map(async (friendId) => {
+          const friend = await dataAccess.getUser(friendId);
+          return {
+            friendId,
+            lastFeedSyncAttempt: friend?.lastFeedSyncAttempt,
+          };
+        })
+      );
+      
+      // Filter out friends who had a sync attempt within the last 15 minutes
+      const friendsToSync = friendsToCheck
+        .filter(f => !f.lastFeedSyncAttempt || f.lastFeedSyncAttempt < fifteenMinutesAgo)
+        .map(f => f.friendId);
+      
+      if (friendsToSync.length === 0) {
+        console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
       } else {
-        console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync are fresh (synced within 2 hours)`);
+        // Check staleness (2 hour threshold) - only sync if stale
+        const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
+        const staleFriends = await getStaleFriends(friendsToSync, staleThreshold);
+
+        if (staleFriends.length > 0) {
+          // OPTIMIZATION #5: Update last_feed_sync_attempt for all friends we're about to sync
+          // This prevents refresh spamming even if sync fails
+          const now = new Date();
+          await Promise.allSettled(
+            staleFriends.map(friendId => 
+              dataAccess.updateUser(friendId, { lastFeedSyncAttempt: now })
+            )
+          );
+          
+          console.log(`[Feed] Found ${staleFriends.length} stale friends needing sync (out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts):`);
+          console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
+          console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
+          console.log(`  - Triggering background sync`);
+          
+          // Trigger background sync (fire-and-forget)
+          // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
+          const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
+          
+          // Try to use waitUntil if available (Next.js 13+)
+          if (typeof (globalThis as any).waitUntil === 'function') {
+            (globalThis as any).waitUntil(syncPromise);
+          } else {
+            // Fire-and-forget - don't await, let it run in background
+            syncPromise.catch(error => {
+              console.error('[Feed] Background friend sync failed:', error);
+              // Don't throw - this is non-critical
+            });
+          }
+        } else {
+          console.log(`[Feed] All ${friendsToSync.length} friends needing sync are fresh (synced within 2 hours)`);
+        }
       }
     } else {
       console.log(`[Feed] No friends needing sync found`);

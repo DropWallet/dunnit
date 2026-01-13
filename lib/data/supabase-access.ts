@@ -29,6 +29,7 @@ export class SupabaseDataAccess implements DataAccess {
         created_at: user.createdAt.toISOString(),
         updated_at: user.updatedAt.toISOString(),
         last_sync_at: user.lastSyncAt?.toISOString(),
+        last_feed_sync_attempt: user.lastFeedSyncAttempt?.toISOString(),
       });
 
     if (error) {
@@ -67,6 +68,7 @@ export class SupabaseDataAccess implements DataAccess {
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
       lastSyncAt: data.last_sync_at ? new Date(data.last_sync_at) : undefined,
+      lastFeedSyncAttempt: data.last_feed_sync_attempt ? new Date(data.last_feed_sync_attempt) : undefined,
     };
   }
 
@@ -83,6 +85,7 @@ export class SupabaseDataAccess implements DataAccess {
     if (updates.joinDate) updateData.join_date = updates.joinDate.toISOString();
     if (updates.communityVisibilityState !== undefined) updateData.community_visibility_state = updates.communityVisibilityState;
     if (updates.lastSyncAt) updateData.last_sync_at = updates.lastSyncAt.toISOString();
+    if (updates.lastFeedSyncAttempt) updateData.last_feed_sync_attempt = updates.lastFeedSyncAttempt.toISOString();
 
     const { error } = await this.supabase
       .from('users')

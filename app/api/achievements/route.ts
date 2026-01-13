@@ -85,12 +85,13 @@ export async function GET(request: NextRequest) {
       }
       const steamClient = getSteamClient();
 
-      // Fetch player achievements, game schema, global percentages, and XML achievements
-      const [playerAchievementsResponse, gameSchemaResponse, globalPercentages, xmlAchievements] = await Promise.all([
+      // OPTIMIZATION #4: Removed XML API call - it's slow and rate-limited
+      // XML was only used as fallback for descriptions, but player achievements API
+      // provides descriptions for unlocked achievements, and schema provides them for locked ones
+      const [playerAchievementsResponse, gameSchemaResponse, globalPercentages] = await Promise.all([
         steamClient.getPlayerAchievements(steamId, appIdNum).catch(() => null),
         steamClient.getGameSchema(appIdNum).catch(() => null),
         steamClient.getGlobalAchievementPercentages(appIdNum).catch(() => new Map<string, number>()),
-        steamClient.getPlayerAchievementsXML(steamId, appIdNum).catch(() => new Map()),
       ]);
 
       // If Steam API fails, check if we have cached data to return
@@ -129,9 +130,10 @@ export async function GET(request: NextRequest) {
         (schemaAch) => {
           // Check if we have a description from player achievements (for unlocked achievements)
           const playerDescription = achievementDescriptions.get(schemaAch.name);
-          const xmlDescription = xmlAchievements.get(schemaAch.name)?.description || '';
           const schemaDescription = schemaAch.description || '';
-          const finalDescription = playerDescription || xmlDescription || schemaDescription || '';
+          // OPTIMIZATION #4: Removed XML fallback - player achievements API provides descriptions for unlocked,
+          // and schema provides descriptions for locked achievements (except hidden ones, which are hidden by design)
+          const finalDescription = playerDescription || schemaDescription || '';
           
           return {
             appId: appIdNum,
