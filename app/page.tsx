@@ -107,7 +107,7 @@ export default function LoginPage() {
       <div className="relative z-20 flex flex-col md:flex-row-reverse justify-start items-center w-full md:items-stretch gap-6 md:gap-0 pt-20 md:p-0 md:h-screen ">
       {/* Login Card */}
       <div className="flex flex-col justify-start md:justify-center items-start md:items-center self-stretch md:w-1/2 md:h-full gap-2 px-4 pt-44 md:pt-4">
-      <div className="flex flex-col justify-center items-center self-stretch md:self-auto md:max-w-md w-full overflow-hidden gap-6 pt-6 rounded-lg bg-surface-low border border-border">
+      <div className="flex flex-col justify-center items-center self-stretch pb-6 md:pb-0 md:self-auto md:max-w-md w-full overflow-hidden gap-6 pt-6 rounded-lg bg-surface-low border border-border">
           <div className="flex flex-col justify-start items-center flex-grow-0 flex-shrink-0 gap-5">
             <div className="flex flex-col justify-start items-center flex-grow-0 flex-shrink-0 relative gap-0.5">
               <p className="flex-grow-0 flex-shrink-0 text-xl font-bold text-left text-foreground">
@@ -142,7 +142,7 @@ export default function LoginPage() {
             </Button>
           </div>
           {/* Info Box */}
-          <div className="flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-2 p-4 bg-surface-mid">
+          <div className="hidden md:flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-2 p-4 bg-surface-mid">
             <Image
               src="/ic-info.svg"
               alt="Info"
@@ -185,15 +185,15 @@ export default function LoginPage() {
           </div>
           {/* Placeholder for screenshot/mockup */}
           <div className="flex flex-col justify-center items-center self-stretch md:max-w-lg md:mx-auto relative ">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full mb-0.5 leading-tight text-xl md:text-3xl font-semibold text-left text-text-strong">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full mb-0.5 leading-tight text-xl md:text-3xl font-semibold text-center md:text-left text-text-strong">
               Your Steam community, at a glance.
             </p>
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full leading-tight text-xl md:text-3xl font-semibold text-left text-text-weak">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full leading-tight text-xl md:text-3xl font-semibold text-center md:text-left text-text-weak">
               See your friends' achievements and progress (or lack of).
             </p>
           </div>
           <div className="flex flex-col justify-center items-center self-stretch md:max-w-lg md:mx-auto relative">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-md md:text-xl font-semibold text-left text-text-weak">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-md md:text-xl font-semibold text-center md:text-left text-text-weak">
               No suggestions, no noise, no ads. Just a simple feed of what your friends are actually
               playing. That's it.
             </p>
