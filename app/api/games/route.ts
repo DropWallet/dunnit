@@ -317,6 +317,16 @@ export async function GET(request: NextRequest) {
       for (const game of gamesToSave) {
         const existingGame = existingGamesMapForPlaytime.get(game.appId);
         
+        // FIX: Skip session creation on first sync (when existingGame is null)
+        // We need a baseline to compare against - can't create sessions from lifetime playtime
+        if (!existingGame) {
+          // First sync: Just update baseline, don't create session
+          // The next sync will have a baseline to compare against
+          await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+          console.log(`[Games API] ⏭️ Skipping session creation for ${game.appId} (${game.name}) on first sync: setting baseline to ${game.playtimeMinutes}min`);
+          continue; // Skip to next game
+        }
+        
         // Calculate playtime delta
         // Use previousPlaytimeMinutes (from last sync) not playtimeMinutes (current DB value)
         // This ensures we detect deltas even if playtime was already synced in a previous refresh

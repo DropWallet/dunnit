@@ -241,6 +241,17 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     for (const steamGame of recentlyPlayedGames) {
       const existingGame = existingGamesMap.get(steamGame.appid);
       
+      // FIX: Skip session creation on first sync (when existingGame is null)
+      // We need a baseline to compare against - can't create sessions from lifetime playtime
+      if (!existingGame) {
+        // First sync: Just update baseline, don't create session
+        // The next sync will have a baseline to compare against
+        const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
+        await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+        console.log(`[Friend Sync] ⏭️ Skipping session creation for ${steamGame.appid} (${steamGame.name || 'unknown'}) on first sync: setting baseline to ${currentPlaytimeMinutes}min`);
+        continue; // Skip to next game
+      }
+      
       // Move current playtime to previous_playtime_minutes
       const previousPlaytimeMinutes = existingGame?.playtimeMinutes ?? steamGame.playtime_forever ?? 0;
       const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
