@@ -272,7 +272,9 @@ export default function UserDashboardPage() {
       return counts;
     }, [allAchievementsList]);
   
-  const unlockedAchievementsCount = allAchievementsList?.filter((a) => a.unlocked).length || 0;
+  // Use statistics.unlockedAchievements to match the stats bar
+  // This ensures consistency between the stats bar and achievement drawer
+  const unlockedAchievementsCount = statistics?.unlockedAchievements || 0;
 
   // Infinite scroll for games
   const loadMoreGames = useCallback(async () => {
