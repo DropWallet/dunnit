@@ -159,7 +159,7 @@ export default function LoginPage() {
 
       {/* Feature Section */}
       <div className="flex flex-col justify-center items-center self-stretch md:w-1/2 md:h-full md:py-4 gap-2 px-4 md:px-4 rounded-2xl">
-        <div className="flex flex-col justify-center items-center w-full md:h-full relative gap-5 md:gap-6 px-5 py-6 rounded-lg bg-surface-low border border-border">
+        <div className="flex flex-col justify-center items-center w-full md:h-full relative gap-4 md:gap-6 px-5 py-6 rounded-lg bg-surface-low border border-border">
           {/* Logo and Theme Toggle - Absolutely positioned at top, visible on MD+ */}
           <div className="hidden md:flex justify-between items-center flex-grow-0 flex-shrink-0 w-full absolute left-0 top-0 p-4 z-10">
             <svg
@@ -188,7 +188,7 @@ export default function LoginPage() {
             <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-xl md:text-3xl font-semibold text-left text-foreground">
               Your Steam community, at a glance.
             </p>
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full leading-tight text-xl md:text-3xl font-semibold text-left text-muted-foreground">
+            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-xl md:text-3xl font-semibold text-left text-muted-foreground">
               See your friends' achievements and progress (or lack of).
             </p>
           </div>
