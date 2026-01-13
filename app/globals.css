@@ -397,6 +397,9 @@
     /* Progress Bar Gradient */
     --gradient-progress-bar: linear-gradient(to right, #efb100 0%, #00c951 944.44%);
     
+    /* Login Background Overlay Gradient - Light Mode */
+    --gradient-login-overlay: linear-gradient(180deg, rgba(245, 245, 245, 0.795) 0%, rgb(245, 245, 245) 50%);
+    
     /* Chart Colors */
     --color-chart-1: var(--color-blue-500);
     --color-chart-2: var(--color-green-500);
@@ -617,6 +620,9 @@
     --color-shelf-gradient-start: 215 38% 27%;
     --color-shelf-gradient-mid: 215 28% 42%;
     --color-shelf-gradient-end: 215 38% 27%;
+    
+    /* Login Background Overlay Gradient - Dark Mode */
+    --gradient-login-overlay: linear-gradient(180deg, rgba(2, 6, 24, 0.64) 0%, #020618 100%);
     
     /* Darker shadows for dark mode */
     --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
