@@ -229,8 +229,21 @@ export async function GET(
     const user = await dataAccess.getUser(targetSteamId);
     const games = await dataAccess.getUserGames(targetSteamId);
 
+    // FIX 3: Only sync achievements for games with recent playtime (within 14 days)
+    // This reduces API calls significantly - only sync games that are actively being played
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const gamesWithRecentPlaytime = games.filter(game => {
+      // Check if game has been played recently (within 14 days)
+      const lastPlayed = game.lastPlayed ? new Date(game.lastPlayed) : null;
+      const derivedLastPlayed = game.derivedLastPlayed ? new Date(game.derivedLastPlayed) : null;
+      
+      // Include if either lastPlayed or derivedLastPlayed is within 14 days
+      return (lastPlayed && lastPlayed > fourteenDaysAgo) || 
+             (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo);
+    });
+
     // Filter to games with playtime (more likely to have achievements)
-    const gamesWithPlaytime = games.filter(game => game.playtimeMinutes > 0);
+    const gamesWithPlaytime = gamesWithRecentPlaytime.filter(game => game.playtimeMinutes > 0);
 
     // Check if we need to sync achievements
     // Sync if: no user, cache is stale, or sample check shows missing achievements
@@ -288,7 +301,8 @@ export async function GET(
     }
 
     // Fetch all cached achievements (including newly synced ones)
-    const achievementPromises = games.map(async (game) => {
+    // Only return achievements for recently played games (Fix 3)
+    const achievementPromises = gamesWithRecentPlaytime.map(async (game) => {
       try {
         const achievements = await dataAccess.getUserAchievements(targetSteamId, game.appId);
         return achievements.map(ach => ({

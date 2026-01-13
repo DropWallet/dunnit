@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDataAccess } from '@/lib/data/access';
 import { getSteamClient } from '@/lib/steam/client';
 import { ApiErrors } from '@/lib/utils/api-errors';
+import { syncFriendPlaytime } from '@/lib/utils/friend-sync';
 
 export async function GET(
   request: NextRequest,
@@ -60,6 +61,33 @@ export async function GET(
         console.error(`Error fetching user ${targetSteamId} from Steam API:`, error);
         return ApiErrors.userNotFound(targetSteamId);
       }
+    }
+
+    // FIX 1: Sync-on-Read: Trigger lightweight playtime sync when viewing a profile
+    // This ensures playtime data is updated so sessions can be created
+    // Only sync if user's data is stale (older than 1 hour) to avoid excessive API calls
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const isStale = !user.lastSyncAt || user.lastSyncAt < oneHourAgo;
+
+    if (isStale) {
+      console.log(`[User Profile] User ${targetSteamId} data is stale (lastSyncAt: ${user.lastSyncAt?.toISOString() || 'never'}), triggering background playtime sync`);
+      
+      // Trigger background playtime sync (fire-and-forget)
+      // This will update user_games and create playtime sessions
+      const syncPromise = syncFriendPlaytime(targetSteamId);
+      
+      // Try to use waitUntil if available (Next.js 13+)
+      if (typeof (globalThis as any).waitUntil === 'function') {
+        (globalThis as any).waitUntil(syncPromise);
+      } else {
+        // Fire-and-forget - don't await, let it run in background
+        syncPromise.catch(error => {
+          console.error(`[User Profile] Background playtime sync failed for ${targetSteamId}:`, error);
+          // Don't throw - this is non-critical
+        });
+      }
+    } else {
+      console.log(`[User Profile] User ${targetSteamId} data is fresh (lastSyncAt: ${user.lastSyncAt?.toISOString()})`);
     }
 
     return NextResponse.json({ user });

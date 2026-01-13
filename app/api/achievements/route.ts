@@ -40,6 +40,34 @@ export async function GET(request: NextRequest) {
     // Check if we have cached achievements
     const dataAccess = getDataAccess();
     const forceRefresh = searchParams.get('refresh') === 'true';
+    
+    // FIX 3: Only sync achievements for games with recent playtime (within 14 days)
+    // Check if this game was played recently before syncing
+    const game = await dataAccess.getUserGame(steamId, appIdNum);
+    if (game) {
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      const lastPlayed = game.lastPlayed ? new Date(game.lastPlayed) : null;
+      const derivedLastPlayed = game.derivedLastPlayed ? new Date(game.derivedLastPlayed) : null;
+      
+      const isRecentlyPlayed = (lastPlayed && lastPlayed > fourteenDaysAgo) || 
+                               (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo);
+      
+      // If game is not recently played and not forcing refresh, return cached data only
+      // Don't sync from Steam API for old games
+      if (!isRecentlyPlayed && !forceRefresh) {
+        const userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
+        // Return cached achievements if available, otherwise empty array
+        return NextResponse.json(
+          { achievements: userAchievements },
+          {
+            headers: {
+              'Cache-Control': 'private, max-age=300',
+            },
+          }
+        );
+      }
+    }
+    
     let userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
 
     // Check if cache is stale (older than 1 hour)
