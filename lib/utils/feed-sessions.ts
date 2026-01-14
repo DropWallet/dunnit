@@ -87,6 +87,8 @@ export interface FeedSession {
   likeCount: number;
   isLiked: boolean;
   likedByUsers: Array<{ userId: string; avatarUrl: string }>;
+  // Comment data
+  commentCount: number;
 }
 
 /**

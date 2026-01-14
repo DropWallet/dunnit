@@ -704,19 +704,21 @@ export async function GET(request: NextRequest) {
     const paginatedSessions = sessions.slice(offset, offset + limit);
     const hasMore = offset + limit < total;
 
-    // Fetch like counts and user likes for paginated sessions
+    // Fetch like counts, comment counts, and user likes for paginated sessions
     const sessionIds = paginatedSessions.map(s => s.sessionId);
-    const [likeCounts, userLikes] = await Promise.all([
+    const [likeCounts, commentCounts, userLikes] = await Promise.all([
       dataAccess.getLikeCounts(sessionIds),
+      dataAccess.getCommentCounts(sessionIds),
       dataAccess.getUserLikes(sessionIds, steamId),
     ]);
 
-    // Add like data to sessions
+    // Add like and comment data to sessions
     const sessionsWithLikes = paginatedSessions.map(session => ({
       ...session,
       likeCount: likeCounts.get(session.sessionId) || 0,
       isLiked: userLikes.has(session.sessionId),
       likedByUsers: [], // Will be populated on-demand
+      commentCount: commentCounts.get(session.sessionId) || 0,
     }));
 
     // Sync-on-Read: Sync logged-in user's own data if stale
