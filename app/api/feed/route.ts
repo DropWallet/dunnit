@@ -659,6 +659,7 @@ export async function GET(request: NextRequest) {
 
     // Note: Friend sync now happens BEFORE querying sessions (see syncFriendsForFeed above)
     // This ensures sessions are available when building the feed, fixing empty feed for new users
+    // The staleness and cooldown logic is already implemented in syncFriendsForFeed function
 
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
