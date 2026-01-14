@@ -11,8 +11,8 @@ const dmSans = DM_Sans({
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: "Dunnit - Game Tracking",
-  description: "Track your Steam games and achievements",
+  title: "Playd - Your Steam community, at a glance. See your friends' achievements and progress (or lack of).",
+  description: "Your Steam community, at a glance. See your friends' achievements and progress (or lack of).",
 };
 
 export default function RootLayout({

@@ -6,6 +6,50 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 
+// GameCard component for the carousel
+function GameCard({ image }: { image: string }) {
+  return (
+    <div
+      className="flex justify-center items-stretch flex-grow-0 flex-shrink-0 w-[206px] relative gap-3 p-3 rounded-lg bg-surface-low border border-border"
+      style={{
+        boxShadow: '0px 20px 25px -5px rgba(0,0,0,0.1), 0px 10px 10px -5px rgba(0,0,0,0.04)',
+      }}
+    >
+      <div className="flex flex-col justify-center items-start self-stretch flex-grow-0 flex-shrink-0 gap-2">
+        <div className="flex flex-col justify-between items-start flex-grow">
+          <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-[95px] relative gap-2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              className="flex-grow-0 flex-shrink-0"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <circle cx="10" cy="10" r="10" fill="currentColor" className="text-border" />
+            </svg>
+            <div className="flex-grow-0 flex-shrink-0 w-[95px] h-2 rounded bg-border"></div>
+            <div className="flex-grow-0 flex-shrink-0 w-[75px] h-1 rounded bg-border"></div>
+            <div className="flex-grow-0 flex-shrink-0 w-[88px] h-1 rounded bg-border"></div>
+          </div>
+          <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative gap-2">
+            <div className="flex-grow-0 flex-shrink-0 w-[22px] h-1.5 rounded bg-border"></div>
+          </div>
+        </div>
+      </div>
+      <img
+        src={`/${image}`}
+        alt="Game cover"
+        className="h-[112px] w-auto rounded-lg"
+        style={{
+          boxShadow: '0px 56px 16px 0 rgba(0,0,0,0), 0px 36px 14px 0 rgba(0,0,0,0.03), 0px 20px 12px 0 rgba(0,0,0,0.11), 0px 9px 9px 0 rgba(0,0,0,0.18), 0px 2px 5px 0 rgba(0,0,0,0.21)',
+        }}
+      />
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +77,7 @@ export default function LoginPage() {
 
   if (isChecking) {
     return (
-      <div className="relative min-h-screen flex items-center justify-center">
+      <div className="relative h-screen flex items-center justify-center bg-background">
         {/* Background Image */}
         <div 
           className="fixed inset-0 w-full h-full z-0"
@@ -59,9 +103,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex flex-col justify-start items-center w-full min-h-screen gap-6 md:gap-0 py-4 md:p-0">
+    <div className="relative flex flex-col justify-center items-center w-full h-screen overflow-hidden gap-12 p-4 bg-background">
       {/* Background Image */}
-      <div 
+      {/* <div 
         className="fixed inset-0 w-full h-full z-0"
         style={{
           backgroundImage: 'url(/login-background.webp)',
@@ -69,138 +113,255 @@ export default function LoginPage() {
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
         }}
-      />
+      /> */}
       
       {/* Gradient Overlay */}
-      <div 
+      {/* <div 
         className="fixed inset-0 w-full h-full z-10"
         style={{
           background: 'var(--gradient-login-overlay)',
         }}
-      />
+      /> */}
       
-      {/* Header with Logo and Theme Toggle - Fixed at top */}
-      <div className="fixed md:invisible top-0 left-0 right-0 flex justify-between items-center flex-grow-0 flex-shrink-0 px-8 py-4 z-30">
+      {/* Fixed Header with Logo and Theme Toggle */}
+      <div className="fixed top-0 left-0 right-0 flex justify-between items-center flex-grow-0 flex-shrink-0 px-3 py-1 z-30">
         <svg
-          width="107"
-          height="24"
-          viewBox="0 0 107 24"
+          width="150"
+          height="22"
+          viewBox="0 0 150 22"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          className="flex-grow-0 flex-shrink-0 w-[106.84px] h-6 text-inverted-strong"
+          className="flex-grow-0 flex-shrink-0 w-[149.6px] h-[21.36px] text-inverted-strong"
         >
-          <path d="M95.3374 18.9945V16.5067H92.7617V7.52105H95.3374V5.00391H104.235V7.52105H106.84V11.4724H103.094V8.9845H96.4789V15.0139H103.094V12.4968H106.84V16.5067H104.235V18.9945H95.3374Z" fill="#00A6F4"/>
-          <path d="M79.8071 18.9945V16.5067H77.2314V7.52105H79.8071V5.00391H88.7049V7.52105H91.3099V11.4724H87.5634V8.9845H80.9486V15.0139H87.5634V12.4968H91.3099V16.5067H88.7049V18.9945H79.8071Z" fill="#00A6F4"/>
-          <path d="M71.1624 18.6729V14.6631H74.8795V18.6729H71.1624Z" fill="#00A6F4"/>
-          <path d="M57.3218 18.9956V16.5078H54.7461V7.52215H57.3218V5.00501H65.1073V0H68.8538V16.5078H66.2196V18.9956H57.3218ZM58.4633 15.015H65.0781V8.9856H58.4633V15.015Z" fill="currentColor"/>
-          <path d="M41.4773 23.9995V21.5117H38.9016V17.5311H42.6188V20.0189H49.2629V16.5067H41.4773V13.9895H38.9016V5.00391H42.6188V12.4968H49.2629V5.00391H52.98V21.5117H50.4044V23.9995H41.4773Z" fill="currentColor"/>
-          <path d="M24.4893 18.9945V16.5067H21.9136V7.52105H24.4893V5.00391H33.387V7.52105H35.992V15.0139H38.5969V18.9945H34.8505V16.5067H33.387V18.9945H24.4893ZM25.6307 15.0139H32.2456V8.9845H25.6307V15.0139Z" fill="currentColor"/>
-          <path d="M16.4163 18.9956V0H20.1334V18.9956H16.4163Z" fill="currentColor"/>
-          <path d="M0 23.8532V7.52105H2.57568V5.00391H11.4735V7.52105H14.0784V16.5067H11.4735V18.9945H3.71717V23.8532H0ZM3.71717 15.0139H10.332V8.9845H3.71717V15.0139Z" fill="currentColor"/>
+          <path
+            d="M149.603 11.4475C149.603 12.5995 149.243 13.5835 148.523 14.3995C147.803 15.2155 146.667 15.8395 145.115 16.2715C143.563 16.7035 141.547 16.9195 139.067 16.9195C136.587 16.9195 134.475 16.7195 132.731 16.3195C131.003 15.9195 129.683 15.2635 128.771 14.3515C127.875 13.4395 127.427 12.2235 127.427 10.7035C127.427 9.18345 127.875 7.96745 128.771 7.05545C129.683 6.12745 131.003 5.46345 132.731 5.06345C134.475 4.64745 136.587 4.43945 139.067 4.43945C141.547 4.43945 143.555 4.65545 145.091 5.08745C146.627 5.51945 147.755 6.14345 148.475 6.95945C149.195 7.77545 149.563 8.75145 149.579 9.88745H144.299C144.043 9.26345 143.467 8.78345 142.571 8.44745C141.675 8.09545 140.507 7.91945 139.067 7.91945C137.899 7.91945 136.883 8.00745 136.019 8.18345C135.155 8.34345 134.483 8.62345 134.003 9.02345C133.539 9.42345 133.307 9.98345 133.307 10.7035C133.307 11.4075 133.539 11.9595 134.003 12.3595C134.467 12.7595 135.131 13.0395 135.995 13.1995C136.859 13.3595 137.883 13.4395 139.067 13.4395C140.507 13.4395 141.675 13.2715 142.571 12.9355C143.483 12.5835 144.067 12.0875 144.323 11.4475H149.603Z"
+            fill="#155DFC"
+          />
+          <path
+            d="M127.743 11.4475C127.743 12.5995 127.383 13.5835 126.663 14.3995C125.943 15.2155 124.807 15.8395 123.255 16.2715C121.703 16.7035 119.687 16.9195 117.207 16.9195C114.727 16.9195 112.615 16.7195 110.871 16.3195C109.143 15.9195 107.823 15.2635 106.911 14.3515C106.015 13.4395 105.567 12.2235 105.567 10.7035C105.567 9.18345 106.015 7.96745 106.911 7.05545C107.823 6.12745 109.143 5.46345 110.871 5.06345C112.615 4.64745 114.727 4.43945 117.207 4.43945C119.687 4.43945 121.695 4.65545 123.231 5.08745C124.767 5.51945 125.895 6.14345 126.615 6.95945C127.335 7.77545 127.703 8.75145 127.719 9.88745H122.439C122.183 9.26345 121.607 8.78345 120.711 8.44745C119.815 8.09545 118.647 7.91945 117.207 7.91945C116.039 7.91945 115.023 8.00745 114.159 8.18345C113.295 8.34345 112.623 8.62345 112.143 9.02345C111.679 9.42345 111.447 9.98345 111.447 10.7035C111.447 11.4075 111.679 11.9595 112.143 12.3595C112.607 12.7595 113.271 13.0395 114.135 13.1995C114.999 13.3595 116.023 13.4395 117.207 13.4395C118.647 13.4395 119.815 13.2715 120.711 12.9355C121.623 12.5835 122.207 12.0875 122.463 11.4475H127.743Z"
+            fill="#155DFC"
+          />
+          <path d="M105.774 12.9355V16.5595H99.6777V12.9355H105.774Z" fill="#155DFC" />
+          <path
+            d="M83.9256 16.896C82.1976 16.896 80.6616 16.656 79.3176 16.176C77.9736 15.68 76.9096 14.968 76.1256 14.04C75.3576 13.112 74.9736 11.992 74.9736 10.68C74.9736 9.304 75.3576 8.152 76.1256 7.224C76.9096 6.296 77.9736 5.6 79.3176 5.136C80.6616 4.672 82.1976 4.44 83.9256 4.44C85.3656 4.44 86.6616 4.592 87.8136 4.896C88.9656 5.184 89.9496 5.608 90.7656 6.168C91.5816 6.712 92.2056 7.368 92.6376 8.136C93.0696 8.904 93.2856 9.752 93.2856 10.68C93.2856 11.608 93.0696 12.456 92.6376 13.224C92.2056 13.976 91.5816 14.632 90.7656 15.192C89.9496 15.736 88.9656 16.16 87.8136 16.464C86.6616 16.752 85.3656 16.896 83.9256 16.896ZM86.0856 13.248C87.3016 13.248 88.4136 13.176 89.4216 13.032C90.4456 12.872 91.2616 12.608 91.8696 12.24C92.4936 11.872 92.8056 11.352 92.8056 10.68C92.8056 9.992 92.4936 9.464 91.8696 9.096C91.2616 8.728 90.4456 8.472 89.4216 8.328C88.4136 8.184 87.3016 8.112 86.0856 8.112C84.4536 8.112 83.1896 8.328 82.2936 8.76C81.3976 9.176 80.9496 9.816 80.9496 10.68C80.9496 11.24 81.1496 11.712 81.5496 12.096C81.9496 12.48 82.5336 12.768 83.3016 12.96C84.0696 13.152 84.9976 13.248 86.0856 13.248ZM92.8056 0H98.5656V16.56H93.1416C93.0776 16.192 93.0056 15.6 92.9256 14.784C92.8456 13.952 92.8056 13.024 92.8056 12V0Z"
+            fill="currentColor"
+          />
+          <path
+            d="M54.9023 4.7998H61.0223L68.0303 16.0798L63.0623 16.5598L54.9023 4.7998ZM76.9823 4.7998L65.2943 21.3598H59.4143L64.4303 14.5678L70.8623 4.7998H76.9823Z"
+            fill="currentColor"
+          />
+          <path
+            d="M41.0506 16.8955C39.3226 16.8955 37.7866 16.6555 36.4426 16.1755C35.0986 15.6795 34.0346 14.9675 33.2506 14.0395C32.4826 13.1115 32.0986 11.9915 32.0986 10.6795C32.0986 9.30345 32.4826 8.15145 33.2506 7.22345C34.0346 6.29545 35.0986 5.59945 36.4426 5.13545C37.7866 4.67145 39.3226 4.43945 41.0506 4.43945C42.9706 4.43945 44.6266 4.70345 46.0186 5.23145C47.4266 5.74345 48.5066 6.47145 49.2586 7.41545C50.0266 8.34345 50.4106 9.43145 50.4106 10.6795C50.4106 11.6075 50.1946 12.4555 49.7626 13.2235C49.3306 13.9755 48.7066 14.6315 47.8906 15.1915C47.0746 15.7355 46.0906 16.1595 44.9386 16.4635C43.7866 16.7515 42.4906 16.8955 41.0506 16.8955ZM43.2106 13.2475C44.4266 13.2475 45.5386 13.1755 46.5466 13.0315C47.5706 12.8715 48.3866 12.6075 48.9946 12.2395C49.6186 11.8715 49.9306 11.3515 49.9306 10.6795C49.9306 9.99145 49.6186 9.46345 48.9946 9.09545C48.3866 8.72745 47.5706 8.47145 46.5466 8.32745C45.5386 8.18345 44.4266 8.11145 43.2106 8.11145C41.5786 8.11145 40.3146 8.32745 39.4186 8.75945C38.5226 9.17545 38.0746 9.81545 38.0746 10.6795C38.0746 11.2395 38.2746 11.7115 38.6746 12.0955C39.0746 12.4795 39.6586 12.7675 40.4266 12.9595C41.1946 13.1515 42.1226 13.2475 43.2106 13.2475ZM49.9306 4.79945H55.6906V16.5595H50.2666C50.2666 16.5595 50.2346 16.3755 50.1706 16.0075C50.1226 15.6395 50.0666 15.1115 50.0026 14.4235C49.9546 13.7355 49.9306 12.9275 49.9306 11.9995V4.79945Z"
+            fill="currentColor"
+          />
+          <path d="M26.0503 0H31.8103V16.56H26.0503V0Z" fill="currentColor" />
+          <path
+            d="M5.616 12.5992V8.39922H17.592C18.072 8.39922 18.472 8.32722 18.792 8.18322C19.128 8.02322 19.296 7.69522 19.296 7.19922C19.296 6.68722 19.128 6.35922 18.792 6.21522C18.472 6.07122 18.072 5.99922 17.592 5.99922H6V16.5592H0V1.19922H16.656C17.856 1.19922 18.976 1.28722 20.016 1.46322C21.072 1.62322 21.992 1.91922 22.776 2.35122C23.56 2.78322 24.176 3.39122 24.624 4.17522C25.072 4.95922 25.296 5.96722 25.296 7.19922C25.296 8.43122 25.072 9.40722 24.624 10.1272C24.176 10.8472 23.56 11.3832 22.776 11.7352C21.992 12.0872 21.072 12.3192 20.016 12.4312C18.976 12.5432 17.856 12.5992 16.656 12.5992H5.616Z"
+            fill="currentColor"
+          />
         </svg>
         <div className="flex justify-center items-center flex-grow-0 flex-shrink-0 relative gap-2 p-2 rounded-md">
           <ThemeToggleButton />
         </div>
       </div>
       
-      {/* Content Container */}
-      <div className="relative z-20 flex flex-col md:flex-row-reverse justify-start items-center w-full md:items-stretch gap-6 md:gap-0 pt-20 md:p-0 md:h-screen ">
-      {/* Login Card */}
-      <div className="flex flex-col justify-start md:justify-center items-start md:items-center self-stretch md:w-1/2 md:h-full gap-2 px-4 pt-44 md:pt-4">
-      <div className="flex flex-col justify-center items-center self-stretch pb-6 md:pb-0 md:self-auto md:max-w-md w-full overflow-hidden gap-6 pt-6 rounded-lg bg-surface-low border border-border">
-          <div className="flex flex-col justify-start items-center flex-grow-0 flex-shrink-0 gap-5">
-            <div className="flex flex-col justify-start items-center flex-grow-0 flex-shrink-0 relative gap-0.5">
-              <p className="flex-grow-0 flex-shrink-0 text-xl font-bold text-left text-foreground">
-                Welcome to playd
-              </p>
-              <p className="flex-grow-0 flex-shrink-0 text-sm text-center text-muted-foreground">
-                Log in or sign up with steam to continue
-              </p>
-            </div>
-            <Button
-              onClick={handleSteamLogin}
-              disabled={isLoading}
-              className="flex justify-center items-center gap-2 px-4 py-2 rounded-md font-medium"
-            >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="flex-grow-0 flex-shrink-0 w-6 h-6 relative"
-                preserveAspectRatio="xMidYMid meet"
-              >
-                <path
-                  d="M12 2C13.3132 2 14.6136 2.25866 15.8268 2.7612C17.0401 3.26375 18.1425 4.00035 19.0711 4.92893C19.9997 5.85752 20.7362 6.95991 21.2388 8.17317C21.7413 9.38642 22 10.6868 22 12C22 14.6522 20.9464 17.1957 19.0711 19.0711C17.1957 20.9464 14.6522 22 12 22C7.4 22 3.55 18.92 2.36 14.73L6.19 16.31C6.32124 16.9506 6.66949 17.5262 7.17597 17.9398C7.68245 18.3534 8.31612 18.5795 8.97 18.58C10.53 18.58 11.8 17.31 11.8 15.75V15.62L15.2 13.19H15.28C17.36 13.19 19.05 11.5 19.05 9.42C19.05 7.34 17.36 5.65 15.28 5.65C13.2 5.65 11.5 7.34 11.5 9.42V9.47L9.13 12.93L8.97 12.92C8.38 12.92 7.83 13.1 7.38 13.41L2 11.2C2.43 6.05 6.73 2 12 2ZM8.28 17.17C9.08 17.5 10 17.13 10.33 16.33C10.66 15.53 10.28 14.62 9.5 14.29L8.22 13.76C8.71 13.58 9.26 13.57 9.78 13.79C10.31 14 10.72 14.41 10.93 14.94C11.15 15.46 11.15 16.04 10.93 16.56C10.5 17.64 9.23 18.16 8.15 17.71C7.65 17.5 7.27 17.12 7.06 16.67L8.28 17.17ZM17.8 9.42C17.8 10.81 16.67 11.94 15.28 11.94C14.6134 11.9374 13.975 11.6707 13.5046 11.1984C13.0341 10.7261 12.77 10.0866 12.77 9.42C12.7687 9.09001 12.8327 8.76303 12.9584 8.4579C13.084 8.15278 13.2689 7.87555 13.5022 7.64221C13.7356 7.40887 14.0128 7.22404 14.3179 7.09837C14.623 6.9727 14.95 6.90868 15.28 6.91C15.9466 6.90999 16.5861 7.17412 17.0584 7.64455C17.5307 8.11498 17.7974 8.75339 17.8 9.42ZM13.4 9.42C13.4 10.46 14.24 11.31 15.29 11.31C16.33 11.31 17.17 10.46 17.17 9.42C17.17 8.38 16.33 7.53 15.29 7.53C14.24 7.53 13.4 8.38 13.4 9.42Z"
-                  fill="currentColor"
-                />
-              </svg>
-              <span className="flex-grow-0 flex-shrink-0 text-sm font-medium text-left">
-                {isLoading ? "Connecting..." : "Login with Steam"}
-              </span>
-            </Button>
-          </div>
-          {/* Info Box */}
-          <div className="hidden md:flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-2 p-4 bg-surface-mid">
-            <Image
-              src="/ic-info.svg"
-              alt="Info"
-              width={20}
-              height={20}
-              className="flex-grow-0 flex-shrink-0 w-5 h-5 relative"
+      {/* Centered Content */}
+      <div className="relative z-20 flex flex-col justify-start items-center flex-grow-0 flex-shrink-0 w-full max-w-[590px] gap-8 px-2">
+        {/* Logo Container with Radial Dots */}
+        <div className="relative flex items-center justify-center w-[98px] h-[98px]">
+          {/* Radial Dots - Absolutely positioned and rotating */}
+          <svg
+            width="98"
+            height="98"
+            viewBox="0 0 98 98"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="absolute top-0 bottom-0 right-0 animate-rotate"
+            style={{ left: '-3px', top: '1px' }}
+          >
+            <g opacity="0.4">
+              <path d="M0.0435546 47.705L1.11258 51.1428C1.14692 51.2532 1.28955 51.2824 1.36457 51.1944L3.73215 48.416C3.80516 48.3303 3.75859 48.1977 3.64805 48.1765L0.211445 47.5172C0.102506 47.4963 0.0106161 47.5991 0.0435546 47.705Z" fill="#155DFC"/>
+              <path d="M1.22053 38.1934L1.59833 41.7737C1.61047 41.8887 1.74466 41.9452 1.83541 41.8735L4.69955 39.6103C4.78786 39.5405 4.76806 39.4014 4.66378 39.3591L1.42183 38.0419C1.31906 38.0002 1.20888 38.0831 1.22053 38.1934Z" fill="#155DFC"/>
+              <path d="M4.23048 29.0926L3.90256 32.6777C3.89202 32.7929 4.01261 32.8745 4.11561 32.8219L7.36622 31.161C7.46646 31.1098 7.47417 30.9695 7.38016 30.9076L4.45747 28.9833C4.36482 28.9223 4.24058 28.9821 4.23048 29.0926Z" fill="#155DFC"/>
+              <path d="M8.95779 20.7553L7.93673 24.2076C7.90393 24.3185 8.00628 24.422 8.11757 24.3905L11.6297 23.3957C11.738 23.365 11.773 23.2289 11.6929 23.1499L9.20173 20.6924C9.12276 20.6145 8.98925 20.6489 8.95779 20.7553Z" fill="#155DFC"/>
+              <path d="M15.2209 13.4994L13.546 16.6862C13.4922 16.7886 13.5723 16.9101 13.6876 16.9009L17.3264 16.6104C17.4386 16.6015 17.4994 16.4748 17.4363 16.3816L15.4724 13.4854C15.4102 13.3935 15.2725 13.4013 15.2209 13.4994Z" fill="#155DFC"/>
+              <path d="M22.7789 7.60544L20.5144 10.4042C20.4416 10.4941 20.4966 10.629 20.6115 10.6424L24.237 11.0674C24.3488 11.0805 24.4331 10.9681 24.3894 10.8644L23.0283 7.64069C22.9852 7.5385 22.8486 7.51921 22.7789 7.60544Z" fill="#155DFC"/>
+              <path d="M31.3419 3.29898L28.575 5.60219C28.4861 5.67619 28.5136 5.81914 28.6237 5.85476L32.0966 6.97888C32.2037 7.01354 32.3084 6.91978 32.2857 6.80954L31.5797 3.38221C31.5573 3.27357 31.4272 3.22801 31.3419 3.29898Z" fill="#155DFC"/>
+              <path d="M40.5804 0.74577L37.4173 2.46492C37.3157 2.52015 37.3148 2.66574 37.4158 2.72214L40.6027 4.5022C40.701 4.55709 40.822 4.48555 40.8212 4.373L40.7974 0.873793C40.7967 0.762869 40.6779 0.6928 40.5804 0.74577Z" fill="#155DFC"/>
+              <path d="M50.1402 0.0435546L46.7025 1.11258C46.592 1.14692 46.5628 1.28955 46.6508 1.36457L49.4292 3.73215C49.5149 3.80516 49.6475 3.75859 49.6687 3.64805L50.328 0.211445C50.3489 0.102506 50.2461 0.0106161 50.1402 0.0435546Z" fill="#155DFC"/>
+              <path d="M59.6523 1.22004L56.0721 1.59785C55.957 1.60998 55.9005 1.74417 55.9722 1.83492L58.2354 4.69906C58.3052 4.78737 58.4443 4.76757 58.4866 4.66329L59.8038 1.42134C59.8455 1.31857 59.7626 1.2084 59.6523 1.22004Z" fill="#155DFC"/>
+              <path d="M68.7526 4.22999L65.1675 3.90207C65.0523 3.89153 64.9707 4.01212 65.0233 4.11512L66.6842 7.36574C66.7354 7.46597 66.8757 7.47368 66.9376 7.37967L68.8619 4.45698C68.9229 4.36433 68.8631 4.24009 68.7526 4.22999Z" fill="#155DFC"/>
+              <path d="M77.0904 8.95827L73.6381 7.93722C73.5272 7.90442 73.4237 8.00677 73.4552 8.11806L74.45 11.6302C74.4807 11.7385 74.6168 11.7735 74.6958 11.6933L77.1533 9.20222C77.2312 9.12325 77.1968 8.98973 77.0904 8.95827Z" fill="#155DFC"/>
+              <path d="M84.3463 15.2199L81.1595 13.545C81.0571 13.4912 80.9356 13.5714 80.9448 13.6867L81.2353 17.3254C81.2442 17.4376 81.3709 17.4985 81.4641 17.4353L84.3603 15.4715C84.4522 15.4092 84.4444 15.2715 84.3463 15.2199Z" fill="#155DFC"/>
+              <path d="M90.2403 22.7789L87.4415 20.5144C87.3516 20.4416 87.2167 20.4966 87.2033 20.6115L86.7783 24.237C86.7652 24.3488 86.8776 24.4331 86.9813 24.3894L90.205 23.0283C90.3072 22.9852 90.3265 22.8486 90.2403 22.7789Z" fill="#155DFC"/>
+              <path d="M94.5472 31.3429L92.244 28.5759C92.17 28.487 92.027 28.5146 91.9914 28.6247L90.8673 32.0976C90.8327 32.2047 90.9264 32.3094 91.0367 32.2867L94.464 31.5807C94.5726 31.5583 94.6182 31.4282 94.5472 31.3429Z" fill="#155DFC"/>
+              <path d="M97.0999 40.5814L95.3808 37.4183C95.3255 37.3167 95.18 37.3158 95.1236 37.4168L93.3435 40.6037C93.2886 40.702 93.3602 40.8229 93.4727 40.8222L96.9719 40.7984C97.0828 40.7976 97.1529 40.6789 97.0999 40.5814Z" fill="#155DFC"/>
+              <path d="M97.8017 50.1397L96.7326 46.702C96.6983 46.5915 96.5557 46.5623 96.4806 46.6503L94.1131 49.4287C94.0401 49.5144 94.0866 49.647 94.1972 49.6682L97.6338 50.3275C97.7427 50.3484 97.8346 50.2456 97.8017 50.1397Z" fill="#155DFC"/>
+              <path d="M96.6252 59.6533L96.2474 56.073C96.2352 55.958 96.101 55.9015 96.0103 55.9732L93.1462 58.2364C93.0578 58.3061 93.0776 58.4453 93.1819 58.4876L96.4239 59.8047C96.5266 59.8465 96.6368 59.7636 96.6252 59.6533Z" fill="#155DFC"/>
+              <path d="M93.6152 68.7521L93.9431 65.167C93.9537 65.0518 93.8331 64.9702 93.7301 65.0228L90.4795 66.6837C90.3792 66.7349 90.3715 66.8752 90.4655 66.9371L93.3882 68.8614C93.4809 68.9224 93.6051 68.8626 93.6152 68.7521Z" fill="#155DFC"/>
+              <path d="M88.8879 77.0914L89.909 73.6391C89.9418 73.5282 89.8394 73.4246 89.7281 73.4562L86.216 74.451C86.1077 74.4816 86.0727 74.6177 86.1528 74.6968L88.644 77.1543C88.7229 77.2322 88.8565 77.1978 88.8879 77.0914Z" fill="#155DFC"/>
+              <path d="M82.6248 84.3472L84.2997 81.1605C84.3535 81.0581 84.2734 80.9366 84.1581 80.9458L80.5193 81.2363C80.4071 81.2452 80.3463 81.3719 80.4094 81.4651L82.3733 84.3613C82.4355 84.4531 82.5732 84.4454 82.6248 84.3472Z" fill="#155DFC"/>
+              <path d="M75.0659 90.2403L77.3303 87.4415C77.4031 87.3516 77.3482 87.2167 77.2333 87.2033L73.6077 86.7783C73.496 86.7652 73.4116 86.8776 73.4554 86.9813L74.8164 90.205C74.8596 90.3072 74.9961 90.3265 75.0659 90.2403Z" fill="#155DFC"/>
+              <path d="M66.5033 94.5467L69.2703 92.2435C69.3592 92.1695 69.3316 92.0266 69.2215 91.9909L65.7486 90.8668C65.6415 90.8322 65.5368 90.9259 65.5595 91.0362L66.2655 94.4635C66.2879 94.5721 66.418 94.6177 66.5033 94.5467Z" fill="#155DFC"/>
+              <path d="M57.2643 97.1009L60.4274 95.3818C60.529 95.3265 60.5299 95.1809 60.4289 95.1245L57.242 93.3445C57.1437 93.2896 57.0228 93.3611 57.0235 93.4737L57.0473 96.9729C57.0481 97.0838 57.1668 97.1539 57.2643 97.1009Z" fill="#155DFC"/>
+              <path d="M47.7055 97.8031L51.1432 96.7341C51.2537 96.6998 51.2829 96.5571 51.1949 96.4821L48.4165 94.1145C48.3308 94.0415 48.1982 94.0881 48.177 94.1986L47.5177 97.6352C47.4968 97.7442 47.5996 97.8361 47.7055 97.8031Z" fill="#155DFC"/>
+              <path d="M38.1924 96.6247L41.7727 96.2469C41.8877 96.2347 41.9442 96.1006 41.8725 96.0098L39.6093 93.1457C39.5396 93.0574 39.4005 93.0772 39.3581 93.1814L38.041 96.4234C37.9992 96.5262 38.0821 96.6363 38.1924 96.6247Z" fill="#155DFC"/>
+              <path d="M29.0926 93.6167L32.6777 93.9446C32.7929 93.9551 32.8745 93.8346 32.8219 93.7316L31.161 90.4809C31.1098 90.3807 30.9695 90.373 30.9076 90.467L28.9833 93.3897C28.9223 93.4824 28.9821 93.6066 29.0926 93.6167Z" fill="#155DFC"/>
+              <path d="M20.7543 88.8884L24.2066 89.9095C24.3175 89.9423 24.4211 89.8399 24.3895 89.7286L23.3947 86.2164C23.3641 86.1081 23.228 86.0732 23.1489 86.1533L20.6914 88.6445C20.6135 88.7234 20.6479 88.8569 20.7543 88.8884Z" fill="#155DFC"/>
+              <path d="M13.4994 82.6258L16.6862 84.3007C16.7886 84.3545 16.9101 84.2743 16.9009 84.159L16.6104 80.5203C16.6015 80.4081 16.4748 80.3472 16.3816 80.4104L13.4854 82.3742C13.3935 82.4365 13.4013 82.5742 13.4994 82.6258Z" fill="#155DFC"/>
+              <path d="M7.60496 75.0678L10.4037 77.3323C10.4936 77.405 10.6285 77.3501 10.6419 77.2352L11.0669 73.6097C11.08 73.4979 10.9676 73.4135 10.8639 73.4573L7.6402 74.8184C7.53801 74.8615 7.51872 74.9981 7.60496 75.0678Z" fill="#155DFC"/>
+              <path d="M3.29849 66.5038L5.6017 69.2707C5.6757 69.3596 5.81866 69.3321 5.85427 69.222L6.97839 65.7491C7.01305 65.642 6.91929 65.5373 6.80905 65.56L3.38172 66.266C3.27308 66.2884 3.22752 66.4185 3.29849 66.5038Z" fill="#155DFC"/>
+              <path d="M0.745282 57.2653L2.46443 60.4284C2.51967 60.53 2.66525 60.5309 2.72166 60.4299L4.50171 57.243C4.5566 57.1447 4.48506 57.0237 4.37251 57.0245L0.873305 57.0483C0.762381 57.049 0.692311 57.1678 0.745282 57.2653Z" fill="#155DFC"/>
+            </g>
+          </svg>
+          
+          {/* Main "P" Logo - Centered */}
+          <svg
+            width="65"
+            height="62"
+            viewBox="0 0 65 62"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="flex-grow-0 flex-shrink-0 w-[60px] h-[62px] relative z-10"
+            preserveAspectRatio="none"
+          >
+            <path
+              d="M14 59.663V10.6302C14 9.05484 15.7367 8.09791 17.0684 8.93948L59.0965 35.4989C60.3925 36.3178 60.3231 38.2304 58.9712 38.9533L16.9431 61.4267C15.6108 62.1391 14 61.1738 14 59.663Z"
+              fill="#155DFC"
             />
-            <p className="flex-grow text-sm text-left text-muted-foreground">
-              For the best experience, set your Steam profile to public.
-            </p>
-          </div>
+            <path
+              d="M1.40426 36.209L36.0757 1.53759C37.1896 0.423652 39.0943 0.975044 39.4409 2.51179L50.3789 51.0105C50.7162 52.5059 49.3148 53.8092 47.8477 53.3645L2.23822 39.5372C0.792411 39.0989 0.335972 37.2773 1.40426 36.209Z"
+              fill="#155DFC"
+            />
+            <path
+              d="M1.91238 22.1546L48.7336 7.59484C50.2379 7.12706 51.6674 8.50128 51.2592 10.0228L38.3776 58.0419C37.9803 59.5225 36.1335 60.0242 35.0418 58.9479L1.10216 25.4887C0.0262782 24.428 0.469726 22.6032 1.91238 22.1546Z"
+              fill="#155DFC"
+            />
+            <g filter="url(#filter0_d_449_5527)">
+              <path
+                d="M22.8805 40.8125L22.8805 34.25L41.8178 34.25C42.5768 34.25 43.2094 34.1375 43.7154 33.9125C44.2467 33.6625 44.5123 33.15 44.5123 32.375C44.5123 31.575 44.2467 31.0625 43.7154 30.8375C43.2094 30.6125 42.5768 30.5 41.8178 30.5L23.4877 30.5L23.4877 47H14L14 23L40.3378 23C42.2353 23 44.0063 23.1375 45.6509 23.4125C47.3207 23.6625 48.7755 24.125 50.0152 24.8C51.2549 25.475 52.229 26.425 52.9374 27.65C53.6458 28.875 54 30.45 54 32.375C54 34.3 53.6458 35.825 52.9374 36.95C52.229 38.075 51.2549 38.9125 50.0152 39.4625C48.7755 40.0125 47.3207 40.375 45.6509 40.55C44.0063 40.725 42.2353 40.8125 40.3378 40.8125H22.8805Z"
+                fill="white"
+              />
+            </g>
+            <defs>
+              <filter
+                id="filter0_d_449_5527"
+                x="9"
+                y="16"
+                width="56"
+                height="40"
+                filterUnits="userSpaceOnUse"
+                colorInterpolationFilters="sRGB"
+              >
+                <feFlood floodOpacity="0" result="BackgroundImageFix" />
+                <feColorMatrix
+                  in="SourceAlpha"
+                  type="matrix"
+                  values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+                  result="hardAlpha"
+                />
+                <feOffset dx="3" dy="1" />
+                <feGaussianBlur stdDeviation="4" />
+                <feComposite in2="hardAlpha" operator="out" />
+                <feColorMatrix
+                  type="matrix"
+                  values="0 0 0 0 0.00784314 0 0 0 0 0.0235294 0 0 0 0 0.0941176 0 0 0 0.6 0"
+                />
+                <feBlend
+                  mode="normal"
+                  in2="BackgroundImageFix"
+                  result="effect1_dropShadow_449_5527"
+                />
+                <feBlend
+                  mode="normal"
+                  in="SourceGraphic"
+                  in2="effect1_dropShadow_449_5527"
+                  result="shape"
+                />
+              </filter>
+            </defs>
+          </svg>
         </div>
-      </div>
-
-      {/* Feature Section */}
-      <div className="flex flex-col justify-center items-center self-stretch md:w-1/2 md:h-full md:py-4 gap-2 px-4 md:px-4 rounded-2xl">
-        <div className="flex flex-col justify-center items-center w-full md:h-full relative gap-4 md:gap-6 px-5 py-6 rounded-lg bg-surface-low border border-border">
-          {/* Logo and Theme Toggle - Absolutely positioned at top, visible on MD+ */}
-          <div className="hidden md:flex justify-between items-center flex-grow-0 flex-shrink-0 w-full absolute left-0 top-0 p-4 z-10">
-            <svg
-              width="107"
-              height="24"
-              viewBox="0 0 107 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="flex-grow-0 flex-shrink-0 w-[106.84px] h-6 text-inverted-strong"
-            >
-              <path d="M95.3374 18.9945V16.5067H92.7617V7.52105H95.3374V5.00391H104.235V7.52105H106.84V11.4724H103.094V8.9845H96.4789V15.0139H103.094V12.4968H106.84V16.5067H104.235V18.9945H95.3374Z" fill="#00A6F4"/>
-              <path d="M79.8071 18.9945V16.5067H77.2314V7.52105H79.8071V5.00391H88.7049V7.52105H91.3099V11.4724H87.5634V8.9845H80.9486V15.0139H87.5634V12.4968H91.3099V16.5067H88.7049V18.9945H79.8071Z" fill="#00A6F4"/>
-              <path d="M71.1624 18.6729V14.6631H74.8795V18.6729H71.1624Z" fill="#00A6F4"/>
-              <path d="M57.3218 18.9956V16.5078H54.7461V7.52215H57.3218V5.00501H65.1073V0H68.8538V16.5078H66.2196V18.9956H57.3218ZM58.4633 15.015H65.0781V8.9856H58.4633V15.015Z" fill="currentColor"/>
-              <path d="M41.4773 23.9995V21.5117H38.9016V17.5311H42.6188V20.0189H49.2629V16.5067H41.4773V13.9895H38.9016V5.00391H42.6188V12.4968H49.2629V5.00391H52.98V21.5117H50.4044V23.9995H41.4773Z" fill="currentColor"/>
-              <path d="M24.4893 18.9945V16.5067H21.9136V7.52105H24.4893V5.00391H33.387V7.52105H35.992V15.0139H38.5969V18.9945H34.8505V16.5067H33.387V18.9945H24.4893ZM25.6307 15.0139H32.2456V8.9845H25.6307V15.0139Z" fill="currentColor"/>
-              <path d="M16.4163 18.9956V0H20.1334V18.9956H16.4163Z" fill="currentColor"/>
-              <path d="M0 23.8532V7.52105H2.57568V5.00391H11.4735V7.52105H14.0784V16.5067H11.4735V18.9945H3.71717V23.8532H0ZM3.71717 15.0139H10.332V8.9845H3.71717V15.0139Z" fill="currentColor"/>
-            </svg>
-            <div className="flex justify-center items-center flex-grow-0 flex-shrink-0 relative gap-2 p-2 rounded-md">
-              <ThemeToggleButton />
-            </div>
-          </div>
-          {/* Placeholder for screenshot/mockup */}
-          <div className="flex flex-col justify-center items-center self-stretch md:max-w-xl md:mx-auto relative ">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full mb-0.5 leading-tight text-xl md:text-3xl font-semibold text-center md:text-left text-text-strong">
+        
+        {/* Text Content */}
+        <div className="flex flex-col justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
+          <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-3xl font-medium text-center">
+            <span className="self-stretch flex-grow-0 flex-shrink-0 w-full text-3xl font-medium text-center text-text-strong">
               Your Steam community, at a glance.
-            </p>
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full leading-tight text-xl md:text-3xl font-semibold text-center md:text-left text-text-weak">
+            </span>
+            <br />
+            <span className="self-stretch flex-grow-0 flex-shrink-0 w-full text-3xl font-medium text-center text-text-weak">
               See your friends' achievements and progress (or lack of).
-            </p>
-          </div>
-          <div className="flex flex-col justify-center items-center self-stretch md:max-w-xl md:mx-auto relative">
-            <p className="self-stretch flex-grow-0 flex-shrink-0 w-full text-md md:text-xl font-semibold text-center md:text-left text-text-weak">
-              No suggestions, no noise, no ads. Just a simple feed of what your friends are actually
-              playing. That's it.
-            </p>
-          </div>
+            </span>
+          </p>
+          <p className="flex-grow-0 flex-shrink-0 w-full max-w-[428px] text-base text-center text-text-weak">
+            No suggestions, no noise, no ads. Just a simple feed of what your friends are actually
+            playing. That's it.
+          </p>
+        </div>
+        
+        {/* Login Button */}
+        <Button
+          onClick={handleSteamLogin}
+          disabled={isLoading}
+          className="hover:bg-primary-hover"
+        >
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-6 h-6"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <path
+              d="M12 2C13.3132 2 14.6136 2.25866 15.8268 2.7612C17.0401 3.26375 18.1425 4.00035 19.0711 4.92893C19.9997 5.85752 20.7362 6.95991 21.2388 8.17317C21.7413 9.38642 22 10.6868 22 12C22 14.6522 20.9464 17.1957 19.0711 19.0711C17.1957 20.9464 14.6522 22 12 22C7.4 22 3.55 18.92 2.36 14.73L6.19 16.31C6.32124 16.9506 6.66949 17.5262 7.17597 17.9398C7.68245 18.3534 8.31612 18.5795 8.97 18.58C10.53 18.58 11.8 17.31 11.8 15.75V15.62L15.2 13.19H15.28C17.36 13.19 19.05 11.5 19.05 9.42C19.05 7.34 17.36 5.65 15.28 5.65C13.2 5.65 11.5 7.34 11.5 9.42V9.47L9.13 12.93L8.97 12.92C8.38 12.92 7.83 13.1 7.38 13.41L2 11.2C2.43 6.05 6.73 2 12 2ZM8.28 17.17C9.08 17.5 10 17.13 10.33 16.33C10.66 15.53 10.28 14.62 9.5 14.29L8.22 13.76C8.71 13.58 9.26 13.57 9.78 13.79C10.31 14 10.72 14.41 10.93 14.94C11.15 15.46 11.15 16.04 10.93 16.56C10.5 17.64 9.23 18.16 8.15 17.71C7.65 17.5 7.27 17.12 7.06 16.67L8.28 17.17ZM17.8 9.42C17.8 10.81 16.67 11.94 15.28 11.94C14.6134 11.9374 13.975 11.6707 13.5046 11.1984C13.0341 10.7261 12.77 10.0866 12.77 9.42C12.7687 9.09001 12.8327 8.76303 12.9584 8.4579C13.084 8.15278 13.2689 7.87555 13.5022 7.64221C13.7356 7.40887 14.0128 7.22404 14.3179 7.09837C14.623 6.9727 14.95 6.90868 15.28 6.91C15.9466 6.90999 16.5861 7.17412 17.0584 7.64455C17.5307 8.11498 17.7974 8.75339 17.8 9.42ZM13.4 9.42C13.4 10.46 14.24 11.31 15.29 11.31C16.33 11.31 17.17 10.46 17.17 9.42C17.17 8.38 16.33 7.53 15.29 7.53C14.24 7.53 13.4 8.38 13.4 9.42Z"
+              fill="currentColor"
+            />
+          </svg>
+          {isLoading ? "Connecting..." : "Login with Steam"}
+        </Button>
+      </div>
+      
+      {/* Infinite Scrolling Carousel */}
+      <div className="hidden md:block relative z-20 w-full mt-6 overflow-hidden">
+        {/* Gradient Overlay - positioned on top to fade edges */}
+        <div 
+          className="absolute inset-0 z-10 pointer-events-none"
+          style={{
+            background: 'var(--gradient-carousel-overlay)',
+          }}
+        />
+        
+        {/* Carousel Container */}
+        <div className="flex flex-row-reverse justify-start items-start gap-3 animate-scroll">
+          {/* First set of cards */}
+          <GameCard image="image-31.png" />
+          <GameCard image="image-34.png" />
+          <GameCard image="image-42.png" />
+          <GameCard image="image-61.png" />
+          <GameCard image="image-77.png" />
+          <GameCard image="image-38.png" />
+          <GameCard image="image-32.png" />
+          <GameCard image="image-70.png" />
+          
+          {/* Duplicate set for seamless loop - must match exactly */}
+          <GameCard image="image-31.png" />
+          <GameCard image="image-34.png" />
+          <GameCard image="image-42.png" />
+          <GameCard image="image-61.png" />
+          <GameCard image="image-77.png" />
+          <GameCard image="image-38.png" />
+          <GameCard image="image-32.png" />
+          <GameCard image="image-70.png" />
         </div>
       </div>
-      </div>
+      
+      {/* Fixed Footer */}
+      <p className="fixed bottom-0 left-0 right-0 flex-grow-0 flex-shrink-0 w-full max-w-[428px] mx-auto text-xs text-center text-text-weak pb-6 z-30">
+        Playd is not affiliated with Valve Corporation or the Steam platform.
+      </p>
     </div>
   );
 }

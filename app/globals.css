@@ -400,6 +400,9 @@
     /* Login Background Overlay Gradient - Light Mode */
     --gradient-login-overlay: linear-gradient(180deg, rgba(245, 245, 245, 0.795) 0%, rgb(245, 245, 245) 50%);
     
+    /* Carousel Overlay Gradient - Light Mode */
+    --gradient-carousel-overlay: linear-gradient(to right, hsl(var(--color-background)) 0%, transparent 20%, transparent 80%, hsl(var(--color-background)) 100%);
+    
     /* Chart Colors */
     --color-chart-1: var(--color-blue-500);
     --color-chart-2: var(--color-green-500);
@@ -622,7 +625,10 @@
     --color-shelf-gradient-end: 215 38% 27%;
     
     /* Login Background Overlay Gradient - Dark Mode */
-    --gradient-login-overlay: linear-gradient(180deg, rgba(2, 6, 24, 0.64) 0%, #020618 100%);
+    --gradient-login-overlay: linear-gradient(180deg, rgba(2, 6, 24, 0.80) 0%, #020618 100%);
+    
+    /* Carousel Overlay Gradient - Dark Mode */
+    --gradient-carousel-overlay: linear-gradient(to right, hsl(var(--color-background)) 0%, transparent 20%, transparent 80%, hsl(var(--color-background)) 100%);
     
     /* Darker shadows for dark mode */
     --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
@@ -656,4 +662,35 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* Carousel Animation */
+@keyframes scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll {
+  animation: scroll 60s linear infinite;
+  will-change: transform;
+  width: fit-content;
+}
+
+/* Logo Radial Dots Rotation */
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-rotate {
+  animation: rotate 40s linear infinite;
+  transform-origin: center center;
 }
