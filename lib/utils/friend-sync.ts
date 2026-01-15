@@ -184,10 +184,66 @@ async function syncFriendAchievements(
  * This is a lightweight sync that only updates recently played games
  * Phase 2: Also syncs achievements for games with playtime increases
  */
+/**
+ * Ensure user record exists in database, creating it if necessary
+ * This is needed because updateUser requires the user to exist
+ * Returns true if user exists (or was created), false if creation failed
+ */
+async function ensureUserExists(
+  friendId: string,
+  steamClient: ReturnType<typeof getSteamClient>,
+  dataAccess: ReturnType<typeof getDataAccess>
+): Promise<boolean> {
+  // Check if user already exists
+  const existingUser = await dataAccess.getUser(friendId);
+  if (existingUser) {
+    return true;
+  }
+
+  // User doesn't exist - try to create from Steam API
+  try {
+    const playerSummary = await steamClient.getPlayerSummary(friendId);
+    
+    if (!playerSummary) {
+      console.log(`[Friend Sync] Could not fetch player summary for ${friendId} (profile may be private or invalid)`);
+      return false;
+    }
+
+    // Transform Steam API response to our User format
+    const now = new Date();
+    const newUser = {
+      steamId: friendId,
+      username: playerSummary.personaname || 'Unknown',
+      avatarUrl: playerSummary.avatarfull || playerSummary.avatar || '',
+      profileUrl: playerSummary.profileurl || '',
+      countryCode: playerSummary.loccountrycode || undefined,
+      countryName: undefined, // Steam API doesn't provide country name directly
+      joinDate: playerSummary.timecreated ? new Date(playerSummary.timecreated * 1000) : undefined,
+      communityVisibilityState: playerSummary.communityvisibilitystate,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Save to database (upsert handles race conditions if multiple syncs create simultaneously)
+    await dataAccess.saveUser(newUser);
+    console.log(`[Friend Sync] Created user record for ${friendId} (${newUser.username})`);
+    return true;
+  } catch (error) {
+    // If Steam API fails, log but don't fail the sync
+    // Games and sessions can still be created without user record
+    console.error(`[Friend Sync] Failed to create user record for ${friendId}:`, error);
+    return false;
+  }
+}
+
 export async function syncFriendPlaytime(friendId: string): Promise<void> {
   try {
     const steamClient = getSteamClient();
     const dataAccess = getDataAccess();
+
+    // FIX #4: Ensure user exists before attempting to update
+    // This prevents silent failures when updateUser is called on non-existent users
+    await ensureUserExists(friendId, steamClient, dataAccess);
 
     // Try GetRecentlyPlayedGames first (more accurate for recent games)
     let recentlyPlayedGames: any[] = [];
@@ -236,7 +292,18 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
 
     if (recentlyPlayedGames.length === 0) {
       // No recently played games - just update lastSyncAt timestamp
-      await dataAccess.updateUser(friendId, { lastSyncAt: new Date() });
+      // User should exist from ensureUserExists call above, but handle gracefully if not
+      try {
+        await dataAccess.updateUser(friendId, { lastSyncAt: new Date() });
+      } catch (error) {
+        // If update fails (user still doesn't exist), try creating user again
+        const userExists = await ensureUserExists(friendId, steamClient, dataAccess);
+        if (userExists) {
+          await dataAccess.updateUser(friendId, { lastSyncAt: new Date() });
+        } else {
+          console.log(`[Friend Sync] Could not update lastSyncAt for ${friendId} (user record creation failed)`);
+        }
+      }
       console.log(`[Friend Sync] No recently played games for ${friendId}`);
       return;
     }
@@ -268,9 +335,17 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         
         if (isRecentlyPlayed) {
           // Game is recently played - create session even on first sync
-          // Use total playtime as delta (acceptable because it's recent playtime, not lifetime)
+          // Use playtime_2weeks (recent playtime) for session delta, not total lifetime playtime
+          // This accurately reflects recent activity within the 14-day window
+          const playtime2Weeks = steamGame.playtime_2weeks ?? 0;
           const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
-          const playtimeDelta = currentPlaytimeMinutes; // All playtime is "new" on first sync
+          
+          // Use playtime_2weeks for delta, but fallback to playtime_forever (capped) if 2weeks is 0 or missing
+          // Cap at 4 hours to match feed-sessions.ts logic
+          const maxSessionMinutes = 4 * 60;
+          const playtimeDelta = playtime2Weeks > 0 
+            ? Math.min(playtime2Weeks, maxSessionMinutes)
+            : Math.min(currentPlaytimeMinutes, maxSessionMinutes);
           
           // Determine last_played timestamp
           let lastPlayed: Date | undefined;
@@ -279,10 +354,10 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           } else {
             // FIX: When rtime_last_played is missing, calculate lastPlayed by subtracting playtime from syncTime
             // This prevents games from appearing as "just played" when they were actually played earlier
-            // Use playtime_2weeks if available (recent playtime), otherwise use total playtime (capped)
-            const playtimeForEstimate = steamGame.playtime_2weeks 
-              ? Math.min(steamGame.playtime_2weeks, 4 * 60) // Cap at 4 hours
-              : Math.min(currentPlaytimeMinutes, 4 * 60); // Cap at 4 hours
+            // Use playtime_2weeks if available (recent playtime), otherwise use session delta (capped)
+            const playtimeForEstimate = playtime2Weeks > 0
+              ? Math.min(playtime2Weeks, maxSessionMinutes)
+              : Math.min(playtimeDelta, maxSessionMinutes);
             lastPlayed = new Date(syncTime.getTime() - playtimeForEstimate * 60 * 1000);
           }
           
@@ -290,17 +365,16 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           if (playtimeDelta >= 5) {
             // FIX: When lastPlayed is missing, calculate sessionEnd by subtracting playtime from syncTime
             // This prevents sessions from appearing to have happened "just now" (at sync time)
-            // Cap duration at 4 hours (240 minutes) to match feed-sessions.ts logic
-            const maxSessionMinutes = 4 * 60;
-            const sessionMinutes = Math.min(playtimeDelta, maxSessionMinutes);
+            const sessionMinutes = playtimeDelta;
             
             let sessionEnd: Date;
             let calculatedSessionStart: Date;
             
             if (lastPlayed) {
-              // If we have lastPlayed, use it for both start and end
+              // Use lastPlayed as sessionEnd, calculate start by subtracting duration
+              // This ensures proper session duration instead of zero-duration sessions
               sessionEnd = lastPlayed;
-              calculatedSessionStart = lastPlayed;
+              calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
             } else {
               // Calculate end by subtracting playtime from syncTime (so it's in the past)
               // This prevents sessions from appearing to have happened "just now"
@@ -559,7 +633,18 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     }
 
     // Update user's lastSyncAt
-    await dataAccess.updateUser(friendId, { lastSyncAt: syncTime });
+    // User should exist from ensureUserExists call above, but handle gracefully if not
+    try {
+      await dataAccess.updateUser(friendId, { lastSyncAt: syncTime });
+    } catch (error) {
+      // If update fails (user still doesn't exist), try creating user again
+      const userExists = await ensureUserExists(friendId, steamClient, dataAccess);
+      if (userExists) {
+        await dataAccess.updateUser(friendId, { lastSyncAt: syncTime });
+      } else {
+        console.log(`[Friend Sync] Could not update lastSyncAt for ${friendId} (user record creation failed)`);
+      }
+    }
 
     // Enhanced logging: Show which games were synced
     const syncedGameNames = gamesToUpsert.map(g => `${g.appId} (${g.name})`).join(', ');
