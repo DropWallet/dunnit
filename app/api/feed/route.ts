@@ -497,6 +497,24 @@ export async function GET(request: NextRequest) {
       });
     }
     
+    // FIX #1: Include friends not in the users table (never synced before)
+    // This ensures new users' friends get synced on first feed load
+    const friendsInDb = new Set((allFriendsUsers || []).map((u: any) => u.steam_id));
+    const friendsNotInDb = friendSteamIds.filter(id => !friendsInDb.has(id));
+    
+    // Add friends not in DB to sync queue
+    // Limit to first 20 to prevent API overload on first sync (users with many friends)
+    const MAX_FIRST_SYNC_FRIENDS = 20;
+    const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
+    
+    if (friendsNotInDb.length > MAX_FIRST_SYNC_FRIENDS) {
+      console.log(`[Feed] Limiting first-sync friends to ${MAX_FIRST_SYNC_FRIENDS} (out of ${friendsNotInDb.length} total not in DB) to prevent API overload`);
+    }
+    
+    friendsNotInDbToSync.forEach(friendId => {
+      friendsNeedingSync.add(friendId);
+    });
+    
     if (friendsNeedingSync.size > 0) {
       // OPTIMIZATION #5: Check last_feed_sync_attempt to prevent refresh spamming
       // Only trigger sync if last attempt was >15 minutes ago
