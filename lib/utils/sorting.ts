@@ -60,19 +60,22 @@ export function getDerivedLastPlayed(
   game: Game,
   gameAchievements: Map<number, GameAchievement[]>
 ): Date | undefined {
-  // Priority 1: Use rtime_last_played if available
+  const dates: Date[] = [];
+  
+  // Collect all available dates from different sources
+  // Priority 1: Use rtime_last_played if available (from Steam API)
   if (game.lastPlayed) {
-    return new Date(game.lastPlayed);
+    dates.push(new Date(game.lastPlayed));
   }
-
+  
   // Priority 2: Use cached derived_last_played if available (from database)
   // This provides immediate sorting without needing to fetch achievements
   if (game.derivedLastPlayed) {
-    return new Date(game.derivedLastPlayed);
+    dates.push(new Date(game.derivedLastPlayed));
   }
-
+  
   // Priority 3: Find most recent achievement unlock time from in-memory achievements map
-  // This is a fallback when derived_last_played hasn't been calculated yet
+  // This is the most up-to-date source (may include achievements just unlocked)
   const achievements = gameAchievements.get(game.appId) || [];
   if (achievements.length > 0) {
     const unlockedAchievements = achievements.filter(
@@ -91,14 +94,27 @@ export function getDerivedLastPlayed(
         return currentTime > latestTime ? current : latest;
       });
       
-      return mostRecentUnlock.unlockedAt instanceof Date 
+      const unlockDate = mostRecentUnlock.unlockedAt instanceof Date 
         ? mostRecentUnlock.unlockedAt 
         : new Date(mostRecentUnlock.unlockedAt);
+      dates.push(unlockDate);
     }
   }
-
-  // Priority 4: No date available (will fall back to playtime sorting)
-  return undefined;
+  
+  // Return the most recent date from all sources
+  // This ensures we use the most accurate "last played" time, even if achievements
+  // were unlocked more recently than the Steam API's lastPlayed timestamp
+  if (dates.length === 0) {
+    return undefined; // No date available (will fall back to playtime sorting)
+  }
+  
+  // Find the most recent date
+  return dates.reduce((latest, current) => {
+    // Filter out invalid dates
+    if (isNaN(latest.getTime())) return current;
+    if (isNaN(current.getTime())) return latest;
+    return current.getTime() > latest.getTime() ? current : latest;
+  });
 }
 
 /**
