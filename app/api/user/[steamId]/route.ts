@@ -40,6 +40,9 @@ export async function GET(
 
         // Transform Steam API response to our User format
         const now = new Date();
+        // PRIVACY FIX: Set isPrivate based on communityVisibilityState
+        // 1 = Private, 2 = Friends Only, 3 = Public
+        const isPrivate = playerSummary.communityvisibilitystate === 1 || playerSummary.communityvisibilitystate === 2;
         const newUser = {
           steamId: targetSteamId,
           username: playerSummary.personaname || 'Unknown',
@@ -49,6 +52,7 @@ export async function GET(
           countryName: undefined, // Steam API doesn't provide country name directly
           joinDate: playerSummary.timecreated ? new Date(playerSummary.timecreated * 1000) : undefined,
           communityVisibilityState: playerSummary.communityvisibilitystate,
+          isPrivate: isPrivate, // PRIVACY FIX: Set privacy flag based on visibility state
           createdAt: now,
           updatedAt: now,
         };

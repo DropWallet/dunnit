@@ -472,6 +472,7 @@ export async function GET(request: NextRequest) {
       if (beforeCooldownFilter !== afterCooldownFilter) {
         console.log(`[Feed] Cooldown filter removed ${beforeCooldownFilter - afterCooldownFilter} sessions`);
       }
+      } // Close the else block that starts at line 367
     } else {
       console.log('[Feed] No achievement sessions found in game_sessions table');
     }

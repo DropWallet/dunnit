@@ -86,6 +86,10 @@ export async function GET(request: NextRequest) {
       ? new Date(playerSummary.timecreated * 1000)
       : undefined;
     
+    // PRIVACY FIX: Set isPrivate based on communityVisibilityState
+    // 1 = Private, 2 = Friends Only, 3 = Public
+    const isPrivate = playerSummary.communityvisibilitystate === 1 || playerSummary.communityvisibilitystate === 2;
+    
     await dataAccess.saveUser({
       steamId,
       username: playerSummary.personaname,
@@ -94,6 +98,8 @@ export async function GET(request: NextRequest) {
       countryCode: playerSummary.loccountrycode,
       countryName,
       joinDate,
+      communityVisibilityState: playerSummary.communityvisibilitystate,
+      isPrivate: isPrivate, // PRIVACY FIX: Set privacy flag based on visibility state
       createdAt: new Date(),
       updatedAt: new Date(),
     });
