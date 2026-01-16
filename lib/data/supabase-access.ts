@@ -26,6 +26,7 @@ export class SupabaseDataAccess implements DataAccess {
         country_name: user.countryName,
         join_date: user.joinDate?.toISOString(),
         community_visibility_state: user.communityVisibilityState,
+        is_private: user.isPrivate ?? false,
         created_at: user.createdAt.toISOString(),
         updated_at: user.updatedAt.toISOString(),
         last_sync_at: user.lastSyncAt?.toISOString(),
@@ -65,6 +66,7 @@ export class SupabaseDataAccess implements DataAccess {
       countryName: data.country_name,
       joinDate: data.join_date ? new Date(data.join_date) : undefined,
       communityVisibilityState: data.community_visibility_state,
+      isPrivate: data.is_private ?? false,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
       lastSyncAt: data.last_sync_at ? new Date(data.last_sync_at) : undefined,
@@ -84,6 +86,7 @@ export class SupabaseDataAccess implements DataAccess {
     if (updates.countryName) updateData.country_name = updates.countryName;
     if (updates.joinDate) updateData.join_date = updates.joinDate.toISOString();
     if (updates.communityVisibilityState !== undefined) updateData.community_visibility_state = updates.communityVisibilityState;
+    if (updates.isPrivate !== undefined) updateData.is_private = updates.isPrivate;
     if (updates.lastSyncAt) updateData.last_sync_at = updates.lastSyncAt.toISOString();
     if (updates.lastFeedSyncAttempt) updateData.last_feed_sync_attempt = updates.lastFeedSyncAttempt.toISOString();
 

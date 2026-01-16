@@ -10,6 +10,7 @@ export interface User {
   countryName?: string;
   joinDate?: Date;
   communityVisibilityState?: number;
+  isPrivate?: boolean; // Privacy flag: true when profile is private (401 from Steam API)
   createdAt: Date;
   updatedAt: Date;
   lastSyncAt?: Date;

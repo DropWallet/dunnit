@@ -21,9 +21,204 @@ import {
 const COOLDOWN_MINUTES = 30;
 const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
+const SYNC_TIMEOUT_MS = 5000; // 5 second timeout for friend syncs
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0; // Disable ISR caching
+
+/**
+ * Sync friends for feed - runs BEFORE querying sessions to ensure feed is populated
+ * This fixes the timing issue where feed queries sessions before syncs complete
+ */
+async function syncFriendsForFeed(
+  friendSteamIds: string[],
+  steamId: string,
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  dataAccess: ReturnType<typeof getDataAccess>,
+  now: Date
+): Promise<void> {
+  // FIX 2: Sync-on-Read: Sync stale friends who have recently played games (within 14 days)
+  // Also sync friends who haven't been synced recently or have no games in user_games
+  // This fixes the chicken-and-egg problem where friends with no games in DB aren't synced
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  
+  // Step 1: Query user_games to find friends with recently played games
+  // Query all friends' games and filter in JavaScript (more reliable than complex SQL OR)
+  const { data: allFriendsGamesData, error: gamesQueryError } = await supabase
+    .from('user_games')
+    .select('user_id, last_played, derived_last_played')
+    .in('user_id', friendSteamIds);
+  
+  if (gamesQueryError) {
+    console.error('[Feed] Error querying user_games for recently played games:', gamesQueryError);
+  }
+  
+  // Extract unique friend IDs who have recently played games
+  // Check both last_played and derived_last_played
+  const friendsWithRecentPlaytime = new Set<string>();
+  const friendsWithGamesInDb = new Set<string>();
+  if (allFriendsGamesData) {
+    allFriendsGamesData.forEach((game: any) => {
+      friendsWithGamesInDb.add(game.user_id);
+      const lastPlayed = game.last_played ? new Date(game.last_played) : null;
+      const derivedLastPlayed = game.derived_last_played ? new Date(game.derived_last_played) : null;
+      
+      // Check if either last_played or derived_last_played is within 14 days
+      if ((lastPlayed && lastPlayed > fourteenDaysAgo) || 
+          (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo)) {
+        friendsWithRecentPlaytime.add(game.user_id);
+      }
+    });
+  }
+  
+  // Step 2: Also check friends who haven't been synced recently or have no games in DB
+  // Query users table to check lastSyncAt for all friends
+  const { data: allFriendsUsers, error: usersQueryError } = await supabase
+    .from('users')
+    .select('steam_id, last_sync_at')
+    .in('steam_id', friendSteamIds);
+  
+  if (usersQueryError) {
+    console.error('[Feed] Error querying users for lastSyncAt:', usersQueryError);
+  }
+  
+  // Find friends who need syncing:
+  // 1. Friends with recent playtime in DB (already found above)
+  // 2. Friends who haven't been synced recently (>14 days) or never synced
+  const friendsNeedingSync = new Set<string>(friendsWithRecentPlaytime);
+  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  
+  if (allFriendsUsers) {
+    allFriendsUsers.forEach((user: any) => {
+      const lastSyncAt = user.last_sync_at ? new Date(user.last_sync_at) : null;
+      const hasGamesInDb = friendsWithGamesInDb.has(user.steam_id);
+      
+      // Add friend if:
+      // - Never synced (lastSyncAt is null), OR
+      // - Last synced >14 days ago, OR
+      // - Has no games in DB (first-time sync needed)
+      if (!lastSyncAt || lastSyncAt < twoWeeksAgo || !hasGamesInDb) {
+        friendsNeedingSync.add(user.steam_id);
+      }
+    });
+  }
+  
+  // FIX #1: Include friends not in the users table (never synced before)
+  // This ensures new users' friends get synced on first feed load
+  const friendsInDb = new Set((allFriendsUsers || []).map((u: any) => u.steam_id));
+  const friendsNotInDb = friendSteamIds.filter(id => !friendsInDb.has(id));
+  
+  // Add friends not in DB to sync queue
+  // Limit to first 20 to prevent API overload on first sync (users with many friends)
+  const MAX_FIRST_SYNC_FRIENDS = 20;
+  const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
+  
+  if (friendsNotInDb.length > MAX_FIRST_SYNC_FRIENDS) {
+    console.log(`[Feed] Limiting first-sync friends to ${MAX_FIRST_SYNC_FRIENDS} (out of ${friendsNotInDb.length} total not in DB) to prevent API overload`);
+  }
+  
+  friendsNotInDbToSync.forEach(friendId => {
+    friendsNeedingSync.add(friendId);
+  });
+  
+  if (friendsNeedingSync.size > 0) {
+    // OPTIMIZATION #5: Check last_feed_sync_attempt to prevent refresh spamming
+    // Only trigger sync if last attempt was >15 minutes ago
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    
+    // Fetch last_feed_sync_attempt for all friends needing sync
+    const friendsNeedingSyncArray = Array.from(friendsNeedingSync);
+    const friendsToCheck = await Promise.all(
+      friendsNeedingSyncArray.map(async (friendId) => {
+        const friend = await dataAccess.getUser(friendId);
+        return {
+          friendId,
+          lastFeedSyncAttempt: friend?.lastFeedSyncAttempt,
+        };
+      })
+    );
+    
+    // Filter out friends who had a sync attempt within the last 15 minutes
+    // BUT: Prioritize staleness over cooldown - stale friends (>2 hours) always sync
+    const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    
+    // First, identify stale friends (bypass cooldown)
+    const staleFriendIds = new Set<string>();
+    if (allFriendsUsers) {
+      allFriendsUsers.forEach((user: any) => {
+        const lastSyncAt = user.last_sync_at ? new Date(user.last_sync_at) : null;
+        // Friend is stale if never synced or last sync >2 hours ago
+        if (!lastSyncAt || lastSyncAt < staleThreshold) {
+          staleFriendIds.add(user.steam_id);
+        }
+      });
+    }
+    // Also include friends not in DB (never synced = stale)
+    friendsNotInDbToSync.forEach(friendId => staleFriendIds.add(friendId));
+    
+    // Filter friends: stale friends bypass cooldown, others respect 15-minute cooldown
+    const friendsToSync = friendsToCheck
+      .filter(f => {
+        // Stale friends always sync (bypass cooldown)
+        if (staleFriendIds.has(f.friendId)) {
+          return true;
+        }
+        // Fresh friends respect 15-minute cooldown
+        return !f.lastFeedSyncAttempt || f.lastFeedSyncAttempt < fifteenMinutesAgo;
+      })
+      .map(f => f.friendId);
+    
+    if (friendsToSync.length === 0) {
+      console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
+    } else {
+      // Check staleness (2 hour threshold) - only sync if stale
+      // This double-checks and ensures we only sync truly stale friends
+      const staleFriends = await getStaleFriends(friendsToSync, staleThreshold);
+
+      if (staleFriends.length > 0) {
+        // OPTIMIZATION #5: Update last_feed_sync_attempt for all friends we're about to sync
+        // This prevents refresh spamming even if sync fails
+        const updateTime = new Date();
+        await Promise.allSettled(
+          staleFriends.map(friendId => 
+            dataAccess.updateUser(friendId, { lastFeedSyncAttempt: updateTime })
+          )
+        );
+        
+        console.log(`[Feed] Found ${staleFriends.length} stale friends needing sync (out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts):`);
+        console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
+        console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
+        console.log(`  - Syncing friends BEFORE querying sessions (with ${SYNC_TIMEOUT_MS}ms timeout)`);
+        
+        // FIX #2: Await sync with timeout instead of fire-and-forget
+        // This ensures sessions are available when we query, fixing empty feed for new users
+        try {
+          const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
+          
+          // Wait for sync with timeout
+          const timeoutPromise = new Promise<void>((_, reject) => {
+            setTimeout(() => reject(new Error('Sync timeout')), SYNC_TIMEOUT_MS);
+          });
+          
+          await Promise.race([syncPromise, timeoutPromise]);
+          console.log(`[Feed] ✅ Friend sync completed within timeout`);
+        } catch (error) {
+          // If timeout or error, log but continue - feed will still work with existing sessions
+          // Background sync will continue to run
+          if (error instanceof Error && error.message === 'Sync timeout') {
+            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions (background sync will continue)`);
+          } else {
+            console.error('[Feed] Friend sync failed:', error);
+          }
+        }
+      } else {
+        console.log(`[Feed] All ${friendsToSync.length} friends needing sync are fresh (synced within 2 hours)`);
+      }
+    }
+  } else {
+    console.log(`[Feed] No friends needing sync found`);
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -95,9 +290,13 @@ export async function GET(request: NextRequest) {
     const lookbackDate = new Date(now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const sinceDate = since ? new Date(since) : null;
 
-    // LEDGER APPROACH: Query achievement sessions from game_sessions table
+    // LEDGER APPROACH: Initialize data access
     const supabase = getSupabaseAdmin();
     const dataAccess = getDataAccess();
+    
+    // FIX #2: Sync friends BEFORE querying sessions to ensure feed is populated on first load
+    // This fixes the timing issue where feed queries sessions before syncs complete
+    await syncFriendsForFeed(friendSteamIds, steamId, supabase, dataAccess, now);
     
     console.log('[Feed] Querying achievement sessions from game_sessions table...');
     console.log(`[Feed] Lookback window: ${MAX_LOOKBACK_DAYS} days, lookback date: ${lookbackDate.toISOString()}`);
@@ -138,16 +337,40 @@ export async function GET(request: NextRequest) {
       const achievementUserIds = [...new Set(achievementSessionsFromDB.map(s => s.userId))];
       const achievementAppIds = [...new Set(achievementSessionsFromDB.map(s => s.appId))];
       
-      // Batch fetch users and games
-      const [usersData, gamesData, allAchievementsData] = await Promise.all([
-        supabase
-          .from("users")
-          .select("steam_id, username, avatar_url, profile_url")
-          .in("steam_id", achievementUserIds),
+      // PRIVACY FIX: Fetch users first to identify private users
+      const { data: usersData } = await supabase
+        .from("users")
+        .select("steam_id, username, avatar_url, profile_url, is_private")
+        .in("steam_id", achievementUserIds);
+      
+      // Create map of private users
+      const privateUserIds = new Set(
+        (usersData || [])
+          .filter((u: any) => u.is_private === true)
+          .map((u: any) => u.steam_id)
+      );
+      
+      // Filter out sessions from private users
+      const publicSessions = achievementSessionsFromDB.filter(
+        session => !privateUserIds.has(session.userId)
+      );
+      
+      if (privateUserIds.size > 0) {
+        console.log(`[Feed] 🔒 Filtered out ${achievementSessionsFromDB.length - publicSessions.length} sessions from ${privateUserIds.size} private users`);
+      }
+      
+      // Only fetch data for public users
+      const publicUserIds = achievementUserIds.filter(id => !privateUserIds.has(id));
+      
+      if (publicSessions.length === 0) {
+        console.log(`[Feed] No public sessions after privacy filtering`);
+      } else {
+        // Batch fetch games and achievements (only public users)
+        const [gamesData, allAchievementsData] = await Promise.all([
         supabase
           .from("user_games")
           .select("user_id, app_id, name, cover_image_url, icon_url")
-          .in("user_id", achievementUserIds)
+          .in("user_id", publicUserIds)
           .in("app_id", achievementAppIds),
         supabase
           .from("achievements")
@@ -156,7 +379,9 @@ export async function GET(request: NextRequest) {
       ]);
       
       const usersMap = new Map(
-        (usersData.data || []).map((u: any) => [u.steam_id, u])
+        (usersData || [])
+          .filter((u: any) => !u.is_private) // Only include public users
+          .map((u: any) => [u.steam_id, u])
       );
       const gamesMap = new Map(
         (gamesData.data || []).map((g: any) => [`${g.user_id}-${g.app_id}`, g])
@@ -165,8 +390,8 @@ export async function GET(request: NextRequest) {
         (allAchievementsData.data || []).map((ach: any) => [`${ach.app_id}-${ach.api_name}`, ach])
       );
       
-      // For each achievement session, fetch achievements within the time window
-      for (const gameSession of achievementSessionsFromDB) {
+      // For each public achievement session, fetch achievements within the time window
+      for (const gameSession of publicSessions) {
         const userId = gameSession.userId;
         const appId = gameSession.appId;
         
@@ -247,6 +472,7 @@ export async function GET(request: NextRequest) {
       if (beforeCooldownFilter !== afterCooldownFilter) {
         console.log(`[Feed] Cooldown filter removed ${beforeCooldownFilter - afterCooldownFilter} sessions`);
       }
+      } // Close the else block that starts at line 367
     } else {
       console.log('[Feed] No achievement sessions found in game_sessions table');
     }
@@ -431,155 +657,8 @@ export async function GET(request: NextRequest) {
       `${s.sessionId} - ${s.user.steamId === steamId ? 'YOU' : 'FRIEND'} - ${s.game.name} - ${s.sessionEnd.toISOString()}`
     ).join(', '));
 
-    // FIX 2: Sync-on-Read: Sync stale friends who have recently played games (within 14 days)
-    // Also sync friends who haven't been synced recently or have no games in user_games
-    // This fixes the chicken-and-egg problem where friends with no games in DB aren't synced
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    
-    // Step 1: Query user_games to find friends with recently played games
-    // Query all friends' games and filter in JavaScript (more reliable than complex SQL OR)
-    const { data: allFriendsGamesData, error: gamesQueryError } = await supabase
-      .from('user_games')
-      .select('user_id, last_played, derived_last_played')
-      .in('user_id', friendSteamIds);
-    
-    if (gamesQueryError) {
-      console.error('[Feed] Error querying user_games for recently played games:', gamesQueryError);
-    }
-    
-    // Extract unique friend IDs who have recently played games
-    // Check both last_played and derived_last_played
-    const friendsWithRecentPlaytime = new Set<string>();
-    const friendsWithGamesInDb = new Set<string>();
-    if (allFriendsGamesData) {
-      allFriendsGamesData.forEach((game: any) => {
-        friendsWithGamesInDb.add(game.user_id);
-        const lastPlayed = game.last_played ? new Date(game.last_played) : null;
-        const derivedLastPlayed = game.derived_last_played ? new Date(game.derived_last_played) : null;
-        
-        // Check if either last_played or derived_last_played is within 14 days
-        if ((lastPlayed && lastPlayed > fourteenDaysAgo) || 
-            (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo)) {
-          friendsWithRecentPlaytime.add(game.user_id);
-        }
-      });
-    }
-    
-    // Step 2: Also check friends who haven't been synced recently or have no games in DB
-    // Query users table to check lastSyncAt for all friends
-    const { data: allFriendsUsers, error: usersQueryError } = await supabase
-      .from('users')
-      .select('steam_id, last_sync_at')
-      .in('steam_id', friendSteamIds);
-    
-    if (usersQueryError) {
-      console.error('[Feed] Error querying users for lastSyncAt:', usersQueryError);
-    }
-    
-    // Find friends who need syncing:
-    // 1. Friends with recent playtime in DB (already found above)
-    // 2. Friends who haven't been synced recently (>14 days) or never synced
-    const friendsNeedingSync = new Set<string>(friendsWithRecentPlaytime);
-    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    
-    if (allFriendsUsers) {
-      allFriendsUsers.forEach((user: any) => {
-        const lastSyncAt = user.last_sync_at ? new Date(user.last_sync_at) : null;
-        const hasGamesInDb = friendsWithGamesInDb.has(user.steam_id);
-        
-        // Add friend if:
-        // - Never synced (lastSyncAt is null), OR
-        // - Last synced >14 days ago, OR
-        // - Has no games in DB (first-time sync needed)
-        if (!lastSyncAt || lastSyncAt < twoWeeksAgo || !hasGamesInDb) {
-          friendsNeedingSync.add(user.steam_id);
-        }
-      });
-    }
-    
-    // FIX #1: Include friends not in the users table (never synced before)
-    // This ensures new users' friends get synced on first feed load
-    const friendsInDb = new Set((allFriendsUsers || []).map((u: any) => u.steam_id));
-    const friendsNotInDb = friendSteamIds.filter(id => !friendsInDb.has(id));
-    
-    // Add friends not in DB to sync queue
-    // Limit to first 20 to prevent API overload on first sync (users with many friends)
-    const MAX_FIRST_SYNC_FRIENDS = 20;
-    const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
-    
-    if (friendsNotInDb.length > MAX_FIRST_SYNC_FRIENDS) {
-      console.log(`[Feed] Limiting first-sync friends to ${MAX_FIRST_SYNC_FRIENDS} (out of ${friendsNotInDb.length} total not in DB) to prevent API overload`);
-    }
-    
-    friendsNotInDbToSync.forEach(friendId => {
-      friendsNeedingSync.add(friendId);
-    });
-    
-    if (friendsNeedingSync.size > 0) {
-      // OPTIMIZATION #5: Check last_feed_sync_attempt to prevent refresh spamming
-      // Only trigger sync if last attempt was >15 minutes ago
-      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-      
-      // Fetch last_feed_sync_attempt for all friends needing sync
-      const friendsNeedingSyncArray = Array.from(friendsNeedingSync);
-      const friendsToCheck = await Promise.all(
-        friendsNeedingSyncArray.map(async (friendId) => {
-          const friend = await dataAccess.getUser(friendId);
-          return {
-            friendId,
-            lastFeedSyncAttempt: friend?.lastFeedSyncAttempt,
-          };
-        })
-      );
-      
-      // Filter out friends who had a sync attempt within the last 15 minutes
-      const friendsToSync = friendsToCheck
-        .filter(f => !f.lastFeedSyncAttempt || f.lastFeedSyncAttempt < fifteenMinutesAgo)
-        .map(f => f.friendId);
-      
-      if (friendsToSync.length === 0) {
-        console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
-      } else {
-        // Check staleness (2 hour threshold) - only sync if stale
-        const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000);
-        const staleFriends = await getStaleFriends(friendsToSync, staleThreshold);
-
-        if (staleFriends.length > 0) {
-          // OPTIMIZATION #5: Update last_feed_sync_attempt for all friends we're about to sync
-          // This prevents refresh spamming even if sync fails
-          const now = new Date();
-          await Promise.allSettled(
-            staleFriends.map(friendId => 
-              dataAccess.updateUser(friendId, { lastFeedSyncAttempt: now })
-            )
-          );
-          
-          console.log(`[Feed] Found ${staleFriends.length} stale friends needing sync (out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts):`);
-          console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
-          console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
-          console.log(`  - Triggering background sync`);
-          
-          // Trigger background sync (fire-and-forget)
-          // Use waitUntil if available (Next.js/Vercel), otherwise just fire-and-forget
-          const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
-          
-          // Try to use waitUntil if available (Next.js 13+)
-          if (typeof (globalThis as any).waitUntil === 'function') {
-            (globalThis as any).waitUntil(syncPromise);
-          } else {
-            // Fire-and-forget - don't await, let it run in background
-            syncPromise.catch(error => {
-              console.error('[Feed] Background friend sync failed:', error);
-              // Don't throw - this is non-critical
-            });
-          }
-        } else {
-          console.log(`[Feed] All ${friendsToSync.length} friends needing sync are fresh (synced within 2 hours)`);
-        }
-      }
-    } else {
-      console.log(`[Feed] No friends needing sync found`);
-    }
+    // Note: Friend sync now happens BEFORE querying sessions (see syncFriendsForFeed above)
+    // This ensures sessions are available when building the feed, fixing empty feed for new users
 
     // Sort by sessionEnd descending (newest first)
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
