@@ -330,8 +330,8 @@ export async function GET(request: NextRequest) {
             // Use total playtime as delta (acceptable because it's recent playtime, not lifetime)
             const playtimeDelta = game.playtimeMinutes; // All playtime is "new" on first sync
             
-            // Only create session if delta >= 5 minutes
-            if (playtimeDelta >= 5) {
+            // Only create session if delta >= 3 minutes
+            if (playtimeDelta >= 3) {
               const sessionEnd = game.lastPlayed;
               const calculatedSessionStart = game.lastPlayed;
               const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
@@ -385,7 +385,7 @@ export async function GET(request: NextRequest) {
             } else {
               // Delta too small
               await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
-              console.log(`[Games API] ⏭️ Skipping first-sync session for ${game.appId} (${game.name}): delta too small (${playtimeDelta}min < 5min)`);
+              console.log(`[Games API] ⏭️ Skipping first-sync session for ${game.appId} (${game.name}): delta too small (${playtimeDelta}min < 3min)`);
               continue;
             }
           } else {
@@ -408,8 +408,8 @@ export async function GET(request: NextRequest) {
           console.log(`[Games API] 📊 Baseline check for ${game.appId} (${game.name}): previous=${previousPlaytime}min, current=${currentPlaytime}min, delta=${playtimeDelta}min${playtimeDelta === 0 ? ' ✅ (FIX 1 working - no phantom session)' : ''}`);
         }
         
-        // Only create sessions for games with meaningful playtime increases (>= 5 minutes)
-        if (playtimeDelta >= 5) {
+        // Only create sessions for games with meaningful playtime increases (>= 3 minutes)
+        if (playtimeDelta >= 3) {
           // FIX 2: Calculate session end time - use lastPlayed if available (regardless of age)
           // If lastPlayed is not available, use current time minus a small offset
           const now = new Date();
@@ -547,13 +547,102 @@ export async function GET(request: NextRequest) {
             console.log(`[Games API] ✅ FIX 1: Updated baseline for game ${game.appId} (${game.name}): previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
           }
         } else if (playtimeDelta > 0) {
-          // FIX 1: Even if delta < 5, update baseline if playtime changed
+          // FIX 1: Even if delta < 3, update baseline if playtime changed
           // This ensures the baseline stays in sync even for small changes
           gamesWithSmallDelta++;
           await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
           console.log(`[Games API] ✅ FIX 1: Updated baseline for game ${game.appId} (${game.name}): delta=${playtimeDelta}min (too small for session), previousPlaytimeMinutes = ${game.playtimeMinutes}min (was ${previousPlaytime}min)`);
         } else if (playtimeDelta === 0) {
-          // Delta is 0 - baseline is already correct, no action needed
+          // Handle delta = 0 but recent activity exists (playtime_2weeks > 0 or last_played within 14 days)
+          // This fixes cases where games were synced after playtime was already at current value
+          const playtime2Weeks = game.playtime2WeeksMinutes ?? 0;
+          const now = new Date();
+          const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+          const hasRecentActivity = playtime2Weeks > 0 || (game.lastPlayed && game.lastPlayed >= fourteenDaysAgo);
+          
+          if (hasRecentActivity && playtime2Weeks >= 3) {
+            // Check if session already exists for this game/user within 14 days
+            const existingSessions = await dataAccess.getGameSessions([steamId], 100, 0, 14);
+            const existingSession = existingSessions.find(
+              s => s.appId === game.appId && s.type === 'playtime'
+            );
+            
+            // Create new session if:
+            // 1. No existing session, OR
+            // 2. playtime_2weeks has increased since existing session was created (new playtime occurred)
+            const shouldCreateSession = !existingSession || playtime2Weeks > (existingSession.playtimeDelta ?? 0);
+            
+            if (shouldCreateSession) {
+              // Create session using playtime_2weeks as duration
+              const maxSessionMinutes = 4 * 60;
+              const sessionMinutes = Math.min(Math.max(playtime2Weeks, 3), maxSessionMinutes); // Min 3, max 4 hours
+              
+              let sessionEnd: Date;
+              let calculatedSessionStart: Date;
+              
+              // FIX: When playtime_2weeks increased but delta=0, verify lastPlayed changed before using current time
+              // playtime_2weeks is a rolling window - it can increase if old playtime drops out, not just new playtime
+              // Only use current time if lastPlayed is recent (within 2 hours) or has changed
+              const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+              const lastPlayedIsRecent = game.lastPlayed && game.lastPlayed >= twoHoursAgo;
+              
+              if (existingSession && playtime2Weeks > (existingSession.playtimeDelta ?? 0)) {
+                // playtime_2weeks increased - check if lastPlayed is recent or changed
+                if (lastPlayedIsRecent) {
+                  // lastPlayed is recent - safe to use current time
+                  sessionEnd = now;
+                  calculatedSessionStart = new Date(now.getTime() - sessionMinutes * 60 * 1000);
+                } else if (game.lastPlayed) {
+                  // lastPlayed is stale - use lastPlayed instead of current time to avoid phantom sessions
+                  // This prevents creating sessions in the future when Steam's rolling window updates
+                  sessionEnd = game.lastPlayed;
+                  calculatedSessionStart = new Date(game.lastPlayed.getTime() - sessionMinutes * 60 * 1000);
+                } else {
+                  // No lastPlayed - use current time but flag as estimated
+                  sessionEnd = now;
+                  calculatedSessionStart = new Date(now.getTime() - sessionMinutes * 60 * 1000);
+                }
+              } else if (game.lastPlayed) {
+                // Use lastPlayed as sessionEnd, calculate start by subtracting duration
+                sessionEnd = game.lastPlayed;
+                calculatedSessionStart = new Date(game.lastPlayed.getTime() - sessionMinutes * 60 * 1000);
+              } else {
+                // Calculate end by subtracting playtime from syncTime (so it's in the past)
+                sessionEnd = new Date(now.getTime() - sessionMinutes * 60 * 1000);
+                // Calculate start by subtracting playtime from end (to create proper duration)
+                calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+              }
+              
+              const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
+              
+              // Double-check for existing session with same start time (safety check)
+              const existingSessionByStartTime = await dataAccess.getGameSessionByStartTime(steamId, game.appId, sessionStartRounded);
+              
+              if (!existingSessionByStartTime) {
+                const newSession: GameSession = {
+                  userId: steamId,
+                  appId: game.appId,
+                  playtimeDelta: playtime2Weeks, // Use playtime_2weeks as delta for display
+                  sessionStart: calculatedSessionStart,
+                  sessionEnd: sessionEnd,
+                  type: 'playtime',
+                };
+                await dataAccess.saveGameSession(newSession);
+                if (existingSession) {
+                  console.log(`[Games API] ✨ Created new session for game ${game.appId} (${game.name}): delta=0 but playtime_2weeks increased (${playtime2Weeks}min > ${existingSession.playtimeDelta}min from existing session)`);
+                } else {
+                  console.log(`[Games API] ✨ Created session for game ${game.appId} (${game.name}): delta=0 but recent activity (playtime_2weeks=${playtime2Weeks}min, last_played=${game.lastPlayed ? game.lastPlayed.toISOString() : 'NULL'})`);
+                }
+                sessionsCreated++;
+              } else {
+                console.log(`[Games API] ⏭️ Skipping session creation for ${game.appId}: session already exists with same start time (delta=0 case)`);
+              }
+            } else {
+              console.log(`[Games API] ⏭️ Skipping session creation for ${game.appId}: session already exists within 14 days and playtime_2weeks unchanged (${playtime2Weeks}min, existing=${existingSession.playtimeDelta}min)`);
+            }
+          }
+          
+          // Always update baseline even when delta = 0 (to keep it in sync)
           gamesWithZeroDelta++;
         }
       }
@@ -566,7 +655,7 @@ export async function GET(request: NextRequest) {
         console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithZeroDelta} game(s) with delta=0min (baseline working correctly - no phantom sessions)`);
       }
       if (gamesWithSmallDelta > 0) {
-        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithSmallDelta} game(s) with small delta (<5min) - baseline updated to prevent future phantoms`);
+        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithSmallDelta} game(s) with small delta (<3min) - baseline updated to prevent future phantoms`);
       }
       
       // Update user's last sync time

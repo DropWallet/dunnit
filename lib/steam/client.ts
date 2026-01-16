@@ -5,6 +5,7 @@ import type {
   SteamPlayerAchievementsResponse,
   SteamGameSchemaResponse,
 } from './types';
+import { getCircuitBreaker, isServerError } from '@/lib/utils/circuit-breaker';
 
 const STEAM_API_BASE = 'https://api.steampowered.com';
 const STEAM_STORE_API = 'https://store.steampowered.com/api';
@@ -23,13 +24,32 @@ export class SteamAPIClient {
    * Get player summary (profile info)
    */
   async getPlayerSummary(steamId: string): Promise<SteamPlayerSummary | null> {
+    const circuitBreaker = getCircuitBreaker();
+    
+    // Check if circuit is open (tripped)
+    if (circuitBreaker.isCircuitOpen()) {
+      throw new Error('Steam API circuit breaker is open - API is unavailable (likely maintenance)');
+    }
+    
     try {
       const url = `${STEAM_API_BASE}/ISteamUser/GetPlayerSummaries/v0002/?key=${this.apiKey}&steamids=${steamId}`;
       const response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error(`Steam API error: ${response.status}`);
+        const error = new Error(`Steam API error: ${response.status}`);
+        
+        // Record 5xx errors to circuit breaker
+        if (response.status >= 500 && response.status < 600) {
+          circuitBreaker.recordFailure();
+        } else {
+          circuitBreaker.recordNonServerError();
+        }
+        
+        throw error;
       }
+
+      // Record success
+      circuitBreaker.recordSuccess();
 
       const data: SteamPlayerSummariesResponse = await response.json();
       
@@ -39,6 +59,11 @@ export class SteamAPIClient {
       
       return null;
     } catch (error) {
+      // Check if this is a server error we haven't caught yet
+      if (isServerError(error)) {
+        circuitBreaker.recordFailure();
+      }
+      
       console.error('Error fetching player summary:', error);
       throw error;
     }
@@ -71,17 +96,41 @@ export class SteamAPIClient {
    * This endpoint always returns games played in the last 14 days with playtime_2weeks
    */
   async getRecentlyPlayedGames(steamId: string): Promise<SteamOwnedGamesResponse> {
+    const circuitBreaker = getCircuitBreaker();
+    
+    // Check if circuit is open (tripped)
+    if (circuitBreaker.isCircuitOpen()) {
+      throw new Error('Steam API circuit breaker is open - API is unavailable (likely maintenance)');
+    }
+    
     try {
       const url = `${STEAM_API_BASE}/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${this.apiKey}&steamid=${steamId}&format=json`;
       const response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error(`Steam API error: ${response.status}`);
+        const error = new Error(`Steam API error: ${response.status}`);
+        
+        // Record 5xx errors to circuit breaker
+        if (response.status >= 500 && response.status < 600) {
+          circuitBreaker.recordFailure();
+        } else {
+          circuitBreaker.recordNonServerError();
+        }
+        
+        throw error;
       }
+
+      // Record success
+      circuitBreaker.recordSuccess();
 
       const data: SteamOwnedGamesResponse = await response.json();
       return data;
     } catch (error) {
+      // Check if this is a server error we haven't caught yet
+      if (isServerError(error)) {
+        circuitBreaker.recordFailure();
+      }
+      
       console.error('Error fetching recently played games:', error);
       throw error;
     }
@@ -258,17 +307,34 @@ export class SteamAPIClient {
    * Get friend list for a user
    */
   async getFriendList(steamId: string): Promise<string[]> {
+    const circuitBreaker = getCircuitBreaker();
+    
+    // Check if circuit is open (tripped)
+    if (circuitBreaker.isCircuitOpen()) {
+      throw new Error('Steam API circuit breaker is open - API is unavailable (likely maintenance)');
+    }
+    
     try {
       const url = `${STEAM_API_BASE}/ISteamUser/GetFriendList/v0001/?key=${this.apiKey}&steamid=${steamId}&relationship=friend`;
       const response = await fetch(url);
       
       if (!response.ok) {
-        // 401 is expected for private profiles - don't log
-        if (response.status !== 401) {
+        const error = new Error(`Steam API error: ${response.status}`);
+        
+        // Record 5xx errors to circuit breaker (401 is expected for private profiles, don't count)
+        if (response.status >= 500 && response.status < 600) {
+          circuitBreaker.recordFailure();
+        } else if (response.status !== 401) {
+          // 401 is expected for private profiles - don't log or count
+          circuitBreaker.recordNonServerError();
           console.error(`Unexpected error fetching friend list (${response.status}):`, steamId);
         }
-        throw new Error(`Steam API error: ${response.status}`);
+        
+        throw error;
       }
+
+      // Record success
+      circuitBreaker.recordSuccess();
 
       const data = await response.json();
       
@@ -279,6 +345,11 @@ export class SteamAPIClient {
       
       return [];
     } catch (error) {
+      // Check if this is a server error we haven't caught yet
+      if (isServerError(error)) {
+        circuitBreaker.recordFailure();
+      }
+      
       // Only log unexpected errors (not 401 which is expected for private profiles)
       if (error instanceof Error && !error.message.includes('401')) {
         console.error('Error fetching friend list:', error);
