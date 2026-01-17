@@ -269,11 +269,14 @@ export async function GET(request: NextRequest) {
     // Include the logged-in user's own activity in the feed
     const targetUserIds = [steamId, ...friendSteamIds];
     
-    // Debug: Check if specific user is in the list
-    const DEBUG_USER_ID = '76561198024338178';
-    console.log('[Playtime Detection] Target user IDs:', targetUserIds.length, 'users');
-    console.log('[Playtime Detection] Looking for user', DEBUG_USER_ID + ':', targetUserIds.includes(DEBUG_USER_ID));
-
+    // Special logging for user 76561197998756770 (defined once at function level)
+    const TARGET_USER_ID = '76561197998756770';
+    if (targetUserIds.includes(TARGET_USER_ID)) {
+      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is in target user list (friend count: ${friendSteamIds.length})`);
+    } else {
+      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is NOT in target user list (friend count: ${friendSteamIds.length})`);
+    }
+    
     // Apply friend filter if provided
     if (friendId) {
       if (!targetUserIds.includes(friendId)) {
@@ -298,7 +301,6 @@ export async function GET(request: NextRequest) {
     // This fixes the timing issue where feed queries sessions before syncs complete
     await syncFriendsForFeed(friendSteamIds, steamId, supabase, dataAccess, now);
     
-    console.log('[Feed] Querying achievement sessions from game_sessions table...');
     console.log(`[Feed] Lookback window: ${MAX_LOOKBACK_DAYS} days, lookback date: ${lookbackDate.toISOString()}`);
     
     // Query achievement sessions from game_sessions (already filtered by lookback in getGameSessions)
@@ -328,6 +330,28 @@ export async function GET(request: NextRequest) {
     });
     
     console.log(`[Feed] Found ${achievementSessionsFromDB.length} achievement sessions from game_sessions (after cooldown filter)`);
+    
+    // Special logging for user 76561197998756770 - achievement sessions
+    const targetUserAchievementSessions = achievementSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
+    if (targetUserAchievementSessions.length > 0) {
+      console.log(`[Feed] 🔍 DEBUG: Found ${targetUserAchievementSessions.length} achievement sessions for ${TARGET_USER_ID} before processing:`);
+      targetUserAchievementSessions.forEach(s => {
+        console.log(`[Feed] 🔍 DEBUG:   - AppId ${s.appId}: start=${s.sessionStart.toISOString()}, end=${s.sessionEnd.toISOString()}, id=${s.id}, cooldownPassed=${s.sessionEnd <= cooldownThreshold}`);
+      });
+    } else {
+      console.log(`[Feed] 🔍 DEBUG: No achievement sessions found for ${TARGET_USER_ID} in game_sessions table (after cooldown filter)`);
+      // Check if they exist before cooldown filter
+      const beforeCooldown = allGameSessions.filter(s => s.type === 'achievement' && s.userId === TARGET_USER_ID);
+      if (beforeCooldown.length > 0) {
+        console.log(`[Feed] 🔍 DEBUG: Found ${beforeCooldown.length} achievement sessions for ${TARGET_USER_ID} BEFORE cooldown filter:`);
+        beforeCooldown.forEach(s => {
+          const cooldownPassed = s.sessionEnd <= cooldownThreshold;
+          console.log(`[Feed] 🔍 DEBUG:   - AppId ${s.appId}: start=${s.sessionStart.toISOString()}, end=${s.sessionEnd.toISOString()}, id=${s.id}, cooldownPassed=${cooldownPassed}, cooldownThreshold=${cooldownThreshold.toISOString()}`);
+        });
+      } else {
+        console.log(`[Feed] 🔍 DEBUG: No achievement sessions found for ${TARGET_USER_ID} in game_sessions table at all`);
+      }
+    }
     
     // Convert GameSession to FeedSession by fetching achievement details
     let sessions: FeedSession[] = [];
@@ -395,6 +419,11 @@ export async function GET(request: NextRequest) {
         const userId = gameSession.userId;
         const appId = gameSession.appId;
         
+        // Extra logging for target user
+        if (userId === TARGET_USER_ID) {
+          console.log(`[Feed] 🔍 DEBUG: Processing achievement session for ${TARGET_USER_ID} - AppId ${appId}`);
+        }
+        
         // Fetch achievements for this user/game within the session time window
         const { data: sessionAchievementsData } = await supabase
           .from("user_achievements")
@@ -456,11 +485,6 @@ export async function GET(request: NextRequest) {
           console.log(`[Feed] ⚠️ GameSession ${gameSession.id} (${userId}-${appId}) split into ${achievementSessions.length} FeedSessions`);
         }
         
-        // Debug: Log sessionIds being created
-        achievementSessions.forEach(s => {
-          console.log(`[Feed] Created achievement FeedSession: ${s.sessionId} (user: ${s.user.steamId}, game: ${s.game.appId}, end: ${s.sessionEnd.toISOString()})`);
-        });
-        
         sessions.push(...achievementSessions);
       }
       
@@ -478,8 +502,6 @@ export async function GET(request: NextRequest) {
     }
 
     // LEDGER APPROACH: Query playtime sessions from game_sessions table
-    console.log('[Feed] Querying playtime sessions from game_sessions table...');
-    
     // Calculate date filters
     const playtimeCooldownThreshold = new Date(now.getTime() - COOLDOWN_MINUTES * 60 * 1000);
     const playtimeLookbackDate = new Date(now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
@@ -496,8 +518,30 @@ export async function GET(request: NextRequest) {
     
     console.log(`[Feed] Found ${playtimeSessionsFromDB.length} playtime sessions from game_sessions (after cooldown filter)`);
     
-    // Deduplicate GameSession records by (userId, appId, sessionStart) before converting to FeedSession
-    // This prevents duplicate FeedSessions from being created
+    // Special logging for user 76561197998756770
+    const targetUserPlaytimeSessions = playtimeSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
+    if (targetUserPlaytimeSessions.length > 0) {
+      console.log(`[Feed] 🔍 DEBUG: Found ${targetUserPlaytimeSessions.length} playtime sessions for ${TARGET_USER_ID} before deduplication:`);
+      targetUserPlaytimeSessions.forEach(s => {
+        console.log(`[Feed] 🔍 DEBUG:   - AppId ${s.appId}: start=${s.sessionStart.toISOString()}, end=${s.sessionEnd.toISOString()}, delta=${s.playtimeDelta}min, id=${s.id}, cooldownPassed=${s.sessionEnd <= playtimeCooldownThreshold}`);
+      });
+    } else {
+      console.log(`[Feed] 🔍 DEBUG: No playtime sessions found for ${TARGET_USER_ID} in game_sessions table (after cooldown filter)`);
+      // Check if they exist before cooldown filter
+      const beforeCooldown = gameSessions.filter(s => s.type === 'playtime' && s.userId === TARGET_USER_ID);
+      if (beforeCooldown.length > 0) {
+        console.log(`[Feed] 🔍 DEBUG: Found ${beforeCooldown.length} playtime sessions for ${TARGET_USER_ID} BEFORE cooldown filter:`);
+        beforeCooldown.forEach(s => {
+          const cooldownPassed = s.sessionEnd <= playtimeCooldownThreshold;
+          console.log(`[Feed] 🔍 DEBUG:   - AppId ${s.appId}: start=${s.sessionStart.toISOString()}, end=${s.sessionEnd.toISOString()}, delta=${s.playtimeDelta}min, id=${s.id}, cooldownPassed=${cooldownPassed}, cooldownThreshold=${playtimeCooldownThreshold.toISOString()}`);
+        });
+      } else {
+        console.log(`[Feed] 🔍 DEBUG: No playtime sessions found for ${TARGET_USER_ID} in game_sessions table at all`);
+      }
+    }
+    
+    // Enhanced deduplication: Check both sessionStart AND sessionEnd to catch duplicates
+    // Pass 1: Deduplicate by (userId, appId, sessionStart) - existing logic
     const gameSessionMap = new Map<string, typeof playtimeSessionsFromDB[0]>();
     const duplicateGameSessions: typeof playtimeSessionsFromDB[0][] = [];
     
@@ -514,16 +558,49 @@ export async function GET(request: NextRequest) {
         if (gameSession.playtimeDelta > existing.playtimeDelta) {
           duplicateGameSessions.push(existing);
           gameSessionMap.set(dedupKey, gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected: ${dedupKey} (keeping delta ${gameSession.playtimeDelta}min, discarding ${existing.playtimeDelta}min, GameSession IDs: ${gameSession.id} vs ${existing.id})`);
+          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionStart): ${dedupKey} (keeping delta ${gameSession.playtimeDelta}min, discarding ${existing.playtimeDelta}min, GameSession IDs: ${gameSession.id} vs ${existing.id})`);
         } else {
           duplicateGameSessions.push(gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected: ${dedupKey} (keeping delta ${existing.playtimeDelta}min, discarding ${gameSession.playtimeDelta}min, GameSession IDs: ${existing.id} vs ${gameSession.id})`);
+          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionStart): ${dedupKey} (keeping delta ${existing.playtimeDelta}min, discarding ${gameSession.playtimeDelta}min, GameSession IDs: ${existing.id} vs ${gameSession.id})`);
         }
       }
     });
     
-    const deduplicatedGameSessions = Array.from(gameSessionMap.values());
-    console.log(`[Feed] Deduplicated GameSessions: ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length} duplicates removed)`);
+    let deduplicatedGameSessions = Array.from(gameSessionMap.values());
+    console.log(`[Feed] Pass 1 deduplication (by sessionStart): ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length} duplicates removed)`);
+    
+    // Pass 2: Deduplicate by (userId, appId, sessionEnd) to catch sessions with same end time but different start times
+    // This catches cases like Spelunky where multiple sessions have different start times but same/similar end times
+    // Use a 20-minute window for same-day sessions to catch overlapping/continuous play sessions
+    const sessionEndMap = new Map<string, typeof deduplicatedGameSessions[0]>();
+    const duplicateByEndTime: typeof deduplicatedGameSessions[0][] = [];
+    const TWENTY_MINUTES_MS = 20 * 60 * 1000; // 20 minute window for sessionEnd matching
+    
+    deduplicatedGameSessions.forEach(gameSession => {
+      // Round sessionEnd to nearest 20 minutes to catch near-duplicates and overlapping sessions
+      // This handles cases where sessions end within 20 minutes of each other (likely same play session)
+      const sessionEndTime = Math.floor(gameSession.sessionEnd.getTime() / TWENTY_MINUTES_MS) * TWENTY_MINUTES_MS;
+      const dedupKey = `${gameSession.userId}-${gameSession.appId}-${sessionEndTime}`;
+      
+      if (!sessionEndMap.has(dedupKey)) {
+        sessionEndMap.set(dedupKey, gameSession);
+      } else {
+        // Found duplicate by end time - keep the one with larger playtimeDelta
+        const existing = sessionEndMap.get(dedupKey)!;
+        if (gameSession.playtimeDelta > existing.playtimeDelta) {
+          duplicateByEndTime.push(existing);
+          sessionEndMap.set(dedupKey, gameSession);
+          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${gameSession.playtimeDelta}min, discarding ${existing.playtimeDelta}min, end times: ${gameSession.sessionEnd.toISOString()} vs ${existing.sessionEnd.toISOString()}, GameSession IDs: ${gameSession.id} vs ${existing.id})`);
+        } else {
+          duplicateByEndTime.push(gameSession);
+          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${existing.playtimeDelta}min, discarding ${gameSession.playtimeDelta}min, end times: ${existing.sessionEnd.toISOString()} vs ${gameSession.sessionEnd.toISOString()}, GameSession IDs: ${existing.id} vs ${gameSession.id})`);
+        }
+      }
+    });
+    
+    deduplicatedGameSessions = Array.from(sessionEndMap.values());
+    console.log(`[Feed] Pass 2 deduplication (by sessionEnd): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates removed)`);
+    console.log(`[Feed] Final deduplicated GameSessions: ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length + duplicateByEndTime.length} total duplicates removed)`);
     
     // Convert GameSession to FeedSession and check for overlapping achievement sessions
     if (deduplicatedGameSessions.length > 0) {
@@ -551,16 +628,28 @@ export async function GET(request: NextRequest) {
       // Convert GameSession to FeedSession and check for overlapping achievement sessions
       const playtimeSessions: FeedSession[] = [];
       
+      // Special logging for user 76561197998756770 to debug missing sessions
+      const targetUserSessions = deduplicatedGameSessions.filter(s => s.userId === TARGET_USER_ID);
+      if (targetUserSessions.length > 0) {
+        console.log(`[Feed] 🔍 DEBUG: Found ${targetUserSessions.length} playtime sessions for user ${TARGET_USER_ID}:`);
+        targetUserSessions.forEach(s => {
+          const gameName = playtimeGamesMap.get(`${s.userId}-${s.appId}`)?.name || 'unknown';
+          console.log(`[Feed] 🔍 DEBUG:   - ${gameName} (${s.appId}): start=${s.sessionStart.toISOString()}, end=${s.sessionEnd.toISOString()}, delta=${s.playtimeDelta}min, id=${s.id}`);
+        });
+      } else {
+        console.log(`[Feed] 🔍 DEBUG: No playtime sessions found for user ${TARGET_USER_ID} in deduplicated list`);
+      }
+      
       for (const gameSession of deduplicatedGameSessions) {
         const userId = gameSession.userId;
         const appId = gameSession.appId;
         const sessionKey = `${userId}-${appId}`;
         const gameName = playtimeGamesMap.get(sessionKey)?.name || 'unknown';
         
-        // Debug: Log GameSession details before creating FeedSession
-        const calculatedSessionStart = new Date(gameSession.sessionEnd.getTime() - Math.min(gameSession.playtimeDelta, 240) * 60 * 1000);
-        const calculatedSessionId = `${userId}-${appId}-${calculatedSessionStart.getTime()}-playtime`;
-        console.log(`[Feed] Processing GameSession ${gameSession.id}: userId=${userId}, appId=${appId} (${gameName}), start=${gameSession.sessionStart.toISOString()}, end=${gameSession.sessionEnd.toISOString()}, delta=${gameSession.playtimeDelta}min, calculatedSessionId=${calculatedSessionId}`);
+        // Extra logging for target user
+        if (userId === TARGET_USER_ID) {
+          console.log(`[Feed] 🔍 DEBUG: Processing session for ${TARGET_USER_ID} - ${gameName} (${appId})`);
+        }
         
         // Check if there's an achievement session that overlaps with this time window
         // Use refined proximity check: distance between start of one and end of the other (both ways)
@@ -586,6 +675,9 @@ export async function GET(request: NextRequest) {
         
         if (hasOverlappingAchievementSession) {
           console.log(`[Feed] ⏭️ Skipping playtime session for ${gameName} (${appId}): overlapping achievement session found`);
+          if (userId === TARGET_USER_ID) {
+            console.log(`[Feed] 🔍 DEBUG: Skipped ${gameName} (${appId}) for ${TARGET_USER_ID} due to overlapping achievement session`);
+          }
           continue; // Skip playtime session if achievement session exists
         }
         
@@ -610,12 +702,16 @@ export async function GET(request: NextRequest) {
             }
           );
           
-          // Debug: Log playtime session creation
-          console.log(`[Feed] Created playtime FeedSession: ${playtimeSession.sessionId} (user: ${userId}, game: ${appId} (${game.name}), end: ${playtimeSession.sessionEnd.toISOString()}, delta: ${gameSession.playtimeDelta}min)`);
+          if (userId === TARGET_USER_ID) {
+            console.log(`[Feed] 🔍 DEBUG: Created FeedSession for ${TARGET_USER_ID} - ${game.name} (${appId}): ${playtimeSession.sessionId}`);
+          }
           
           playtimeSessions.push(playtimeSession);
         } else {
           console.log(`[Feed] ⚠️ Missing user or game data for playtime session ${sessionKey} (${gameName}): user=${!!user}, game=${!!game}`);
+          if (userId === TARGET_USER_ID) {
+            console.log(`[Feed] 🔍 DEBUG: Missing data for ${TARGET_USER_ID} - ${gameName} (${appId}): user=${!!user}, game=${!!game}`);
+          }
         }
       }
       

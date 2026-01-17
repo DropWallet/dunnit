@@ -1168,6 +1168,24 @@ export class SupabaseDataAccess implements DataAccess {
   }
 
   async updateGameBaseline(userId: string, appId: number, currentPlaytimeMinutes: number): Promise<void> {
+    // DEBUG: Log baseline updates for Spelunky
+    const isSpelunky = appId === 239350 && userId === '76561198014408203';
+    if (isSpelunky) {
+      // Get current baseline before update
+      const { data: currentGame } = await this.supabase
+        .from('user_games')
+        .select('previous_playtime_minutes, playtime_minutes')
+        .eq('user_id', userId)
+        .eq('app_id', appId)
+        .single();
+      
+      const oldBaseline = currentGame?.previous_playtime_minutes ?? null;
+      console.log(`[DataAccess] 🔍 DEBUG: Updating baseline for Spelunky (${appId}):`);
+      console.log(`[DataAccess] 🔍   - old baseline: ${oldBaseline}min`);
+      console.log(`[DataAccess] 🔍   - new baseline: ${currentPlaytimeMinutes}min`);
+      console.log(`[DataAccess] 🔍   - current playtime: ${currentGame?.playtime_minutes ?? 'unknown'}min`);
+    }
+    
     const { error } = await this.supabase
       .from('user_games')
       .update({
@@ -1180,6 +1198,10 @@ export class SupabaseDataAccess implements DataAccess {
     if (error) {
       console.error('Error updating game baseline:', error);
       throw error;
+    }
+    
+    if (isSpelunky) {
+      console.log(`[DataAccess] 🔍   - Baseline update completed successfully`);
     }
   }
 
@@ -1234,7 +1256,7 @@ export class SupabaseDataAccess implements DataAccess {
       throw countError;
     }
 
-    // Get comments with user data (left join - user might not exist)
+    // Get comments (no FK relationship, so fetch user data separately)
     const { data, error } = await this.supabase
       .from('feed_comments')
       .select(`
@@ -1244,11 +1266,7 @@ export class SupabaseDataAccess implements DataAccess {
         content,
         is_edited,
         created_at,
-        updated_at,
-        users (
-          username,
-          avatar_url
-        )
+        updated_at
       `)
       .eq('session_id', sessionId)
       .order('created_at', { ascending: false })
@@ -1259,17 +1277,40 @@ export class SupabaseDataAccess implements DataAccess {
       throw error;
     }
 
-    const comments: Comment[] = (data || []).map((row: any) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      userId: row.user_id,
-      username: (row.users as any)?.username || '',
-      avatarUrl: (row.users as any)?.avatar_url || '',
-      content: row.content,
-      isEdited: row.is_edited,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    }));
+    // Fetch user data separately for all unique user IDs
+    const userIds = [...new Set((data || []).map((row: any) => row.user_id))];
+    const usersMap = new Map<string, { username: string; avatarUrl: string }>();
+    
+    if (userIds.length > 0) {
+      const { data: usersData } = await this.supabase
+        .from('users')
+        .select('steam_id, username, avatar_url')
+        .in('steam_id', userIds);
+      
+      if (usersData) {
+        usersData.forEach((user: any) => {
+          usersMap.set(user.steam_id, {
+            username: user.username || '',
+            avatarUrl: user.avatar_url || '',
+          });
+        });
+      }
+    }
+
+    const comments: Comment[] = (data || []).map((row: any) => {
+      const userData = usersMap.get(row.user_id) || { username: '', avatarUrl: '' };
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        userId: row.user_id,
+        username: userData.username,
+        avatarUrl: userData.avatarUrl,
+        content: row.content,
+        isEdited: row.is_edited,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+      };
+    });
 
     return {
       comments,

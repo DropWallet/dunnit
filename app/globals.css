@@ -381,6 +381,8 @@
     
     /* Input & Form */
     --color-input: var(--color-slate-200);
+    --color-input-hover: var(--color-slate-400);
+    --color-input-active: var(--color-slate-400);
     --color-input-focus: var(--color-blue-500);
     --color-input-error: var(--color-red-500);
     
@@ -581,6 +583,8 @@
     --color-divider: var(--color-slate-800);
     
     --color-input: var(--color-slate-800);
+    --color-input-hover: var(--color-slate-600);
+    --color-input-active: var(--color-slate-500);
     --color-input-focus: var(--color-blue-500);
     --color-input-error: var(--color-red-500);
     
