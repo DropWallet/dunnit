@@ -215,7 +215,7 @@ export function FeedSessionCard({
   };
 
   return (
-    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 px-4 pt-4 pb-3 sm:p-5 sm:pb-3 rounded-lg bg-surface-low border border-border-weak">
+    <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 w-full gap-4 px-4 pt-4 pb-4 rounded-lg bg-surface-low border border-border-weak">
       {/* User Header */}
       <div className="flex justify-start items-center flex-grow-0 flex-shrink-0 w-full relative gap-3 sm:gap-4">
         <Link href={`/user/${session.user.steamId}`}>

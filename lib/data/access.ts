@@ -66,6 +66,18 @@ export interface GameSession {
   updatedAt?: Date;
 }
 
+export interface Comment {
+  id: string;
+  sessionId: string;
+  userId: string;
+  username: string;
+  avatarUrl: string;
+  content: string;
+  isEdited: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // DataAccess interface - defines all methods that data access implementations must provide
 export interface DataAccess {
   saveUser(user: User): Promise<void>;
@@ -96,6 +108,12 @@ export interface DataAccess {
   getLikeCounts(sessionIds: string[]): Promise<Map<string, number>>;
   getUserLikes(sessionIds: string[], userId: string): Promise<Set<string>>;
   getLikedByUsers(sessionId: string, limit?: number): Promise<Array<{ userId: string; avatarUrl: string }>>;
+  // Comment methods
+  createComment(sessionId: string, userId: string, content: string): Promise<Comment>;
+  getComments(sessionId: string, limit?: number, offset?: number): Promise<{comments: Comment[], total: number}>;
+  updateComment(commentId: string, userId: string, content: string): Promise<Comment>;
+  deleteComment(commentId: string, userId: string): Promise<void>;
+  getCommentCounts(sessionIds: string[]): Promise<Map<string, number>>;
   // Game session methods
   saveGameSession(session: GameSession): Promise<void>;
   getRecentGameSession(userId: string, appId: number, withinMinutes?: number, type?: 'playtime' | 'achievement'): Promise<GameSession | null>;

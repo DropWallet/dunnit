@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from '@/lib/supabase/client';
 import type { DataAccess } from './access';
-import type { User, Game, Achievement, UserAchievement, GameSession } from './access';
+import type { User, Game, Achievement, UserAchievement, GameSession, Comment } from './access';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseDataAccess implements DataAccess {
@@ -1168,6 +1168,24 @@ export class SupabaseDataAccess implements DataAccess {
   }
 
   async updateGameBaseline(userId: string, appId: number, currentPlaytimeMinutes: number): Promise<void> {
+    // DEBUG: Log baseline updates for Spelunky
+    const isSpelunky = appId === 239350 && userId === '76561198014408203';
+    if (isSpelunky) {
+      // Get current baseline before update
+      const { data: currentGame } = await this.supabase
+        .from('user_games')
+        .select('previous_playtime_minutes, playtime_minutes')
+        .eq('user_id', userId)
+        .eq('app_id', appId)
+        .single();
+      
+      const oldBaseline = currentGame?.previous_playtime_minutes ?? null;
+      console.log(`[DataAccess] 🔍 DEBUG: Updating baseline for Spelunky (${appId}):`);
+      console.log(`[DataAccess] 🔍   - old baseline: ${oldBaseline}min`);
+      console.log(`[DataAccess] 🔍   - new baseline: ${currentPlaytimeMinutes}min`);
+      console.log(`[DataAccess] 🔍   - current playtime: ${currentGame?.playtime_minutes ?? 'unknown'}min`);
+    }
+    
     const { error } = await this.supabase
       .from('user_games')
       .update({
@@ -1181,5 +1199,242 @@ export class SupabaseDataAccess implements DataAccess {
       console.error('Error updating game baseline:', error);
       throw error;
     }
+    
+    if (isSpelunky) {
+      console.log(`[DataAccess] 🔍   - Baseline update completed successfully`);
+    }
+  }
+
+  async createComment(sessionId: string, userId: string, content: string): Promise<Comment> {
+    // First, try to get user data from users table (if they've signed up)
+    const { data: userData } = await this.supabase
+      .from('users')
+      .select('username, avatar_url')
+      .eq('steam_id', userId)
+      .single();
+
+    // Insert comment
+    const { data, error } = await this.supabase
+      .from('feed_comments')
+      .insert({
+        session_id: sessionId,
+        user_id: userId,
+        content: content.trim(),
+        is_edited: false,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating comment:', error);
+      throw error;
+    }
+
+    // Return comment with user data (or empty if user doesn't exist in users table)
+    return {
+      id: data.id,
+      sessionId: data.session_id,
+      userId: data.user_id,
+      username: userData?.username || '',
+      avatarUrl: userData?.avatar_url || '',
+      content: data.content,
+      isEdited: data.is_edited,
+      createdAt: new Date(data.created_at),
+      updatedAt: new Date(data.updated_at),
+    };
+  }
+
+  async getComments(sessionId: string, limit: number = 20, offset: number = 0): Promise<{comments: Comment[], total: number}> {
+    // Get total count
+    const { count, error: countError } = await this.supabase
+      .from('feed_comments')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', sessionId);
+
+    if (countError) {
+      console.error('Error getting comment count:', countError);
+      throw countError;
+    }
+
+    // Get comments (no FK relationship, so fetch user data separately)
+    const { data, error } = await this.supabase
+      .from('feed_comments')
+      .select(`
+        id,
+        session_id,
+        user_id,
+        content,
+        is_edited,
+        created_at,
+        updated_at
+      `)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error getting comments:', error);
+      throw error;
+    }
+
+    // Fetch user data separately for all unique user IDs
+    const userIds = [...new Set((data || []).map((row: any) => row.user_id))];
+    const usersMap = new Map<string, { username: string; avatarUrl: string }>();
+    
+    if (userIds.length > 0) {
+      const { data: usersData } = await this.supabase
+        .from('users')
+        .select('steam_id, username, avatar_url')
+        .in('steam_id', userIds);
+      
+      if (usersData) {
+        usersData.forEach((user: any) => {
+          usersMap.set(user.steam_id, {
+            username: user.username || '',
+            avatarUrl: user.avatar_url || '',
+          });
+        });
+      }
+    }
+
+    const comments: Comment[] = (data || []).map((row: any) => {
+      const userData = usersMap.get(row.user_id) || { username: '', avatarUrl: '' };
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        userId: row.user_id,
+        username: userData.username,
+        avatarUrl: userData.avatarUrl,
+        content: row.content,
+        isEdited: row.is_edited,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+      };
+    });
+
+    return {
+      comments,
+      total: count || 0,
+    };
+  }
+
+  async updateComment(commentId: string, userId: string, content: string): Promise<Comment> {
+    // First verify the comment exists and belongs to the user
+    const { data: existingComment, error: fetchError } = await this.supabase
+      .from('feed_comments')
+      .select('user_id, session_id')
+      .eq('id', commentId)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching comment:', fetchError);
+      throw fetchError;
+    }
+
+    if (!existingComment) {
+      throw new Error('Comment not found');
+    }
+
+    if (existingComment.user_id !== userId) {
+      throw new Error('Not authorized to edit this comment');
+    }
+
+    // Get user data
+    const { data: userData } = await this.supabase
+      .from('users')
+      .select('username, avatar_url')
+      .eq('steam_id', userId)
+      .single();
+
+    // Update comment
+    const { data, error } = await this.supabase
+      .from('feed_comments')
+      .update({
+        content: content.trim(),
+        is_edited: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', commentId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating comment:', error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      sessionId: data.session_id,
+      userId: data.user_id,
+      username: userData?.username || '',
+      avatarUrl: userData?.avatar_url || '',
+      content: data.content,
+      isEdited: data.is_edited,
+      createdAt: new Date(data.created_at),
+      updatedAt: new Date(data.updated_at),
+    };
+  }
+
+  async deleteComment(commentId: string, userId: string): Promise<void> {
+    // First verify the comment exists and belongs to the user
+    const { data: existingComment, error: fetchError } = await this.supabase
+      .from('feed_comments')
+      .select('user_id')
+      .eq('id', commentId)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching comment:', fetchError);
+      throw fetchError;
+    }
+
+    if (!existingComment) {
+      throw new Error('Comment not found');
+    }
+
+    if (existingComment.user_id !== userId) {
+      throw new Error('Not authorized to delete this comment');
+    }
+
+    // Delete comment
+    const { error } = await this.supabase
+      .from('feed_comments')
+      .delete()
+      .eq('id', commentId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error deleting comment:', error);
+      throw error;
+    }
+  }
+
+  async getCommentCounts(sessionIds: string[]): Promise<Map<string, number>> {
+    if (sessionIds.length === 0) {
+      return new Map();
+    }
+
+    const { data, error } = await this.supabase
+      .from('feed_comments')
+      .select('session_id')
+      .in('session_id', sessionIds);
+
+    if (error) {
+      console.error('Error getting comment counts:', error);
+      throw error;
+    }
+
+    // Count comments per session
+    const counts = new Map<string, number>();
+    sessionIds.forEach(id => counts.set(id, 0)); // Initialize all to 0
+    
+    (data || []).forEach((row: any) => {
+      const sessionId = row.session_id;
+      counts.set(sessionId, (counts.get(sessionId) || 0) + 1);
+    });
+
+    return counts;
   }
 }

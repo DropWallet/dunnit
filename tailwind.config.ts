@@ -107,6 +107,8 @@ const config: Config = {
         
         // Input
         input: "hsl(var(--color-input))",
+        "input-hover": "hsl(var(--color-input-hover))",
+        "input-active": "hsl(var(--color-input-active))",
         "input-focus": "hsl(var(--color-input-focus))",
         "input-error": "hsl(var(--color-input-error))",
         

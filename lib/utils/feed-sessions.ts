@@ -87,6 +87,8 @@ export interface FeedSession {
   likeCount: number;
   isLiked: boolean;
   likedByUsers: Array<{ userId: string; avatarUrl: string }>;
+  // Comment data
+  commentCount: number;
 }
 
 /**
@@ -231,6 +233,7 @@ function createSessionFromAchievements(
     likeCount: 0,
     isLiked: false,
     likedByUsers: [],
+    commentCount: 0,
   };
 
   return session;
@@ -294,9 +297,11 @@ export function formatDuration(ms: number): string {
  * Get relative time string
  * Examples: "2 hours ago", "Yesterday", "3 days ago"
  */
-export function getRelativeTime(date: Date): string {
+export function getRelativeTime(date: Date | string): string {
   const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  // Ensure date is a Date object
+  const dateObj = date instanceof Date ? date : new Date(date);
+  const diffMs = now.getTime() - dateObj.getTime();
   const diffMinutes = Math.floor(diffMs / (60 * 1000));
   const diffHours = Math.floor(diffMs / (60 * 60 * 1000));
   const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
@@ -313,10 +318,10 @@ export function getRelativeTime(date: Date): string {
     return `${diffDays} days ago`;
   } else {
     // For older dates, show actual date
-    return date.toLocaleDateString('en-US', { 
+    return dateObj.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+      year: dateObj.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     });
   }
 }
@@ -436,6 +441,7 @@ export function createSessionFromPlaytime(
     likeCount: 0,
     isLiked: false,
     likedByUsers: [],
+    commentCount: 0,
   };
 
   return session;

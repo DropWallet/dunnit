@@ -499,6 +499,43 @@ All sync operations should:
 
 ---
 
+## Session Merging Behavior
+
+**Expected Behavior**: Multiple playtime sessions that occur between syncs are merged into a single session.
+
+**How It Works**:
+- The system compares total playtime: `playtimeDelta = currentPlaytimeMinutes - previousPlaytimeMinutes`
+- If a user plays multiple sessions between syncs, only the total delta is captured
+- Example: User plays 30 min at 10am, then 60 min at 5pm. If first sync happens at 6pm, one session is created with 90 minutes total, timestamped at 5pm (most recent `lastPlayed`)
+
+**Safeguards**:
+1. **Display Duration Cap**: Sessions are displayed with a maximum duration of 4 hours (240 minutes) in the feed, even if the stored `playtimeDelta` is larger
+2. **14-Day Lookback**: Feed only queries sessions from the last 14 days (`MAX_LOOKBACK_DAYS`), preventing unbounded accumulation
+3. **Database Storage**: The full `playtimeDelta` is stored in the database, but display logic caps it at 4 hours
+
+**Edge Case Example**:
+- User doesn't load feed for 7 days
+- User plays 50 hours total across multiple sessions
+- On first sync: `playtimeDelta = 3000 minutes` stored in database
+- Display: Session shows as 4 hours (capped), but represents 50 hours of actual playtime
+- **Mitigation**: 14-day lookback prevents sessions older than 2 weeks from appearing, limiting the maximum possible merged session to ~14 days of playtime
+
+**Why This Design**:
+- Steam API only provides total playtime, not per-session granularity
+- Sync-on-read pattern means sessions are created when feed is loaded, not in real-time
+- Merging prevents duplicate sessions and simplifies the data model
+- Display cap ensures UI shows reasonable session durations
+
+### Future Enhancements
+
+**Achievement-Anchored Session Splitting** (Option 3 from Gemini):
+- **Idea**: Use achievement timestamps to split large merged playtime sessions
+- **Status**: Not implemented - documented for future consideration
+- **When to implement**: If merged sessions become a common UX issue
+- **Complexity**: Medium - requires proportional delta splitting logic
+- **Trade-offs**: Improves UX but not 100% accurate, adds complexity
+- **Alternative**: Option 1 (Active State tracking) may be simpler and more accurate
+
 ## Notes
 
 - All timestamps are in UTC
