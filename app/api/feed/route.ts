@@ -171,21 +171,30 @@ async function syncFriendsForFeed(
     if (friendsToSync.length === 0) {
       console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
     } else {
-      // Check staleness (2 hour threshold) - only sync if stale
-      // This double-checks and ensures we only sync truly stale friends
+      // Check staleness (2 hour threshold) - sync stale friends
+      // BUT ALSO sync friends with recent playtime in DB, even if not stale
+      // This ensures we capture new playtime that occurred since last sync
       const staleFriends = await getStaleFriends(friendsToSync, staleThreshold);
+      
+      // Also include friends with recent playtime in DB (they might have new playtime since last sync)
+      const friendsWithRecentPlaytimeToSync = Array.from(friendsWithRecentPlaytime).filter(friendId => 
+        friendsToSync.includes(friendId)
+      );
+      
+      // Combine stale friends and friends with recent playtime (deduplicate)
+      const allFriendsToSync = Array.from(new Set([...staleFriends, ...friendsWithRecentPlaytimeToSync]));
 
-      if (staleFriends.length > 0) {
+      if (allFriendsToSync.length > 0) {
         // OPTIMIZATION #5: Update last_feed_sync_attempt for all friends we're about to sync
         // This prevents refresh spamming even if sync fails
         const updateTime = new Date();
         await Promise.allSettled(
-          staleFriends.map(friendId => 
+          allFriendsToSync.map(friendId => 
             dataAccess.updateUser(friendId, { lastFeedSyncAttempt: updateTime })
           )
         );
         
-        console.log(`[Feed] Found ${staleFriends.length} stale friends needing sync (out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts):`);
+        console.log(`[Feed] Found ${allFriendsToSync.length} friends needing sync (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime) out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts:`);
         console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
         console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
         console.log(`  - Syncing friends BEFORE querying sessions (with ${SYNC_TIMEOUT_MS}ms timeout)`);
@@ -193,7 +202,7 @@ async function syncFriendsForFeed(
         // FIX #2: Await sync with timeout instead of fire-and-forget
         // This ensures sessions are available when we query, fixing empty feed for new users
         try {
-          const syncPromise = syncFriendsInBackground(staleFriends, 5); // 5 concurrent syncs
+          const syncPromise = syncFriendsInBackground(allFriendsToSync, 5); // 5 concurrent syncs
           
           // Wait for sync with timeout
           const timeoutPromise = new Promise<void>((_, reject) => {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { FeedCommentItem } from "@/components/feed-comment-item";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { Comment } from "@/lib/data/access";
 
 interface FeedCommentListProps {
@@ -42,6 +43,7 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
   ) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [pagination, setPagination] = useState({
     total: 0,
     limit: 20,
@@ -59,12 +61,14 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
 
   const fetchComments = async (offset: number = 0, limit: number = 20) => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const response = await fetch(
         `/api/feed/${sessionId}/comments?limit=${limit}&offset=${offset}`
       );
       if (!response.ok) {
-        throw new Error("Failed to fetch comments");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || "Failed to fetch comments");
       }
       const data: CommentsResponse = await response.json();
       
@@ -77,8 +81,21 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
         setComments((prev) => [...prev, ...normalizedComments]);
       }
       setPagination(data.pagination);
+      setFetchError(null);
     } catch (error) {
       console.error("Error fetching comments:", error);
+      // Detect network errors
+      const isNetworkError = error instanceof TypeError && 
+                            (error.message.includes("Failed to fetch") || 
+                             error.message.includes("NetworkError") ||
+                             !navigator.onLine);
+      
+      const errorMessage = isNetworkError
+        ? "Unable to load comments. Check your connection."
+        : error instanceof Error 
+          ? error.message 
+          : "Unable to load comments. Please try again.";
+      setFetchError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -112,16 +129,23 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
           body: JSON.stringify({ content }),
         }
       );
-      if (!response.ok) throw new Error("Failed to update comment");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || "Failed to update comment";
+        throw new Error(errorMessage);
+      }
       
+      const result = await response.json();
       setComments((prev) =>
         prev.map((c) =>
-          c.id === commentId ? { ...c, content, isEdited: true } : c
+          c.id === commentId ? { ...c, content: result.comment.content, isEdited: true } : c
         )
       );
       onCommentUpdated?.(commentId, content);
     } catch (error) {
       console.error("Error updating comment:", error);
+      // Re-throw to let FeedCommentItem handle the error display
+      throw error;
     }
   };
 
@@ -131,13 +155,19 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
         `/api/feed/${sessionId}/comments/${commentId}`,
         { method: "DELETE" }
       );
-      if (!response.ok) throw new Error("Failed to delete comment");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || "Failed to delete comment";
+        throw new Error(errorMessage);
+      }
       
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       setPagination((prev) => ({ ...prev, total: prev.total - 1 }));
       onCommentDeleted?.(commentId);
     } catch (error) {
       console.error("Error deleting comment:", error);
+      // Re-throw to let FeedCommentItem handle the error display
+      throw error;
     }
   };
 
@@ -182,8 +212,34 @@ export const FeedCommentList = forwardRef<FeedCommentListRef, FeedCommentListPro
     );
   }
 
-  if (comments.length === 0) {
-    return null; // No empty state per requirements
+  // Show error state if fetch failed
+  if (fetchError && comments.length === 0) {
+    // Check if error is due to network/offline (message will be set in catch block)
+    const isNetworkError = fetchError === "Unable to load comments. Check your connection." ||
+                          !navigator.onLine;
+    
+    return (
+      <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 w-full gap-3">
+        <Alert variant="destructive">
+          <AlertDescription>{fetchError}</AlertDescription>
+        </Alert>
+        {!isNetworkError && (
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => fetchComments(0, 20)}
+            className="w-full"
+          >
+            Try Again
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // Don't show empty state - return null when no comments
+  if (comments.length === 0 && !isLoading) {
+    return null;
   }
 
   return (

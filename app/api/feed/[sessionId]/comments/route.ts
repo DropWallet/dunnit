@@ -100,13 +100,13 @@ export async function POST(
       return ApiErrors.badRequest("Content is required and must be a string");
     }
 
-    // Validate content length (max 1000 characters)
+    // Validate content length (max 500 characters)
     const trimmedContent = content.trim();
     if (trimmedContent.length === 0) {
       return ApiErrors.badRequest("Content cannot be empty");
     }
-    if (trimmedContent.length > 1000) {
-      return ApiErrors.badRequest("Content cannot exceed 1000 characters");
+    if (trimmedContent.length > 500) {
+      return ApiErrors.badRequest("Content cannot exceed 500 characters");
     }
 
     const dataAccess = getDataAccess();

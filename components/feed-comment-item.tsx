@@ -19,7 +19,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { DotSeparator } from "@/components/dot-separator";
 import { getRelativeTime } from "@/lib/utils/feed-sessions";
@@ -43,7 +42,11 @@ export function FeedCommentItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(comment.content);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isEditTooLong = editContent.length > 500;
 
   // Auto-focus textarea when entering edit mode
   useEffect(() => {
@@ -57,25 +60,36 @@ export function FeedCommentItem({
 
   const handleEditClick = () => {
     setEditContent(comment.content);
+    setEditError(null);
     setIsEditing(true);
   };
 
   const handleSave = async () => {
-    if (!editContent.trim() || isSubmitting || !onEdit) return;
+    if (!editContent.trim() || isSubmitting || !onEdit || isEditTooLong) return;
     
     const trimmedContent = editContent.trim();
     // Don't save if content hasn't changed
     if (trimmedContent === comment.content) {
       setIsEditing(false);
+      setEditError(null);
       return;
     }
     
     setIsSubmitting(true);
+    setEditError(null);
     try {
       await onEdit(comment.id, trimmedContent);
       setIsEditing(false);
+      setEditError(null);
     } catch (error) {
       console.error("Error updating comment:", error);
+      // Extract error message from API response
+      const errorMessage = error instanceof Error 
+        ? error.message.includes("updated") 
+          ? "Comment was updated. Please refresh."
+          : "Failed to update comment. Please try again."
+        : "Failed to update comment. Please try again.";
+      setEditError(errorMessage);
       // Keep edit mode open on error so user can retry
     } finally {
       setIsSubmitting(false);
@@ -84,6 +98,7 @@ export function FeedCommentItem({
 
   const handleCancel = () => {
     setEditContent(comment.content);
+    setEditError(null);
     setIsEditing(false);
     textareaRef.current?.blur();
   };
@@ -105,10 +120,17 @@ export function FeedCommentItem({
 
   const handleDelete = async () => {
     if (!onDelete) return;
+    setDeleteError(null);
     try {
       await onDelete(comment.id);
+      setDeleteDialogOpen(false);
     } catch (error) {
       console.error("Error deleting comment:", error);
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : "Failed to delete comment. Please try again.";
+      setDeleteError(errorMessage);
+      // Keep dialog open on error so user can retry
     }
   };
 
@@ -165,37 +187,48 @@ export function FeedCommentItem({
                     </DropdownMenuItem>
                   )}
                   {onDelete && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <DropdownMenuItem
-                          onSelect={(e) => e.preventDefault()}
-                          className="cursor-pointer"
-                        >
-                          <Trash2 className="h-4 w-4 text-text-weak mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete comment?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={handleDelete}
-                            variant="destructive"
-                          >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                    <DropdownMenuItem
+                      onSelect={() => setDeleteDialogOpen(true)}
+                      className="cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4 text-text-weak mr-2" />
+                      Delete
+                    </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              
+              {onDelete && (
+                <AlertDialog open={deleteDialogOpen} onOpenChange={(open) => {
+                  setDeleteDialogOpen(open);
+                  if (!open) setDeleteError(null);
+                }}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete comment?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    {deleteError && (
+                      <div className="px-6">
+                        <p className="text-sm text-destructive" role="alert">
+                          {deleteError}
+                        </p>
+                      </div>
+                    )}
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDelete}
+                        variant="destructive"
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </div>
           )}
         </div>
@@ -206,14 +239,41 @@ export function FeedCommentItem({
             <textarea
               ref={textareaRef}
               value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                if (editError) setEditError(null);
+              }}
               onKeyDown={handleKeyDown}
               disabled={isSubmitting}
               rows={3}
-              className="self-stretch flex-grow-0 flex-shrink-0 w-full px-3 py-2 text-sm font-medium text-left text-text-strong bg-surface-low border border-input-active rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-text-weak"
-              maxLength={1000}
+              className={`self-stretch flex-grow-0 flex-shrink-0 w-full px-3 py-2 text-sm font-medium text-left text-text-strong bg-surface-low border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-text-weak ${
+                editError || isEditTooLong 
+                  ? "border-input-error focus:ring-destructive" 
+                  : "border-input-active"
+              }`}
+              maxLength={500}
               aria-label="Edit comment"
+              aria-invalid={!!editError || isEditTooLong}
+              aria-describedby={editError || isEditTooLong ? "edit-comment-error" : undefined}
             />
+            {/* Error message */}
+            {(editError || isEditTooLong) && (
+              <p 
+                id="edit-comment-error"
+                className="text-xs text-destructive mt-0"
+                role="alert"
+              >
+                {isEditTooLong 
+                  ? "Content cannot exceed 500 characters" 
+                  : editError}
+              </p>
+            )}
+            {/* Character counter - show when approaching limit */}
+            {editContent.length > 400 && (
+              <p className={`text-xs mt-0 ${isEditTooLong ? "text-destructive" : "text-text-subdued"}`}>
+                {editContent.length} / 500
+              </p>
+            )}
             {/* Save/Cancel buttons */}
             <div className="flex justify-end items-center self-stretch flex-grow-0 flex-shrink-0 gap-2">
               <Button
@@ -230,7 +290,7 @@ export function FeedCommentItem({
                 variant="default"
                 size="xs"
                 onClick={handleSave}
-                disabled={isSubmitting || !editContent.trim()}
+                disabled={isSubmitting || !editContent.trim() || isEditTooLong}
                 aria-label="Save comment"
               >
                 Save
