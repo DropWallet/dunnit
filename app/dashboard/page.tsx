@@ -31,6 +31,7 @@ import { AchievementSortingControls } from "@/components/achievement-sorting-con
 import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
+import { SyncLoadingModal } from "@/components/sync-loading-modal";
 import type { Game } from "@/lib/data/types";
 import { 
   sortGames, 
@@ -104,6 +105,16 @@ export default function DashboardPage() {
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
   const loadMoreObserverRef = useRef<IntersectionObserver | null>(null);
   
+  // Track when user explicitly clicks Achievements tab (captured via onChange handler)
+  const [achievementsTabClicked, setAchievementsTabClicked] = useState(false);
+  
+  // Track initial mount to prevent TabGroup onChange from triggering during initialization
+  const isInitialMountRef = useRef(true);
+  
+  // Sync loading modal state with 300ms delay
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const syncModalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
   const [allAchievementsList, setAllAchievementsList] = useState<UserAchievement[]>([]);
@@ -174,6 +185,35 @@ export default function DashboardPage() {
       sessionStorage.setItem('dashboard-selected-tab', selectedTabIndex.toString());
     }
   }, [selectedTabIndex]);
+
+  // Sync loading modal with 300ms delay - hide when data is ready to render
+  // Modal should stay visible until games and statistics are loaded (skeleton is ready)
+  const isDataReady = allGames.length > 0 && statistics !== null;
+  const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
+  
+  useEffect(() => {
+    // Show modal if loading critical path OR data not ready yet
+    if (isCriticalPathLoading || !isDataReady) {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+      }
+      syncModalTimeoutRef.current = setTimeout(() => {
+        setShowSyncModal(true);
+      }, 300);
+    } else {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+        syncModalTimeoutRef.current = null;
+      }
+      setShowSyncModal(false);
+    }
+    
+    return () => {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+      }
+    };
+  }, [isCriticalPathLoading, isDataReady]);
 
   // Fetch user data
   useEffect(() => {
@@ -300,8 +340,38 @@ export default function DashboardPage() {
     loadGames();
   }, [sortBy, gameAchievements]);
 
-  // Fetch all achievements for Achievements tab
+  // Handle tab changes - capture user intent directly via onChange event
+  const handleTabChange = (index: number) => {
+    setSelectedTabIndex(index);
+    
+    // Only set achievementsTabClicked when user explicitly clicks Achievements tab
+    // Ignore onChange calls during initial mount (when TabGroup syncs with restored selectedIndex)
+    if (index === 1 && !isInitialMountRef.current) {
+      setAchievementsTabClicked(true);
+    }
+  };
+
+  // Mark initial mount as complete after first render
   useEffect(() => {
+    // Use setTimeout to ensure this runs after TabGroup's initialization onChange
+    const timer = setTimeout(() => {
+      isInitialMountRef.current = false;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Fetch all achievements for Achievements tab - lazy load only when tab is clicked
+  useEffect(() => {
+    // Only fetch when Achievements tab (index 1) is explicitly clicked
+    if (selectedTabIndex !== 1 || !achievementsTabClicked) {
+      return;
+    }
+    
+    // Don't refetch if already loaded
+    if (allAchievementsList.length > 0) {
+      return;
+    }
+    
     async function loadAllAchievements() {
       setIsLoadingAllAchievements(true);
       try {
@@ -320,7 +390,7 @@ export default function DashboardPage() {
     }
     
     loadAllAchievements();
-  }, []);
+  }, [selectedTabIndex, achievementsTabClicked, allAchievementsList.length]);
 
   // Refetch statistics when achievements finish loading
   useEffect(() => {
@@ -522,40 +592,26 @@ export default function DashboardPage() {
     }, QUEUE_DEBOUNCE_MS);
   }, [processFriendStatsQueue]);
 
-  // Step 1: Load lightweight stats (friends count only) for all friends
-  useEffect(() => {
-    if (friends.length === 0) return;
+  // Viewport-based loading: Load statistics only for visible friends
+  const handleFriendVisible = useCallback((steamId: string) => {
+    const friend = friends.find((f) => f.steamId === steamId);
+    if (!friend) return;
 
-    // Find friends that need lightweight stats loaded
-    const friendsNeedingLightweightStats = friends.filter(
-      (friend) => 
-        !friend.statsLoaded &&
-        !friendsStatsLoadingRef.current.has(friend.steamId)
-    );
+    // Step 1: Load lightweight stats (friends count only) if not loaded
+    if (!friend.statsLoaded && !friendsStatsLoadingRef.current.has(steamId)) {
+      enqueueFriendStats(steamId, true);
+      return;
+    }
 
-    // Enqueue all friends needing lightweight stats
-    friendsNeedingLightweightStats.forEach(friend => {
-      enqueueFriendStats(friend.steamId, true);
-    });
-  }, [friends.length, friendsRefreshKey, enqueueFriendStats]); // Keep friends.length like user dashboard which works
-
-  // Step 2: Load full stats (achievements) for friends that have games cached
-  useEffect(() => {
-    if (friends.length === 0) return;
-
-    // Find friends that have lightweight stats but haven't attempted full stats yet
-    const friendsNeedingFullStats = friends.filter(
-      (friend) => 
-        friend.statsLoaded && // Has lightweight stats
-        friend.statistics.friendsCount !== undefined && // Friends count is loaded
-        !friendsFullStatsAttemptedRef.current.has(friend.steamId) && // Haven't attempted full stats yet
-        !friendsStatsLoadingRef.current.has(`${friend.steamId}-full`) // Not already loading full stats
-    );
-
-    // Enqueue all friends needing full stats
-    friendsNeedingFullStats.forEach(friend => {
-      enqueueFriendStats(friend.steamId, false);
-    });
+    // Step 2: Load full stats (achievements) if lightweight stats are loaded but full stats not attempted
+    if (
+      friend.statsLoaded &&
+      friend.statistics.friendsCount !== undefined &&
+      !friendsFullStatsAttemptedRef.current.has(steamId) &&
+      !friendsStatsLoadingRef.current.has(`${steamId}-full`)
+    ) {
+      enqueueFriendStats(steamId, false);
+    }
   }, [friends, enqueueFriendStats]);
 
   // Cleanup debounce timer on unmount
@@ -613,11 +669,13 @@ export default function DashboardPage() {
         });
         
         Promise.all(achievementPromises).then((achievementsData) => {
-          const newMap = new Map(gameAchievements);
-          achievementsData.forEach(({ appId, achievements }) => {
-            newMap.set(appId, achievements);
+          setGameAchievements(prev => {
+            const newMap = new Map(prev);
+            achievementsData.forEach(({ appId, achievements }) => {
+              newMap.set(appId, achievements);
+            });
+            return newMap;
           });
-          setGameAchievements(newMap);
           
           // Remove from loading set
           setLoadingAchievements(prev => {
@@ -628,7 +686,7 @@ export default function DashboardPage() {
         });
       }
     }
-  }, [gamesToDisplay, gameAchievements]);
+  }, [gamesToDisplay]); // Removed gameAchievements from deps to prevent flickering
 
   // Lazy-load achievements for all games when sorting by achievement progress
   useEffect(() => {
@@ -1051,7 +1109,7 @@ export default function DashboardPage() {
           <TabGroup 
             className="mt-10"
             selectedIndex={selectedTabIndex}
-            onChange={setSelectedTabIndex}
+            onChange={handleTabChange}
           >
             <TabList className="flex gap-1.5">
               <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
@@ -1151,8 +1209,23 @@ export default function DashboardPage() {
 
                   {/* Achievements Display */}
                   {isLoadingAllAchievements ? (
-                    <div className="flex justify-center items-center py-12">
-                      <p className="text-text-subdued">Loading achievements...</p>
+                    <div className="flex flex-col gap-4 mt-4">
+                      {/* Breakdown skeleton */}
+                      <div className="flex flex-col gap-4 px-4 md:px-8">
+                        <div className="h-8 w-32 bg-surface-mid rounded animate-pulse" />
+                        <div className="flex flex-wrap gap-6">
+                          {[1, 2, 3, 4, 5].map((i) => (
+                            <div key={i} className="h-6 w-24 bg-surface-mid rounded animate-pulse" />
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Achievements grid skeleton */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 md:gap-x-6 lg:gap-x-10 gap-y-8 w-full px-4 md:px-8">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <div key={i} className="w-16 h-16 bg-surface-mid rounded-full animate-pulse" />
+                        ))}
+                      </div>
                     </div>
                   ) : achievementsToDisplay.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg bg-surface-mid border border-border-strong">
@@ -1216,12 +1289,14 @@ export default function DashboardPage() {
                   friends={friends}
                   isLoading={isLoadingFriends}
                   loadingFriendStats={loadingFriendStats}
+                  onFriendVisible={handleFriendVisible}
                 />
               </TabPanel>
             </TabPanels>
           </TabGroup>
         </div>
       </div>
+      <SyncLoadingModal isVisible={showSyncModal} />
     </div>
   );
 }

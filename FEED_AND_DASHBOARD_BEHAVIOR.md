@@ -116,12 +116,15 @@ Displays a chronological feed of recent gaming activity from the logged-in user 
 ### Session Creation Rules
 
 #### Playtime Sessions
-- Created when `playtimeDelta >= 3 minutes` (increase in total playtime)
+- Created when `playtimeDelta >= 3 minutes` (increase in total playtime) AND:
+  - `lastPlayed` timestamp exists AND
+  - `lastPlayed` timestamp is different from existing (Steam updated it)
 - Created when `delta=0` but `playtime_2weeks >= 3 minutes` AND:
+  - `lastPlayed` timestamp exists (required)
   - No existing session within 14 days, OR
   - `playtime_2weeks` increased since existing session was created
-- When `playtime_2weeks` increased: Uses current time as `sessionEnd` (not stale `lastPlayed`)
-- When no increase: Uses `lastPlayed` if available
+- **Simplified Timestamp Logic**: Always uses `lastPlayed` as `sessionEnd` (Steam's source of truth)
+- **No Fallbacks**: If `lastPlayed` is missing or unchanged, session creation is skipped and we wait for Steam to update
 
 #### Achievement Sessions
 - Created when new achievements are unlocked
@@ -167,7 +170,7 @@ Displays the logged-in user's own game library, achievements, and statistics.
    - Transform to Game format
    - Calculate derived_last_played for games without lastPlayed
    - Save to user_games table
-   - Create sessions for games with playtimeDelta >= 3 minutes
+   - Create sessions for games with playtimeDelta >= 3 minutes AND lastPlayed exists AND changed
    - Update user.lastSyncAt
 4. Return games
 ```
@@ -194,8 +197,8 @@ Displays the logged-in user's own game library, achievements, and statistics.
 3. Fetch from Steam API
 4. Compare playtime:
    - playtimeDelta = currentPlaytime - previousPlaytimeMinutes
-   - If delta >= 3 minutes: Create session
-   - If delta = 0 but playtime_2weeks increased: Create session (use current time)
+   - If delta >= 3 minutes AND lastPlayed exists AND changed: Create session
+   - If delta = 0 but playtime_2weeks increased AND lastPlayed exists: Create session
    - Update baseline
 5. Save games and update lastSyncAt
 6. Return games
@@ -204,7 +207,8 @@ Displays the logged-in user's own game library, achievements, and statistics.
 **Fallback Logic**:
 - If Steam API fails, return cached games
 - If playtime decreased (rare), keep existing baseline
-- If `playtime_2weeks` is missing, use `playtime_forever` (capped at 4 hours)
+- If `lastPlayed` is missing or unchanged, skip session creation and wait for Steam to update
+- If `playtime_2weeks` is missing, use `playtime_forever` (capped at 4 hours) for fallback case only
 
 #### Cached Sync Scenario
 **Scenario**: User's games were synced <1 hour ago.
@@ -232,20 +236,22 @@ Displays the logged-in user's own game library, achievements, and statistics.
 
 #### When Sessions Are Created
 1. **Playtime increased** (`playtimeDelta >= 3 minutes`):
+   - Requires `lastPlayed` to exist AND be different from existing
    - Uses `playtimeDelta` as session duration
-   - Uses `lastPlayed` or current time as `sessionEnd`
+   - Uses `lastPlayed` as `sessionEnd` (Steam's source of truth)
+   - If `lastPlayed` is missing or unchanged, session creation is skipped
 
 2. **Delta = 0 but recent activity**:
    - `playtime_2weeks >= 3 minutes` AND
+   - Requires `lastPlayed` to exist (no fallbacks)
    - No existing session within 14 days, OR
    - `playtime_2weeks` increased since existing session
-   - Uses current time as `sessionEnd` if `playtime_2weeks` increased
-   - Uses `lastPlayed` if no increase
+   - Uses `lastPlayed` as `sessionEnd` (Steam's source of truth)
 
 #### Session Timestamps
-- **Normal case**: `sessionEnd = lastPlayed`, `sessionStart = lastPlayed - duration`
-- **playtime_2weeks increased**: `sessionEnd = now`, `sessionStart = now - duration`
-- **No lastPlayed**: `sessionEnd = now - duration`, `sessionStart = now - 2*duration`
+- **All cases**: `sessionEnd = lastPlayed`, `sessionStart = lastPlayed - duration`
+- **Simplified approach**: No `syncTime` fallbacks - we wait for Steam to update `lastPlayed`
+- **Trade-off**: Sessions may appear 15-45 minutes late, but timestamps are always accurate
 
 ---
 
@@ -390,10 +396,11 @@ Displays a friend's game library, achievements, and statistics (if their profile
 - **Rate limiting**: Respect rate limits, use cached data
 
 #### Missing Data
-- **`rtime_last_played` missing**: Use `lastPlayed` from full library
-- **`lastPlayed` missing**: Calculate `derived_last_played` from achievement unlock times
+- **`rtime_last_played` missing**: Skip session creation, wait for Steam to update
+- **`lastPlayed` missing**: Calculate `derived_last_played` from achievement unlock times (for sorting only, not session creation)
 - **Achievements not cached**: Game appears without `lastPlayed` (calculated on next sync)
 - **User record missing**: Create user record during sync (`ensureUserExists`)
+- **`lastPlayed` unchanged**: Skip session creation, Steam is lagging - wait for next sync
 
 #### Database Failures
 - **User not in DB**: Create user record before syncing games
@@ -408,10 +415,11 @@ Displays a friend's game library, achievements, and statistics (if their profile
 3. **Staleness Over Cooldown**: Stale friends (>2 hours) always sync, bypassing 15-minute cooldown
 4. **30-Minute Session Cooldown**: Sessions only appear 30 minutes after completion to allow grouping
 5. **No Foreign Key for Sessions**: `game_sessions.user_id` has no FK constraint to allow sessions for friends not in DB
-6. **playtime_2weeks Logic**: When `delta=0` but `playtime_2weeks` increased, verify `lastPlayed` is recent (<2 hours) before using current time to avoid phantom sessions
+6. **Simplified Timestamp Logic**: Always use `lastPlayed` as `sessionEnd` (Steam's source of truth). No `syncTime` fallbacks - if `lastPlayed` is missing or unchanged, skip session creation and wait for Steam to update
 7. **First Sync Limiting**: Only sync first 20 friends on initial load to prevent API overload
 8. **Privacy Ghosting Prevention**: Private users' sessions are immediately filtered from feed when 401 detected, respecting user privacy intent
 9. **Circuit Breaker Pattern**: After 5 consecutive 5xx errors, circuit opens and all API calls are blocked for 5 minutes to protect API key and server resources
+10. **Deterministic Session Creation**: Sessions are only created when `lastPlayed` exists and has changed, ensuring accurate timestamps and zero duplicates
 
 ### Error Handling
 
@@ -452,9 +460,10 @@ All sync operations should:
 ### When Are Sessions Created?
 
 **Playtime Sessions**:
-- ✅ `playtimeDelta >= 3 minutes` → Create session
-- ✅ `delta=0` AND `playtime_2weeks >= 3 minutes` AND no existing session → Create session
-- ✅ `delta=0` AND `playtime_2weeks` increased since existing session → Create new session (use current time)
+- ✅ `playtimeDelta >= 3 minutes` AND `lastPlayed` exists AND changed → Create session
+- ✅ `delta=0` AND `playtime_2weeks >= 3 minutes` AND `lastPlayed` exists AND no existing session → Create session
+- ✅ `delta=0` AND `playtime_2weeks` increased since existing session AND `lastPlayed` exists → Create new session
+- ❌ `lastPlayed` missing or unchanged → Skip session creation, wait for Steam to update
 
 **Achievement Sessions**:
 - ✅ New achievements unlocked → Create session
@@ -494,8 +503,8 @@ All sync operations should:
 1. Game has `delta=0` (playtime unchanged)
 2. `playtime_2weeks` increased from 20min to 37min
 3. **Expected**: 
-   - If `lastPlayed` is recent (<2 hours): New session created with current time as `sessionEnd`
-   - If `lastPlayed` is stale: New session created with `lastPlayed` as `sessionEnd` (avoids phantom sessions)
+   - If `lastPlayed` exists: New session created with `lastPlayed` as `sessionEnd` (Steam's source of truth)
+   - If `lastPlayed` is missing: Session creation skipped, wait for Steam to update
 
 ---
 
@@ -546,4 +555,4 @@ All sync operations should:
 - Sessions can exist without corresponding user records (FK constraint removed)
 - **Privacy**: Users marked as `is_private = true` have their sessions filtered from feed immediately
 - **Circuit Breaker**: Trips after 5 consecutive 5xx errors, blocks all API calls for 5 minutes, then auto-closes
-- **playtime_2weeks**: Rolling window can increase even without new playtime - we verify `lastPlayed` is recent before using current time
+- **Simplified Timestamp Logic**: Always use `lastPlayed` as `sessionEnd` (Steam's source of truth). No `syncTime` fallbacks - if `lastPlayed` is missing or unchanged, skip session creation and wait for Steam to update. This ensures accurate timestamps and zero duplicates, but sessions may appear 15-45 minutes late due to Steam API lag.

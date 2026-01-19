@@ -578,37 +578,78 @@ export async function GET(request: NextRequest) {
     let deduplicatedGameSessions = Array.from(gameSessionMap.values());
     console.log(`[Feed] Pass 1 deduplication (by sessionStart): ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length} duplicates removed)`);
     
-    // Pass 2: Deduplicate by (userId, appId, sessionEnd) to catch sessions with same end time but different start times
-    // This catches cases like Spelunky where multiple sessions have different start times but same/similar end times
-    // Use a 20-minute window for same-day sessions to catch overlapping/continuous play sessions
-    const sessionEndMap = new Map<string, typeof deduplicatedGameSessions[0]>();
+    // Pass 2: Sort + Peek deduplication to catch sessions that are close in time
+    // Group by (userId, appId), sort by sessionEnd, then merge adjacent sessions if they overlap or are close
+    const FORTY_FIVE_MINUTES_MS = 45 * 60 * 1000; // 45 minute threshold for continuous sessions
+    const ONE_HOUR_MS = 60 * 60 * 1000; // 1 hour - if sessions start more than 1 hour apart, they're separate
     const duplicateByEndTime: typeof deduplicatedGameSessions[0][] = [];
-    const TWENTY_MINUTES_MS = 20 * 60 * 1000; // 20 minute window for sessionEnd matching
     
+    // Group sessions by (userId, appId)
+    const sessionsByUserAndGame = new Map<string, typeof deduplicatedGameSessions[0][]>();
     deduplicatedGameSessions.forEach(gameSession => {
-      // Round sessionEnd to nearest 20 minutes to catch near-duplicates and overlapping sessions
-      // This handles cases where sessions end within 20 minutes of each other (likely same play session)
-      const sessionEndTime = Math.floor(gameSession.sessionEnd.getTime() / TWENTY_MINUTES_MS) * TWENTY_MINUTES_MS;
-      const dedupKey = `${gameSession.userId}-${gameSession.appId}-${sessionEndTime}`;
+      const groupKey = `${gameSession.userId}-${gameSession.appId}`;
+      if (!sessionsByUserAndGame.has(groupKey)) {
+        sessionsByUserAndGame.set(groupKey, []);
+      }
+      sessionsByUserAndGame.get(groupKey)!.push(gameSession);
+    });
+    
+    // Process each group: sort by sessionEnd, then merge adjacent sessions
+    const mergedSessions: typeof deduplicatedGameSessions[0][] = [];
+    sessionsByUserAndGame.forEach((sessions, groupKey) => {
+      // Sort by sessionEnd (ascending)
+      const sortedSessions = [...sessions].sort((a, b) => 
+        a.sessionEnd.getTime() - b.sessionEnd.getTime()
+      );
       
-      if (!sessionEndMap.has(dedupKey)) {
-        sessionEndMap.set(dedupKey, gameSession);
-      } else {
-        // Found duplicate by end time - keep the one with larger playtimeDelta
-        const existing = sessionEndMap.get(dedupKey)!;
-        if (gameSession.playtimeDelta > existing.playtimeDelta) {
-          duplicateByEndTime.push(existing);
-          sessionEndMap.set(dedupKey, gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${gameSession.playtimeDelta}min, discarding ${existing.playtimeDelta}min, end times: ${gameSession.sessionEnd.toISOString()} vs ${existing.sessionEnd.toISOString()}, GameSession IDs: ${gameSession.id} vs ${existing.id})`);
+      // Iterate through sorted sessions and merge adjacent ones
+      let currentMerged: typeof deduplicatedGameSessions[0] | null = null;
+      
+      for (const session of sortedSessions) {
+        if (currentMerged === null) {
+          // First session in group - start with this one
+          currentMerged = { ...session };
         } else {
-          duplicateByEndTime.push(gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${existing.playtimeDelta}min, discarding ${gameSession.playtimeDelta}min, end times: ${existing.sessionEnd.toISOString()} vs ${gameSession.sessionEnd.toISOString()}, GameSession IDs: ${existing.id} vs ${gameSession.id})`);
+          // Check if we should merge with currentMerged
+          // Strict Overlap: If sessions overlap in time, always merge
+          const hasOverlap = session.sessionStart < currentMerged.sessionEnd && 
+                           session.sessionEnd > currentMerged.sessionStart;
+          
+          // Gap-based: If no overlap, check if gap is small enough and start times are close
+          const gap = session.sessionStart.getTime() - currentMerged.sessionEnd.getTime();
+          const startTimeDiff = Math.abs(session.sessionStart.getTime() - currentMerged.sessionStart.getTime());
+          const isContinuousSession = gap >= 0 && gap < FORTY_FIVE_MINUTES_MS && startTimeDiff < ONE_HOUR_MS;
+          
+          if (hasOverlap || isContinuousSession) {
+            // Merge: combine playtimeDelta, take earliest start, take latest end
+            currentMerged = {
+              ...currentMerged,
+              playtimeDelta: currentMerged.playtimeDelta + session.playtimeDelta,
+              sessionStart: currentMerged.sessionStart < session.sessionStart 
+                ? currentMerged.sessionStart 
+                : session.sessionStart,
+              sessionEnd: currentMerged.sessionEnd > session.sessionEnd 
+                ? currentMerged.sessionEnd 
+                : session.sessionEnd,
+            };
+            duplicateByEndTime.push(session);
+            console.log(`[Feed] ⚠️ Merged GameSession (Pass 2): ${groupKey} (combined delta: ${currentMerged.playtimeDelta}min, merged session IDs: ${currentMerged.id} + ${session.id})`);
+          } else {
+            // No merge - save currentMerged and start new one
+            mergedSessions.push(currentMerged);
+            currentMerged = { ...session };
+          }
         }
+      }
+      
+      // Don't forget the last merged session
+      if (currentMerged !== null) {
+        mergedSessions.push(currentMerged);
       }
     });
     
-    deduplicatedGameSessions = Array.from(sessionEndMap.values());
-    console.log(`[Feed] Pass 2 deduplication (by sessionEnd): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates removed)`);
+    deduplicatedGameSessions = mergedSessions;
+    console.log(`[Feed] Pass 2 deduplication (sort + peek): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates merged)`);
     console.log(`[Feed] Final deduplicated GameSessions: ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length + duplicateByEndTime.length} total duplicates removed)`);
     
     // Convert GameSession to FeedSession and check for overlapping achievement sessions
@@ -688,6 +729,53 @@ export async function GET(request: NextRequest) {
             console.log(`[Feed] 🔍 DEBUG: Skipped ${gameName} (${appId}) for ${TARGET_USER_ID} due to overlapping achievement session`);
           }
           continue; // Skip playtime session if achievement session exists
+        }
+        
+        // Also check for overlapping playtime sessions (same user/game)
+        // This catches cases where deduplication missed sessions that are close but not within the 20-minute window
+        // BUT: Only merge if sessions actually overlap or are part of the same continuous play session
+        let overlappingSession: typeof playtimeSessions[0] | null = null;
+        let overlapType: 'exact' | 'continuous' | null = null;
+        
+        const hasOverlappingPlaytimeSession = playtimeSessions.some(existingPlaytimeSession => {
+          if (existingPlaytimeSession.user.steamId !== userId || existingPlaytimeSession.game.appId !== appId) {
+            return false;
+          }
+          
+          // Check for actual time overlap (strict overlap check)
+          // Two intervals [a1, a2] and [b1, b2] overlap if: a1 < b2 AND b1 < a2
+          const isExactOverlap = existingPlaytimeSession.sessionStart < gameSession.sessionEnd && 
+                                 existingPlaytimeSession.sessionEnd > gameSession.sessionStart;
+          
+          // Check if they're part of the same continuous session:
+          // - End within 30 minutes of each other
+          // - AND start within 1 hour of each other (prevents merging separate play sessions)
+          const startTimeDiff = Math.abs(existingPlaytimeSession.sessionStart.getTime() - gameSession.sessionStart.getTime());
+          const endTimeDiff = Math.min(
+            Math.abs(existingPlaytimeSession.sessionStart.getTime() - gameSession.sessionEnd.getTime()),
+            Math.abs(gameSession.sessionStart.getTime() - existingPlaytimeSession.sessionEnd.getTime())
+          );
+          const ONE_HOUR_MS = 60 * 60 * 1000;
+          const isContinuousSession = endTimeDiff <= THIRTY_MINUTES_MS && startTimeDiff <= ONE_HOUR_MS;
+          
+          if (isExactOverlap || isContinuousSession) {
+            overlappingSession = existingPlaytimeSession;
+            overlapType = isExactOverlap ? 'exact' : 'continuous';
+            return true;
+          }
+          
+          return false;
+        });
+        
+        if (hasOverlappingPlaytimeSession && overlappingSession) {
+          console.log(`[Feed] ⏭️ Skipping playtime session for ${gameName} (${appId}): overlapping playtime session already exists`);
+          console.log(`[Feed] 🔍 Overlap Details: user=${userId}, game=${gameName} (${appId}), type=${overlapType}`);
+          console.log(`[Feed] 🔍   - Existing session: start=${overlappingSession.sessionStart.toISOString()}, end=${overlappingSession.sessionEnd.toISOString()}, sessionId=${overlappingSession.sessionId}`);
+          console.log(`[Feed] 🔍   - New session: start=${gameSession.sessionStart.toISOString()}, end=${gameSession.sessionEnd.toISOString()}, id=${gameSession.id}`);
+          if (userId === TARGET_USER_ID) {
+            console.log(`[Feed] 🔍 DEBUG: Skipped ${gameName} (${appId}) for ${TARGET_USER_ID} due to overlapping playtime session`);
+          }
+          continue; // Skip if another playtime session already exists for this time window
         }
         
         const user = playtimeUsersMap.get(userId);

@@ -384,40 +384,34 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             ? Math.min(playtime2Weeks, maxSessionMinutes)
             : Math.min(currentPlaytimeMinutes, maxSessionMinutes);
           
-          // Determine last_played timestamp
+          // SIMPLIFIED: Only use Steam's rtime_last_played timestamp
+          // If Steam doesn't provide it, we skip session creation and wait for Steam to update
           let lastPlayed: Date | undefined;
           if (steamGame.rtime_last_played) {
             lastPlayed = new Date(steamGame.rtime_last_played * 1000);
-          } else {
-            // FIX: When rtime_last_played is missing, calculate lastPlayed by subtracting playtime from syncTime
-            // This prevents games from appearing as "just played" when they were actually played earlier
-            // Use playtime_2weeks if available (recent playtime), otherwise use session delta (capped)
-            const playtimeForEstimate = playtime2Weeks > 0
-              ? Math.min(playtime2Weeks, maxSessionMinutes)
-              : Math.min(playtimeDelta, maxSessionMinutes);
-            lastPlayed = new Date(syncTime.getTime() - playtimeForEstimate * 60 * 1000);
           }
           
-          // Only create session if delta >= 3 minutes
+          // Only create session if delta >= 3 minutes AND lastPlayed exists
           if (playtimeDelta >= 3) {
-            // FIX: When lastPlayed is missing, calculate sessionEnd by subtracting playtime from syncTime
-            // This prevents sessions from appearing to have happened "just now" (at sync time)
+            // SIMPLIFIED: Require lastPlayed to exist
+            if (!lastPlayed) {
+              console.log(`[Friend Sync] ⏭️ Skipping first-sync session for ${steamGame.appid} (${steamGame.name || 'unknown'}): playtime=${playtimeDelta}min but lastPlayed missing - waiting for Steam`);
+              // Still update baseline
+              await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+              continue; // Skip to next game
+            }
+            
+            // We have playtime and timestamp - create session
             const sessionMinutes = playtimeDelta;
+            const sessionEnd = lastPlayed;
+            let calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
             
-            let sessionEnd: Date;
-            let calculatedSessionStart: Date;
-            
-            if (lastPlayed) {
-              // Use lastPlayed as sessionEnd, calculate start by subtracting duration
-              // This ensures proper session duration instead of zero-duration sessions
-              sessionEnd = lastPlayed;
-              calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
-            } else {
-              // Calculate end by subtracting playtime from syncTime (so it's in the past)
-              // This prevents sessions from appearing to have happened "just now"
-              sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-              // Calculate start by subtracting playtime from end (to create proper duration)
-              calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+            // Safety Guard: Ensure sessionStart is ALWAYS before sessionEnd
+            // This prevents database constraint violations from Steam's "jittery" data
+            if (calculatedSessionStart >= sessionEnd) {
+              // Fallback for edge cases or Steam weirdness
+              // Ensure at least a 1-second difference so DB constraints don't trip
+              calculatedSessionStart = new Date(sessionEnd.getTime() - 1000);
             }
             
             const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
@@ -436,7 +430,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
                 type: 'playtime',
               };
               await dataAccess.saveGameSession(newSession);
-              console.log(`[Friend Sync] ✨ Created first-sync session for recently played game ${steamGame.appid} (${steamGame.name || 'unknown'}): ${playtimeDelta}min`);
+              const durationMinutes = (newSession.sessionEnd.getTime() - newSession.sessionStart.getTime()) / 60000;
+              console.log(`[Friend Sync] ✨ Created first-sync session for recently played game ${steamGame.appid} (${steamGame.name || 'unknown'}): ${playtimeDelta}min, start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
             }
           }
           
@@ -481,28 +476,23 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
       const playtimeDelta = currentPlaytimeMinutes - previousPlaytimeMinutes;
 
-      // Determine last_played timestamp
+      // SIMPLIFIED: Only use Steam's rtime_last_played timestamp
+      // If Steam doesn't provide it, we skip session creation and wait for Steam to update
       let lastPlayed: Date | undefined;
       if (steamGame.rtime_last_played) {
-        // Steam provided timestamp - use it
+        // Steam provided timestamp - use it (this is our source of truth)
         lastPlayed = new Date(steamGame.rtime_last_played * 1000);
       } else if (existingGame?.lastPlayed) {
-        // Preserve existing lastPlayed if Steam didn't provide one
+        // Preserve existing lastPlayed if Steam didn't provide one (for game record, not session creation)
         lastPlayed = existingGame.lastPlayed;
-      } else {
-        // FIX: When rtime_last_played is missing, calculate lastPlayed by subtracting playtime from syncTime
-        // This prevents games from appearing as "just played" when they were actually played earlier
-        // Use playtime_2weeks if available (recent playtime), otherwise use playtime delta (capped)
-        const playtimeForEstimate = steamGame.playtime_2weeks 
-          ? Math.min(steamGame.playtime_2weeks, 4 * 60) // Cap at 4 hours
-          : Math.min(Math.max(playtimeDelta, 0), 4 * 60); // Cap at 4 hours, ensure non-negative
-        lastPlayed = new Date(syncTime.getTime() - playtimeForEstimate * 60 * 1000);
       }
+      // If lastPlayed is missing, we don't create a session - wait for Steam to update
 
       // Track if we updated the baseline (to ensure batch save uses correct value)
       let baselineUpdated = false;
 
-      // LEDGER APPROACH: Write session to game_sessions table if delta >= 3 minutes
+      // SIMPLIFIED: Write session to game_sessions table if delta >= 3 minutes
+      // Only create session if we have a valid lastPlayed timestamp from Steam
       if (playtimeDelta >= 3) {
         // DEBUG: Log session creation details for Spelunky (239350) to understand duplicate sessions
         const isSpelunky = steamGame.appid === 239350;
@@ -512,29 +502,46 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           console.log(`[Friend Sync] 🔍   - currentPlaytimeMinutes: ${currentPlaytimeMinutes}min`);
           console.log(`[Friend Sync] 🔍   - playtimeDelta: ${playtimeDelta}min`);
           console.log(`[Friend Sync] 🔍   - lastPlayed: ${lastPlayed ? lastPlayed.toISOString() : 'MISSING'}`);
-          console.log(`[Friend Sync] 🔍   - syncTime: ${syncTime.toISOString()}`);
-          console.log(`[Friend Sync] 🔍   - playtime_2weeks: ${steamGame.playtime_2weeks ?? 'MISSING'}min`);
+          console.log(`[Friend Sync] 🔍   - existingGame.lastPlayed: ${existingGame?.lastPlayed ? existingGame.lastPlayed.toISOString() : 'MISSING'}`);
         }
         
-        // FIX: When lastPlayed is missing, calculate sessionEnd by subtracting playtime from syncTime
-        // This prevents sessions from appearing to have happened "just now" (at sync time)
+        // SIMPLIFIED: Require lastPlayed to exist and be different from existing
+        // If Steam hasn't updated the timestamp yet, skip this sync and wait
+        if (!lastPlayed) {
+          console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): playtime increased (${playtimeDelta}min) but lastPlayed missing - waiting for Steam to update`);
+          // Still update baseline to track the playtime increase
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          baselineUpdated = true;
+          continue; // Skip to next game
+        }
+        
+        // Check if lastPlayed actually changed (Steam updated the timestamp)
+        const isTimestampStale = existingGame?.lastPlayed && 
+          lastPlayed.getTime() === existingGame.lastPlayed.getTime();
+        
+        if (isTimestampStale) {
+          console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): playtime increased (${playtimeDelta}min) but lastPlayed unchanged - Steam is lagging, waiting for next sync`);
+          // Still update baseline to track the playtime increase
+          await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+          baselineUpdated = true;
+          continue; // Skip to next game
+        }
+        
+        // We have new playtime AND new timestamp - create session
         // Cap duration at 4 hours (240 minutes) to match feed-sessions.ts logic
         const maxSessionMinutes = 4 * 60;
         const sessionMinutes = Math.min(playtimeDelta, maxSessionMinutes);
         
-        let sessionEnd: Date;
-        let calculatedSessionStart: Date;
+        // Use lastPlayed as sessionEnd (Steam's source of truth)
+        const sessionEnd = lastPlayed;
+        let calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
         
-        if (lastPlayed) {
-          // If we have lastPlayed, use it for both start and end
-          sessionEnd = lastPlayed;
-          calculatedSessionStart = lastPlayed;
-        } else {
-          // Calculate end by subtracting playtime from syncTime (so it's in the past)
-          // This prevents sessions from appearing to have happened "just now"
-          sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-          // Calculate start by subtracting playtime from end (to create proper duration)
-          calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+        // Safety Guard: Ensure sessionStart is ALWAYS before sessionEnd
+        // This prevents database constraint violations from Steam's "jittery" data
+        if (calculatedSessionStart >= sessionEnd) {
+          // Fallback for edge cases or Steam weirdness
+          // Ensure at least a 1-second difference so DB constraints don't trip
+          calculatedSessionStart = new Date(sessionEnd.getTime() - 1000);
         }
         
         if (isSpelunky) {
@@ -658,7 +665,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
                 type: 'playtime',
               };
               await dataAccess.saveGameSession(newSession);
-              console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min (${recentSession ? 'recent' : 'nearby'} session found but too far: ${(timeDiff / 1000 / 60).toFixed(1)}min)`);
+              const durationMinutes = (newSession.sessionEnd.getTime() - newSession.sessionStart.getTime()) / 60000;
+              console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min (${recentSession ? 'recent' : 'nearby'} session found but too far: ${(timeDiff / 1000 / 60).toFixed(1)}min), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
               if (isSpelunky) {
                 console.log(`[Friend Sync] 🔍   - CREATED NEW SESSION (not merged): id=${newSession.id}, start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, delta=${newSession.playtimeDelta}min`);
                 console.log(`[Friend Sync] 🔍   - About to update baseline (new session, ${recentSession ? 'recent' : 'nearby'} too far): currentPlaytimeMinutes=${currentPlaytimeMinutes}min, previousPlaytimeMinutes=${previousPlaytimeMinutes}min`);
@@ -683,7 +691,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               type: 'playtime',
             };
             await dataAccess.saveGameSession(newSession);
-            console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min`);
+            const durationMinutes = (newSession.sessionEnd.getTime() - newSession.sessionStart.getTime()) / 60000;
+            console.log(`[Friend Sync] Created new session for game ${steamGame.appid}: ${playtimeDelta}min, start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
             if (isSpelunky) {
               console.log(`[Friend Sync] 🔍   - CREATED NEW SESSION (no recent session): id=${newSession.id}, start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, delta=${newSession.playtimeDelta}min`);
               console.log(`[Friend Sync] 🔍   - About to update baseline (new session, no recent): currentPlaytimeMinutes=${currentPlaytimeMinutes}min, previousPlaytimeMinutes=${previousPlaytimeMinutes}min`);
@@ -715,11 +724,21 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       } else if (playtimeDelta === 0) {
         // FALLBACK: Only use when delta=0 AND recent activity detected AND no recent session exists
         // This fixes cases where games were synced after playtime was already at current value
+        // SIMPLIFIED: Still require lastPlayed to exist (no syncTime fallbacks)
         const playtime2Weeks = steamGame.playtime_2weeks ?? 0;
         const fourteenDaysAgo = new Date(syncTime.getTime() - 14 * 24 * 60 * 60 * 1000);
         const hasRecentActivity = playtime2Weeks > 0 || (lastPlayed && lastPlayed >= fourteenDaysAgo);
         
         if (hasRecentActivity && playtime2Weeks >= 3) {
+          // SIMPLIFIED: Require lastPlayed to exist for this fallback too
+          if (!lastPlayed) {
+            console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0, playtime_2weeks=${playtime2Weeks}min but lastPlayed missing - waiting for Steam`);
+            // Still update baseline
+            await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+            baselineUpdated = true;
+            continue;
+          }
+          
           // FIX 1: Check for recent session FIRST (within 30 minutes) - prevents duplicates
           // Same check as normal playtimeDelta path
           const recentSession = await dataAccess.getRecentGameSession(friendId, steamGame.appid, 30, 'playtime');
@@ -728,6 +747,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             // Recent session exists - don't create duplicate
             console.log(`[Friend Sync] ⏭️ Skipping session creation for game ${steamGame.appid} (${steamGame.name || 'unknown'}): recent session exists (delta=0 case, playtime_2weeks=${playtime2Weeks}min)`);
             // Still update baseline to keep it in sync
+            await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+            baselineUpdated = true;
             continue; // Skip to next game
           }
           
@@ -746,39 +767,20 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             const maxSessionMinutes = 4 * 60;
             const sessionMinutes = Math.min(Math.max(newPlaytime, 3), maxSessionMinutes);
             
-            let sessionEnd: Date;
-            let calculatedSessionStart: Date;
+            // SIMPLIFIED: Always use lastPlayed (Steam's source of truth)
+            // No syncTime fallbacks - if lastPlayed is stale, we accept the delay
+            const sessionEnd = lastPlayed;
             
-            // FIX: When playtime_2weeks increased but delta=0, verify lastPlayed changed before using current time
-            // playtime_2weeks is a rolling window - it can increase if old playtime drops out, not just new playtime
-            // Only use current time if lastPlayed is recent (within 2 hours)
-            const twoHoursAgo = new Date(syncTime.getTime() - 2 * 60 * 60 * 1000);
-            const lastPlayedIsRecent = lastPlayed && lastPlayed >= twoHoursAgo;
+            // Calculate session start by subtracting duration from session end
+            const sessionDurationMs = sessionMinutes * 60 * 1000;
+            let calculatedSessionStart = new Date(sessionEnd.getTime() - sessionDurationMs);
             
-            if (existingSession && newPlaytime > 0) {
-              // playtime_2weeks increased - check if lastPlayed is recent
-              if (lastPlayedIsRecent) {
-                // lastPlayed is recent - safe to use sync time
-                sessionEnd = syncTime;
-                calculatedSessionStart = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-              } else if (lastPlayed) {
-                // lastPlayed is stale - use lastPlayed instead of sync time to avoid phantom sessions
-                sessionEnd = lastPlayed;
-                calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
-              } else {
-                // No lastPlayed - use sync time but flag as estimated
-                sessionEnd = syncTime;
-                calculatedSessionStart = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-              }
-            } else if (lastPlayed) {
-              // Use lastPlayed as sessionEnd, calculate start by subtracting duration
-              sessionEnd = lastPlayed;
-              calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
-            } else {
-              // Calculate end by subtracting playtime from syncTime (so it's in the past)
-              sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-              // Calculate start by subtracting playtime from end (to create proper duration)
-              calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+            // Safety Guard: Ensure sessionStart is ALWAYS before sessionEnd
+            // This prevents database constraint violations from Steam's "jittery" data
+            if (calculatedSessionStart >= sessionEnd) {
+              // Fallback for edge cases or Steam weirdness
+              // Ensure at least a 1-second difference so DB constraints don't trip
+              calculatedSessionStart = new Date(sessionEnd.getTime() - 1000);
             }
             
             const sessionStartRounded = new Date(Math.floor(calculatedSessionStart.getTime() / 1000) * 1000);
@@ -796,10 +798,11 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
                 type: 'playtime',
               };
               await dataAccess.saveGameSession(newSession);
+              const durationMinutes = (newSession.sessionEnd.getTime() - newSession.sessionStart.getTime()) / 60000;
               if (existingSession) {
-                console.log(`[Friend Sync] ✨ Created new session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but playtime_2weeks increased (${newPlaytime}min new playtime, total=${playtime2Weeks}min, previous=${previousPlaytime}min)`);
+                console.log(`[Friend Sync] ✨ Created new session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but playtime_2weeks increased (${newPlaytime}min new playtime, total=${playtime2Weeks}min, previous=${previousPlaytime}min), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
               } else {
-                console.log(`[Friend Sync] ✨ Created session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but recent activity (playtime_2weeks=${playtime2Weeks}min, last_played=${lastPlayed ? lastPlayed.toISOString() : 'NULL'})`);
+                console.log(`[Friend Sync] ✨ Created session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but recent activity (playtime_2weeks=${playtime2Weeks}min, last_played=${lastPlayed ? lastPlayed.toISOString() : 'NULL'}), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
               }
             } else {
               console.log(`[Friend Sync] ⏭️ Skipping session creation for ${steamGame.appid}: session already exists with same start time (delta=0 case)`);

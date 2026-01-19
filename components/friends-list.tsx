@@ -1,4 +1,5 @@
 import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FriendCard } from "@/components/friend-card";
 
@@ -28,6 +29,7 @@ interface FriendsListProps {
   sortBy?: string;
   onSortChange?: (value: string) => void;
   loadingFriendStats: Set<string>;
+  onFriendVisible?: (steamId: string) => void;
 }
 
 export function FriendsList({
@@ -36,8 +38,11 @@ export function FriendsList({
   sortBy = "name",
   onSortChange,
   loadingFriendStats,
+  onFriendVisible,
 }: FriendsListProps) {
   const router = useRouter();
+  const friendRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Sort friends based on sortBy prop, default to name
   const sortedFriends = [...friends].sort((a: Friend, b: Friend) => {
@@ -58,6 +63,54 @@ export function FriendsList({
         return a.username.localeCompare(b.username);
     }
   });
+
+  // Set up Intersection Observer for viewport-based loading
+  useEffect(() => {
+    if (!onFriendVisible) return;
+
+    // Create observer with root margin to start loading slightly before visible
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const steamId = entry.target.getAttribute("data-steam-id");
+            if (steamId) {
+              onFriendVisible(steamId);
+            }
+          }
+        });
+      },
+      {
+        rootMargin: "200px", // Start loading 200px before friend card is visible
+        threshold: 0.1,
+      }
+    );
+
+    // Observe all friend cards
+    friendRefs.current.forEach((element) => {
+      if (element) {
+        observerRef.current?.observe(element);
+      }
+    });
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [sortedFriends, onFriendVisible]);
+
+  // Update observer when friends change
+  useEffect(() => {
+    if (!observerRef.current) return;
+
+    // Re-observe all friend cards
+    friendRefs.current.forEach((element) => {
+      if (element) {
+        observerRef.current?.observe(element);
+      }
+    });
+  }, [sortedFriends]);
 
   return (
     <div className="flex flex-col gap-4 mt-4">
@@ -104,6 +157,14 @@ export function FriendsList({
             return (
               <FriendCard
                 key={friend.steamId}
+                ref={(el) => {
+                  if (el) {
+                    friendRefs.current.set(friend.steamId, el);
+                    el.setAttribute("data-steam-id", friend.steamId);
+                  } else {
+                    friendRefs.current.delete(friend.steamId);
+                  }
+                }}
                 friend={friend}
                 isLoadingStats={isLoadingStats}
                 onClick={() => router.push(`/user/${friend.steamId}`)}
