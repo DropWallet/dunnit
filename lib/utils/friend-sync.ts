@@ -488,6 +488,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         const syncWindowStart = playtimeLastSyncedAt;
         const syncWindowEnd = syncTime;
         
+        console.log(`[Friend Sync] Creating session for ${friendId}-${steamGame.appid} (${steamGame.name}): delta=${playtimeDelta}min, window=${syncWindowStart.toISOString()} to ${syncWindowEnd.toISOString()}`);
+        
         // Round to nearest second for deduplication
         const sessionStartRounded = new Date(Math.floor(syncWindowStart.getTime() / 1000) * 1000);
         
@@ -495,6 +497,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         const existingSession = await dataAccess.getGameSessionByStartTime(friendId, steamGame.appid, sessionStartRounded);
         
         if (existingSession) {
+          console.log(`[Friend Sync] Merging with existing session for ${friendId}-${steamGame.appid}: existingDelta=${existingSession.playtimeDelta}min, newDelta=${playtimeDelta}min`);
           // Merge with existing session: add delta and update session_end
           const shouldUpdateEnd = syncWindowEnd > existingSession.sessionEnd;
           const mergedSession: GameSession = {
@@ -542,6 +545,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               baselineUpdated = true;
             } else {
               // Gap too large or proximity too far - create new session
+              console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (gap too large: ${gapMinutes.toFixed(1)}min > ${GAP_SAFEGUARD_MINUTES}min or proximity too far: ${proximityMinutes.toFixed(1)}min > ${PROXIMITY_WINDOW_MINUTES}min)`);
               const newSession: GameSession = {
                 userId: friendId,
                 appId: steamGame.appid,
@@ -557,6 +561,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             }
           } else {
             // No recent session - create new
+            console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (no recent session found)`);
             const newSession: GameSession = {
               userId: friendId,
               appId: steamGame.appid,

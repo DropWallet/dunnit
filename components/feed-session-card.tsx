@@ -26,7 +26,7 @@ function formatSyncWindow(
   if (windowHours < 24) {
     const hours = Math.floor(windowHours);
     if (hours === 0) {
-      return `${playtimeFormatted} played today`;
+      return `${playtimeFormatted} played in the last hour`;
     } else if (hours === 1) {
       return `${playtimeFormatted} played in the last hour`;
     } else {
@@ -177,12 +177,48 @@ export function FeedSessionCard({
   
   // Format sync window for playtime sessions (new sessions only)
   // Legacy sessions fall back to showing "Session: X hours" format
-  const syncWindowText = isPlaytimeSession && session.syncWindowStart && session.syncWindowEnd
-    ? formatSyncWindow(session.durationFormatted, session.syncWindowStart, session.syncWindowEnd)
+  // Convert string dates to Date objects if needed (API serialization)
+  let syncWindowStart: Date | null = null;
+  let syncWindowEnd: Date | null = null;
+  
+  if (session.syncWindowStart) {
+    try {
+      syncWindowStart = session.syncWindowStart instanceof Date 
+        ? session.syncWindowStart 
+        : new Date(session.syncWindowStart);
+      // Validate date
+      if (isNaN(syncWindowStart.getTime())) {
+        syncWindowStart = null;
+      }
+    } catch {
+      syncWindowStart = null;
+    }
+  }
+  
+  if (session.syncWindowEnd) {
+    try {
+      syncWindowEnd = session.syncWindowEnd instanceof Date 
+        ? session.syncWindowEnd 
+        : new Date(session.syncWindowEnd);
+      // Validate date
+      if (isNaN(syncWindowEnd.getTime())) {
+        syncWindowEnd = null;
+      }
+    } catch {
+      syncWindowEnd = null;
+    }
+  }
+  
+  const syncWindowText = isPlaytimeSession && syncWindowStart && syncWindowEnd
+    ? formatSyncWindow(session.durationFormatted, syncWindowStart, syncWindowEnd)
     : null;
   
   // Legacy playtime sessions: show old "Session: X hours" format
   const isLegacyPlaytimeSession = isPlaytimeSession && !syncWindowText;
+  
+  // Use the relativeTime from the session (calculated from original sessionEnd when first synced)
+  // This reflects when the session was first created in the database, not when the feed is loaded
+  const displayRelativeTime = session.relativeTime;
 
   // State for image fallbacks
   const [desktopImageError, setDesktopImageError] = useState(false);
@@ -284,7 +320,7 @@ export function FeedSessionCard({
             </p>
           </Link>
           <p className="flex-grow-0 flex-shrink-0 text-xs text-left text-text-subdued">
-            {session.relativeTime}
+            {displayRelativeTime}
           </p>
         </div>
       </div>
@@ -342,9 +378,14 @@ export function FeedSessionCard({
             {/* For playtime sessions: show sync window format (new) or fallback to old format (legacy) */}
             {isPlaytimeSession ? (
               syncWindowText ? (
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                  {syncWindowText}
-                </p>
+                <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
+                  <span className="text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </span>
+                  <span className="text-lg font-semibold text-left text-text-weak">
+                    {syncWindowText.replace(session.durationFormatted, '').trim()}
+                  </span>
+                </div>
               ) : (
                 // Legacy playtime sessions: show old "Session: X hours" format
                 <div className="flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-1">
@@ -463,9 +504,14 @@ export function FeedSessionCard({
             {/* For playtime sessions: show sync window format (new) or fallback to old format (legacy) */}
             {isPlaytimeSession ? (
               syncWindowText ? (
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                  {syncWindowText}
-                </p>
+                <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
+                  <span className="text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </span>
+                  <span className="text-lg font-semibold text-left text-text-weak">
+                    {syncWindowText.replace(session.durationFormatted, '').trim()}
+                  </span>
+                </div>
               ) : (
                 // Legacy playtime sessions: show old "Session: X hours" format
                 <div className="flex justify-start items-start flex-grow-0 relative gap-1">

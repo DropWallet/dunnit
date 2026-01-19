@@ -641,7 +641,26 @@ export async function GET(request: NextRequest) {
         });
         
         if (hasOverlappingPlaytimeSession && overlappingSession) {
-          continue; // Skip if another playtime session already exists for this time window
+          // Check if existing session is zero-duration (legacy session)
+          const existingDuration = overlappingSession.sessionEnd.getTime() - overlappingSession.sessionStart.getTime();
+          const isZeroDuration = existingDuration < 60 * 1000; // Less than 1 minute
+          const newDuration = gameSession.sessionEnd.getTime() - gameSession.sessionStart.getTime();
+          
+          console.log(`[Feed] Overlap detected for ${userId}-${appId}: existing=${existingDuration}ms (zero=${isZeroDuration}), new=${newDuration}ms, overlapType=${overlapType}`);
+          
+          // If existing is zero-duration and new has actual duration, replace it
+          if (isZeroDuration && newDuration >= 60 * 1000) {
+            console.log(`[Feed] ✅ Replacing zero-duration session with new session for ${userId}-${appId}`);
+            // Remove the zero-duration session and continue with the new one
+            const index = playtimeSessions.indexOf(overlappingSession);
+            if (index !== -1) {
+              playtimeSessions.splice(index, 1);
+            }
+            // Continue to create the new session below
+          } else {
+            console.log(`[Feed] ⚠️ Skipping playtime session ${userId}-${appId} (overlaps with existing session, not zero-duration)`);
+            continue; // Skip if another playtime session already exists for this time window
+          }
         }
         
         const user = playtimeUsersMap.get(userId);
@@ -654,7 +673,7 @@ export async function GET(request: NextRequest) {
             appId,
             gameSession.playtimeDelta,
             gameSession.sessionStart, // syncWindowStart (playtimeLastSyncedAt)
-            gameSession.sessionEnd,   // syncWindowEnd (syncTime)
+            gameSession.sessionEnd,   // syncWindowEnd (syncTime from database)
             {
               username: user.username,
               avatarUrl: user.avatar_url,
@@ -666,6 +685,9 @@ export async function GET(request: NextRequest) {
               iconUrl: game.icon_url,
             }
           );
+          
+          // relativeTime is already correctly calculated in createSessionFromPlaytime
+          // using sessionEnd (the original sync time when the session was first created in the database)
           
           playtimeSessions.push(playtimeSession);
         }

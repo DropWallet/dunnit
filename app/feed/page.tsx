@@ -47,12 +47,12 @@ function FeedContent() {
               ) : (
                 <div className="flex flex-col gap-4">
                   {sessions.map((session) => (
-                    <FeedSessionCard
-                      key={session.sessionId}
-                      session={session}
-                      totalGameAchievements={session.totalGameAchievements}
-                      unlockedGameAchievements={session.unlockedGameAchievements}
-                    />
+                      <FeedSessionCard
+                        key={session.sessionId}
+                        session={session}
+                        totalGameAchievements={session.totalGameAchievements}
+                        unlockedGameAchievements={session.unlockedGameAchievements}
+                      />
                   ))}
                   
                   {/* Load More Button */}
