@@ -687,7 +687,7 @@ export async function GET(request: NextRequest) {
         // Also check for overlapping playtime sessions (same user/game)
         // This catches cases where deduplication missed sessions that are close but not within the 20-minute window
         // BUT: Only merge if sessions actually overlap or are part of the same continuous play session
-        let overlappingSession: typeof playtimeSessions[0] | null = null;
+        let overlappingSession: FeedSession | null = null;
         let overlapType: 'exact' | 'continuous' | null = null;
         
         const hasOverlappingPlaytimeSession = playtimeSessions.some(existingPlaytimeSession => {
