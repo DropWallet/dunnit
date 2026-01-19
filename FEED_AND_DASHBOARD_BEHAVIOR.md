@@ -460,10 +460,9 @@ All sync operations should:
 ### When Are Sessions Created?
 
 **Playtime Sessions**:
-- ✅ `playtimeDelta >= 3 minutes` AND `lastPlayed` exists AND changed → Create session
-- ✅ `delta=0` AND `playtime_2weeks >= 3 minutes` AND `lastPlayed` exists AND no existing session → Create session
-- ✅ `delta=0` AND `playtime_2weeks` increased since existing session AND `lastPlayed` exists → Create new session
-- ❌ `lastPlayed` missing or unchanged → Skip session creation, wait for Steam to update
+- ✅ `playtimeDelta >= 3 minutes` → Create session (uses heuristic if `rtime_last_played` missing)
+- ❌ `playtimeDelta === 0` → Skip session creation, update baseline only (sessions will appear on next sync when Steam updates)
+- ❌ `playtimeDelta < 3 minutes` → Skip session creation, update baseline only
 
 **Achievement Sessions**:
 - ✅ New achievements unlocked → Create session

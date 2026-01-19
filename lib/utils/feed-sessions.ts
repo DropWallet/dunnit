@@ -89,6 +89,10 @@ export interface FeedSession {
   likedByUsers: Array<{ userId: string; avatarUrl: string }>;
   // Comment data
   commentCount: number;
+  // Sync window metadata (for playtime sessions)
+  syncWindowStart?: Date; // When the sync window started (playtimeLastSyncedAt)
+  syncWindowEnd?: Date; // When the sync window ended (syncTime)
+  isPlaytimeSession?: boolean; // Flag to distinguish playtime vs achievement sessions
 }
 
 /**
@@ -383,12 +387,15 @@ function calculatePlaytimeNarrative(playtimeMinutes: number): Narrative {
 
 /**
  * Create a FeedSession from playtime data (no achievements)
+ * Uses sync window approach: sessionStart = syncWindowStart, sessionEnd = syncWindowEnd
+ * Supports legacy sessions (when syncWindowStart/syncWindowEnd are old fake timestamps)
  */
 export function createSessionFromPlaytime(
   userId: string,
   appId: number,
   playtimeDeltaMinutes: number,
-  sessionEnd: Date,
+  syncWindowStart: Date,
+  syncWindowEnd: Date,
   user: {
     username: string;
     avatarUrl: string;
@@ -400,12 +407,16 @@ export function createSessionFromPlaytime(
     iconUrl?: string;
   }
 ): FeedSession {
-  // Calculate session start by subtracting playtime delta from session end
-  // Cap the duration at 4 hours (same as achievement sessions)
-  const maxSessionMinutes = 4 * 60;
-  const sessionMinutes = Math.min(playtimeDeltaMinutes, maxSessionMinutes);
-  const sessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
-  const duration = sessionMinutes * 60 * 1000;
+  // Sync window: sessionStart = syncWindowStart, sessionEnd = syncWindowEnd
+  // For legacy sessions, these are the old fake timestamps (still valid for display)
+  const sessionStart = syncWindowStart;
+  const sessionEnd = syncWindowEnd;
+  const duration = sessionEnd.getTime() - sessionStart.getTime();
+
+  // Detect legacy sessions: if duration is very small (< 1 minute) or very large (> 7 days),
+  // it's likely a legacy session with fake timestamps
+  // Legacy sessions: use old heuristic timestamps, not actual sync windows
+  const isLegacySession = duration < 60 * 1000 || duration > 7 * 24 * 60 * 60 * 1000;
 
   // Generate session ID (include 'playtime' suffix to avoid collisions)
   const sessionId = `${userId}-${appId}-${sessionStart.getTime()}-playtime`;
@@ -428,11 +439,11 @@ export function createSessionFromPlaytime(
     sessionStart,
     sessionEnd,
     duration,
-    durationFormatted: formatDuration(duration),
+    durationFormatted: formatDuration(playtimeDeltaMinutes * 60 * 1000), // Use playtimeDelta for display
     achievementCount: 0,
     achievements: [],
     // minRarity and minRarityPercentage are undefined for playtime-only sessions
-    narrative: calculatePlaytimeNarrative(sessionMinutes),
+    narrative: calculatePlaytimeNarrative(playtimeDeltaMinutes),
     relativeTime: getRelativeTime(sessionEnd),
     timestamp: sessionEnd.toISOString(),
     // Default values - will be populated by API
@@ -442,6 +453,10 @@ export function createSessionFromPlaytime(
     isLiked: false,
     likedByUsers: [],
     commentCount: 0,
+    // Sync window metadata (only set for new sessions, not legacy)
+    syncWindowStart: isLegacySession ? undefined : syncWindowStart,
+    syncWindowEnd: isLegacySession ? undefined : syncWindowEnd,
+    isPlaytimeSession: true, // Always true for playtime sessions (legacy or new)
   };
 
   return session;

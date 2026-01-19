@@ -1168,24 +1168,6 @@ export class SupabaseDataAccess implements DataAccess {
   }
 
   async updateGameBaseline(userId: string, appId: number, currentPlaytimeMinutes: number): Promise<void> {
-    // DEBUG: Log baseline updates for Spelunky
-    const isSpelunky = appId === 239350 && userId === '76561198014408203';
-    if (isSpelunky) {
-      // Get current baseline before update
-      const { data: currentGame } = await this.supabase
-        .from('user_games')
-        .select('previous_playtime_minutes, playtime_minutes')
-        .eq('user_id', userId)
-        .eq('app_id', appId)
-        .single();
-      
-      const oldBaseline = currentGame?.previous_playtime_minutes ?? null;
-      console.log(`[DataAccess] 🔍 DEBUG: Updating baseline for Spelunky (${appId}):`);
-      console.log(`[DataAccess] 🔍   - old baseline: ${oldBaseline}min`);
-      console.log(`[DataAccess] 🔍   - new baseline: ${currentPlaytimeMinutes}min`);
-      console.log(`[DataAccess] 🔍   - current playtime: ${currentGame?.playtime_minutes ?? 'unknown'}min`);
-    }
-    
     const { error } = await this.supabase
       .from('user_games')
       .update({
@@ -1198,10 +1180,6 @@ export class SupabaseDataAccess implements DataAccess {
     if (error) {
       console.error('Error updating game baseline:', error);
       throw error;
-    }
-    
-    if (isSpelunky) {
-      console.log(`[DataAccess] 🔍   - Baseline update completed successfully`);
     }
   }
 

@@ -74,7 +74,6 @@ export async function GET(
     const isStale = !user.lastSyncAt || user.lastSyncAt < oneHourAgo;
 
     if (isStale) {
-      console.log(`[User Profile] User ${targetSteamId} data is stale (lastSyncAt: ${user.lastSyncAt?.toISOString() || 'never'}), triggering background playtime sync`);
       
       // Trigger background playtime sync (fire-and-forget)
       // This will update user_games and create playtime sessions
