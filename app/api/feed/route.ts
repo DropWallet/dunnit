@@ -721,9 +721,11 @@ export async function GET(request: NextRequest) {
         });
         
         if (hasOverlappingPlaytimeSession && overlappingSession) {
+          // TypeScript: overlappingSession is guaranteed to be non-null here
+          const existingSession: FeedSession = overlappingSession;
           console.log(`[Feed] ⏭️ Skipping playtime session for ${gameName} (${appId}): overlapping playtime session already exists`);
           console.log(`[Feed] 🔍 Overlap Details: user=${userId}, game=${gameName} (${appId}), type=${overlapType}`);
-          console.log(`[Feed] 🔍   - Existing session: start=${overlappingSession.sessionStart.toISOString()}, end=${overlappingSession.sessionEnd.toISOString()}, sessionId=${overlappingSession.sessionId}`);
+          console.log(`[Feed] 🔍   - Existing session: start=${existingSession.sessionStart.toISOString()}, end=${existingSession.sessionEnd.toISOString()}, sessionId=${existingSession.sessionId}`);
           console.log(`[Feed] 🔍   - New session: start=${gameSession.sessionStart.toISOString()}, end=${gameSession.sessionEnd.toISOString()}, id=${gameSession.id}`);
           if (userId === TARGET_USER_ID) {
             console.log(`[Feed] 🔍 DEBUG: Skipped ${gameName} (${appId}) for ${TARGET_USER_ID} due to overlapping playtime session`);
