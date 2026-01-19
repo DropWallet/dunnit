@@ -113,9 +113,7 @@ async function syncFriendsForFeed(
   const MAX_FIRST_SYNC_FRIENDS = 20;
   const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
   
-  if (friendsNotInDb.length > MAX_FIRST_SYNC_FRIENDS) {
-    console.log(`[Feed] Limiting first-sync friends to ${MAX_FIRST_SYNC_FRIENDS} (out of ${friendsNotInDb.length} total not in DB) to prevent API overload`);
-  }
+  // Limit first-sync friends to prevent API overload
   
   friendsNotInDbToSync.forEach(friendId => {
     friendsNeedingSync.add(friendId);
@@ -168,9 +166,7 @@ async function syncFriendsForFeed(
       })
       .map(f => f.friendId);
     
-    if (friendsToSync.length === 0) {
-      console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
-    } else {
+    if (friendsToSync.length > 0) {
       // Check staleness (2 hour threshold) - sync stale friends
       // BUT ALSO sync friends with recent playtime in DB, even if not stale
       // This ensures we capture new playtime that occurred since last sync
@@ -194,10 +190,7 @@ async function syncFriendsForFeed(
           )
         );
         
-        console.log(`[Feed] Found ${allFriendsToSync.length} friends needing sync (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime) out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts:`);
-        console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
-        console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
-        console.log(`  - Syncing friends BEFORE querying sessions (with ${SYNC_TIMEOUT_MS}ms timeout)`);
+        console.log(`[Feed] Syncing ${allFriendsToSync.length} friends (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime)`);
         
         // FIX #2: Await sync with timeout instead of fire-and-forget
         // This ensures sessions are available when we query, fixing empty feed for new users
@@ -210,22 +203,17 @@ async function syncFriendsForFeed(
           });
           
           await Promise.race([syncPromise, timeoutPromise]);
-          console.log(`[Feed] ✅ Friend sync completed within timeout`);
         } catch (error) {
           // If timeout or error, log but continue - feed will still work with existing sessions
           // Background sync will continue to run
           if (error instanceof Error && error.message === 'Sync timeout') {
-            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions (background sync will continue)`);
+            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions`);
           } else {
             console.error('[Feed] Friend sync failed:', error);
           }
         }
-      } else {
-        console.log(`[Feed] All ${friendsToSync.length} friends needing sync are fresh (synced within 2 hours)`);
       }
     }
-  } else {
-    console.log(`[Feed] No friends needing sync found`);
   }
 }
 
@@ -280,11 +268,6 @@ export async function GET(request: NextRequest) {
     
     // Special logging for user 76561197998756770 (defined once at function level)
     const TARGET_USER_ID = '76561197998756770';
-    if (targetUserIds.includes(TARGET_USER_ID)) {
-      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is in target user list (friend count: ${friendSteamIds.length})`);
-    } else {
-      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is NOT in target user list (friend count: ${friendSteamIds.length})`);
-    }
     
     // Apply friend filter if provided
     if (friendId) {
@@ -310,35 +293,14 @@ export async function GET(request: NextRequest) {
     // This fixes the timing issue where feed queries sessions before syncs complete
     await syncFriendsForFeed(friendSteamIds, steamId, supabase, dataAccess, now);
     
-    console.log(`[Feed] Lookback window: ${MAX_LOOKBACK_DAYS} days, lookback date: ${lookbackDate.toISOString()}`);
-    
     // Query achievement sessions from game_sessions (already filtered by lookback in getGameSessions)
     const allGameSessions = await dataAccess.getGameSessions(targetUserIds, 1000, 0, MAX_LOOKBACK_DAYS);
-    console.log(`[Feed] Query returned ${allGameSessions.length} total sessions`);
-    
-    // Debug: Log breakdown by user and type
-    const sessionBreakdown = new Map<string, { achievement: number; playtime: number }>();
-    allGameSessions.forEach(s => {
-      const key = s.userId;
-      if (!sessionBreakdown.has(key)) {
-        sessionBreakdown.set(key, { achievement: 0, playtime: 0 });
-      }
-      const counts = sessionBreakdown.get(key)!;
-      if (s.type === 'achievement') counts.achievement++;
-      if (s.type === 'playtime') counts.playtime++;
-    });
-    console.log(`[Feed] Session breakdown by user:`, Array.from(sessionBreakdown.entries()).map(([userId, counts]) => {
-      const isOwnSession = userId === steamId;
-      return `${userId.substring(0, 8)}...${isOwnSession ? ' (YOU)' : ''}: ${counts.achievement} achievement, ${counts.playtime} playtime`;
-    }).join(', '));
     
     // Filter by cooldown and type (only achievement sessions)
     const achievementSessionsFromDB = allGameSessions.filter(session => {
       if (session.type !== 'achievement') return false;
       return session.sessionEnd <= cooldownThreshold;
     });
-    
-    console.log(`[Feed] Found ${achievementSessionsFromDB.length} achievement sessions from game_sessions (after cooldown filter)`);
     
     // Special logging for user 76561197998756770 - achievement sessions
     const targetUserAchievementSessions = achievementSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
@@ -395,9 +357,7 @@ export async function GET(request: NextRequest) {
       // Only fetch data for public users
       const publicUserIds = achievementUserIds.filter(id => !privateUserIds.has(id));
       
-      if (publicSessions.length === 0) {
-        console.log(`[Feed] No public sessions after privacy filtering`);
-      } else {
+      if (publicSessions.length > 0) {
         // Batch fetch games and achievements (only public users)
         const [gamesData, allAchievementsData] = await Promise.all([
         supabase
@@ -498,16 +458,8 @@ export async function GET(request: NextRequest) {
       }
       
       // Apply cooldown filter (additional safety check)
-      const beforeCooldownFilter = sessions.length;
       sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
-      const afterCooldownFilter = sessions.length;
-      
-      if (beforeCooldownFilter !== afterCooldownFilter) {
-        console.log(`[Feed] Cooldown filter removed ${beforeCooldownFilter - afterCooldownFilter} sessions`);
       }
-      } // Close the else block that starts at line 367
-    } else {
-      console.log('[Feed] No achievement sessions found in game_sessions table');
     }
 
     // LEDGER APPROACH: Query playtime sessions from game_sessions table
@@ -524,8 +476,6 @@ export async function GET(request: NextRequest) {
       if (session.type !== 'playtime') return false;
       return session.sessionEnd <= playtimeCooldownThreshold;
     });
-    
-    console.log(`[Feed] Found ${playtimeSessionsFromDB.length} playtime sessions from game_sessions (after cooldown filter)`);
     
     // Special logging for user 76561197998756770
     const targetUserPlaytimeSessions = playtimeSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
@@ -813,10 +763,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Merge playtime sessions with achievement sessions
-      console.log(`[Feed] Merging ${playtimeSessions.length} playtime sessions with achievement sessions`);
       sessions = [...sessions, ...playtimeSessions];
-    } else {
-      console.log('[Feed] No playtime sessions found in game_sessions table');
     }
 
     // Deduplicate sessions by sessionId (in case of duplicates from multiple queries or processing)
@@ -831,24 +778,10 @@ export async function GET(request: NextRequest) {
       }
     });
     sessions = Array.from(sessionMap.values());
-    console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique sessions (${duplicateSessionIds.length} duplicates removed)`);
     
-    // Debug: Log breakdown of final sessions by user
-    const finalSessionBreakdown = new Map<string, number>();
-    sessions.forEach(s => {
-      const userId = s.user.steamId;
-      finalSessionBreakdown.set(userId, (finalSessionBreakdown.get(userId) || 0) + 1);
-    });
-    console.log(`[Feed] Final session breakdown by user:`, Array.from(finalSessionBreakdown.entries()).map(([userId, count]) => {
-      const isOwnSession = userId === steamId;
-      return `${userId.substring(0, 8)}...${isOwnSession ? ' (YOU)' : ''}: ${count} sessions`;
-    }).join(', '));
-    
-    // Debug: Log recent sessions (last 5) to see what's appearing
-    const recentSessions = sessions.slice(0, 5);
-    console.log(`[Feed] Most recent 5 sessions:`, recentSessions.map(s => 
-      `${s.sessionId} - ${s.user.steamId === steamId ? 'YOU' : 'FRIEND'} - ${s.game.name} - ${s.sessionEnd.toISOString()}`
-    ).join(', '));
+    if (duplicateSessionIds.length > 0) {
+      console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique (${duplicateSessionIds.length} duplicates removed)`);
+    }
 
     // Note: Friend sync now happens BEFORE querying sessions (see syncFriendsForFeed above)
     // This ensures sessions are available when building the feed, fixing empty feed for new users
@@ -921,8 +854,6 @@ export async function GET(request: NextRequest) {
     const isUserStale = !user?.lastSyncAt || user.lastSyncAt < oneHourAgo;
 
     if (isUserStale) {
-      console.log(`[Feed] User's own data is stale (lastSyncAt: ${user?.lastSyncAt?.toISOString() || 'never'}), triggering background sync`);
-      
       // Trigger background sync of user's games and achievements (fire-and-forget)
       // This will create new playtime and achievement sessions automatically
       const syncUserData = async () => {
@@ -964,8 +895,6 @@ export async function GET(request: NextRequest) {
               // Silently fail individual game syncs - not critical
             }
           }
-          
-          console.log(`[Feed] Background sync of user's own data completed`);
         } catch (error) {
           console.error('[Feed] Background user sync failed:', error);
           // Don't throw - this is non-critical
@@ -985,8 +914,6 @@ export async function GET(request: NextRequest) {
           // Don't throw - this is non-critical
         });
       }
-    } else {
-      console.log(`[Feed] User's own data is fresh (lastSyncAt: ${user?.lastSyncAt?.toISOString()})`);
     }
 
     return NextResponse.json(

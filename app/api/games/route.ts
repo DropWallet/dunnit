@@ -632,6 +632,20 @@ export async function GET(request: NextRequest) {
               // No syncTime fallbacks - if lastPlayed is stale, we accept the delay
               const sessionEnd = game.lastPlayed;
               
+              // VALIDATION: Check if lastPlayed is suspiciously recent when delta=0
+              // If lastPlayed is within the last 2 hours but playtimeDelta=0, it might be a Steam API glitch
+              // Check if there's already a very recent session (within 2 hours) - if so, skip to prevent duplicates
+              const now = new Date();
+              const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+              if (game.lastPlayed > twoHoursAgo && playtimeDelta === 0) {
+                const veryRecentSession = await dataAccess.getRecentGameSession(steamId, game.appId, 120, 'playtime'); // 120 minutes = 2 hours
+                if (veryRecentSession) {
+                  console.log(`[Games API] ⚠️ Suspicious lastPlayed for ${game.appId} (${game.name}): lastPlayed=${game.lastPlayed.toISOString()} is very recent but playtimeDelta=0 and recent session exists (id=${veryRecentSession.id}) - Steam API may be incorrect, skipping session`);
+                  await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
+                  continue;
+                }
+              }
+              
               // Calculate session start by subtracting duration from session end
               const sessionDurationMs = sessionMinutes * 60 * 1000;
               let calculatedSessionStart = new Date(sessionEnd.getTime() - sessionDurationMs);

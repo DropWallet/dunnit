@@ -771,6 +771,20 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             // No syncTime fallbacks - if lastPlayed is stale, we accept the delay
             const sessionEnd = lastPlayed;
             
+            // VALIDATION: Check if lastPlayed is suspiciously recent when delta=0
+            // If lastPlayed is within the last 2 hours but playtimeDelta=0, it might be a Steam API glitch
+            // Check if there's already a very recent session (within 2 hours) - if so, skip to prevent duplicates
+            const twoHoursAgo = new Date(syncTime.getTime() - 2 * 60 * 60 * 1000);
+            if (lastPlayed > twoHoursAgo && playtimeDelta === 0) {
+              const veryRecentSession = await dataAccess.getRecentGameSession(friendId, steamGame.appid, 120, 'playtime'); // 120 minutes = 2 hours
+              if (veryRecentSession) {
+                console.log(`[Friend Sync] ⚠️ Suspicious lastPlayed for ${steamGame.appid} (${steamGame.name || 'unknown'}): lastPlayed=${lastPlayed.toISOString()} is very recent but playtimeDelta=0 and recent session exists (id=${veryRecentSession.id}) - Steam API may be incorrect, skipping session`);
+                await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+                baselineUpdated = true;
+                continue;
+              }
+            }
+            
             // Calculate session start by subtracting duration from session end
             const sessionDurationMs = sessionMinutes * 60 * 1000;
             let calculatedSessionStart = new Date(sessionEnd.getTime() - sessionDurationMs);
@@ -799,10 +813,18 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               };
               await dataAccess.saveGameSession(newSession);
               const durationMinutes = (newSession.sessionEnd.getTime() - newSession.sessionStart.getTime()) / 60000;
+              
+              // DEBUG: Log where lastPlayed came from
+              const lastPlayedSource = steamGame.rtime_last_played 
+                ? `Steam API (${new Date(steamGame.rtime_last_played * 1000).toISOString()})` 
+                : existingGame?.lastPlayed 
+                  ? `Database (${existingGame.lastPlayed.toISOString()})` 
+                  : 'UNKNOWN';
+              
               if (existingSession) {
-                console.log(`[Friend Sync] ✨ Created new session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but playtime_2weeks increased (${newPlaytime}min new playtime, total=${playtime2Weeks}min, previous=${previousPlaytime}min), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
+                console.log(`[Friend Sync] ✨ Created new session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but playtime_2weeks increased (${newPlaytime}min new playtime, total=${playtime2Weeks}min, previous=${previousPlaytime}min), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min, lastPlayed source: ${lastPlayedSource}`);
               } else {
-                console.log(`[Friend Sync] ✨ Created session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but recent activity (playtime_2weeks=${playtime2Weeks}min, last_played=${lastPlayed ? lastPlayed.toISOString() : 'NULL'}), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
+                console.log(`[Friend Sync] ✨ Created session for game ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0 but recent activity (playtime_2weeks=${playtime2Weeks}min, last_played=${lastPlayed ? lastPlayed.toISOString() : 'NULL'}, lastPlayed source: ${lastPlayedSource}), start=${newSession.sessionStart.toISOString()}, end=${newSession.sessionEnd.toISOString()}, duration=${durationMinutes.toFixed(1)}min`);
               }
             } else {
               console.log(`[Friend Sync] ⏭️ Skipping session creation for ${steamGame.appid}: session already exists with same start time (delta=0 case)`);

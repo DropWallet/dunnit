@@ -22,9 +22,7 @@ export function SyncLoadingModal({ isVisible }: SyncLoadingModalProps) {
           This can take a while for large profiles, Steam can be a fickle beast.
         </p>
         {/* Loader Container */}
-        <div className="loader mt-3" aria-hidden="true">
-          <div className="loader-bar" />
-        </div>
+        <div className="loader mt-3" aria-hidden="true" />
       </div>
     </div>
   );
