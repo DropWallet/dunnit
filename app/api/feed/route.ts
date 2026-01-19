@@ -113,9 +113,7 @@ async function syncFriendsForFeed(
   const MAX_FIRST_SYNC_FRIENDS = 20;
   const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
   
-  if (friendsNotInDb.length > MAX_FIRST_SYNC_FRIENDS) {
-    console.log(`[Feed] Limiting first-sync friends to ${MAX_FIRST_SYNC_FRIENDS} (out of ${friendsNotInDb.length} total not in DB) to prevent API overload`);
-  }
+  // Limit first-sync friends to prevent API overload
   
   friendsNotInDbToSync.forEach(friendId => {
     friendsNeedingSync.add(friendId);
@@ -168,9 +166,7 @@ async function syncFriendsForFeed(
       })
       .map(f => f.friendId);
     
-    if (friendsToSync.length === 0) {
-      console.log(`[Feed] All ${friendsNeedingSync.size} friends needing sync had recent sync attempts (within 15 minutes), skipping to prevent refresh spamming`);
-    } else {
+    if (friendsToSync.length > 0) {
       // Check staleness (2 hour threshold) - sync stale friends
       // BUT ALSO sync friends with recent playtime in DB, even if not stale
       // This ensures we capture new playtime that occurred since last sync
@@ -194,10 +190,7 @@ async function syncFriendsForFeed(
           )
         );
         
-        console.log(`[Feed] Found ${allFriendsToSync.length} friends needing sync (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime) out of ${friendsNeedingSync.size} total, ${friendsNeedingSync.size - friendsToSync.length} skipped due to recent attempts:`);
-        console.log(`  - ${friendsWithRecentPlaytime.size} with recent playtime in DB`);
-        console.log(`  - ${friendsNeedingSync.size - friendsWithRecentPlaytime.size} with no games in DB or old sync`);
-        console.log(`  - Syncing friends BEFORE querying sessions (with ${SYNC_TIMEOUT_MS}ms timeout)`);
+        console.log(`[Feed] Syncing ${allFriendsToSync.length} friends (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime)`);
         
         // FIX #2: Await sync with timeout instead of fire-and-forget
         // This ensures sessions are available when we query, fixing empty feed for new users
@@ -210,22 +203,17 @@ async function syncFriendsForFeed(
           });
           
           await Promise.race([syncPromise, timeoutPromise]);
-          console.log(`[Feed] ✅ Friend sync completed within timeout`);
         } catch (error) {
           // If timeout or error, log but continue - feed will still work with existing sessions
           // Background sync will continue to run
           if (error instanceof Error && error.message === 'Sync timeout') {
-            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions (background sync will continue)`);
+            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions`);
           } else {
             console.error('[Feed] Friend sync failed:', error);
           }
         }
-      } else {
-        console.log(`[Feed] All ${friendsToSync.length} friends needing sync are fresh (synced within 2 hours)`);
       }
     }
-  } else {
-    console.log(`[Feed] No friends needing sync found`);
   }
 }
 
@@ -280,11 +268,6 @@ export async function GET(request: NextRequest) {
     
     // Special logging for user 76561197998756770 (defined once at function level)
     const TARGET_USER_ID = '76561197998756770';
-    if (targetUserIds.includes(TARGET_USER_ID)) {
-      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is in target user list (friend count: ${friendSteamIds.length})`);
-    } else {
-      console.log(`[Feed] 🔍 DEBUG: User ${TARGET_USER_ID} is NOT in target user list (friend count: ${friendSteamIds.length})`);
-    }
     
     // Apply friend filter if provided
     if (friendId) {
@@ -310,35 +293,14 @@ export async function GET(request: NextRequest) {
     // This fixes the timing issue where feed queries sessions before syncs complete
     await syncFriendsForFeed(friendSteamIds, steamId, supabase, dataAccess, now);
     
-    console.log(`[Feed] Lookback window: ${MAX_LOOKBACK_DAYS} days, lookback date: ${lookbackDate.toISOString()}`);
-    
     // Query achievement sessions from game_sessions (already filtered by lookback in getGameSessions)
     const allGameSessions = await dataAccess.getGameSessions(targetUserIds, 1000, 0, MAX_LOOKBACK_DAYS);
-    console.log(`[Feed] Query returned ${allGameSessions.length} total sessions`);
-    
-    // Debug: Log breakdown by user and type
-    const sessionBreakdown = new Map<string, { achievement: number; playtime: number }>();
-    allGameSessions.forEach(s => {
-      const key = s.userId;
-      if (!sessionBreakdown.has(key)) {
-        sessionBreakdown.set(key, { achievement: 0, playtime: 0 });
-      }
-      const counts = sessionBreakdown.get(key)!;
-      if (s.type === 'achievement') counts.achievement++;
-      if (s.type === 'playtime') counts.playtime++;
-    });
-    console.log(`[Feed] Session breakdown by user:`, Array.from(sessionBreakdown.entries()).map(([userId, counts]) => {
-      const isOwnSession = userId === steamId;
-      return `${userId.substring(0, 8)}...${isOwnSession ? ' (YOU)' : ''}: ${counts.achievement} achievement, ${counts.playtime} playtime`;
-    }).join(', '));
     
     // Filter by cooldown and type (only achievement sessions)
     const achievementSessionsFromDB = allGameSessions.filter(session => {
       if (session.type !== 'achievement') return false;
       return session.sessionEnd <= cooldownThreshold;
     });
-    
-    console.log(`[Feed] Found ${achievementSessionsFromDB.length} achievement sessions from game_sessions (after cooldown filter)`);
     
     // Special logging for user 76561197998756770 - achievement sessions
     const targetUserAchievementSessions = achievementSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
@@ -395,9 +357,7 @@ export async function GET(request: NextRequest) {
       // Only fetch data for public users
       const publicUserIds = achievementUserIds.filter(id => !privateUserIds.has(id));
       
-      if (publicSessions.length === 0) {
-        console.log(`[Feed] No public sessions after privacy filtering`);
-      } else {
+      if (publicSessions.length > 0) {
         // Batch fetch games and achievements (only public users)
         const [gamesData, allAchievementsData] = await Promise.all([
         supabase
@@ -498,16 +458,8 @@ export async function GET(request: NextRequest) {
       }
       
       // Apply cooldown filter (additional safety check)
-      const beforeCooldownFilter = sessions.length;
       sessions = filterSessionsByCooldown(sessions, COOLDOWN_MINUTES);
-      const afterCooldownFilter = sessions.length;
-      
-      if (beforeCooldownFilter !== afterCooldownFilter) {
-        console.log(`[Feed] Cooldown filter removed ${beforeCooldownFilter - afterCooldownFilter} sessions`);
       }
-      } // Close the else block that starts at line 367
-    } else {
-      console.log('[Feed] No achievement sessions found in game_sessions table');
     }
 
     // LEDGER APPROACH: Query playtime sessions from game_sessions table
@@ -524,8 +476,6 @@ export async function GET(request: NextRequest) {
       if (session.type !== 'playtime') return false;
       return session.sessionEnd <= playtimeCooldownThreshold;
     });
-    
-    console.log(`[Feed] Found ${playtimeSessionsFromDB.length} playtime sessions from game_sessions (after cooldown filter)`);
     
     // Special logging for user 76561197998756770
     const targetUserPlaytimeSessions = playtimeSessionsFromDB.filter(s => s.userId === TARGET_USER_ID);
@@ -578,37 +528,81 @@ export async function GET(request: NextRequest) {
     let deduplicatedGameSessions = Array.from(gameSessionMap.values());
     console.log(`[Feed] Pass 1 deduplication (by sessionStart): ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length} duplicates removed)`);
     
-    // Pass 2: Deduplicate by (userId, appId, sessionEnd) to catch sessions with same end time but different start times
-    // This catches cases like Spelunky where multiple sessions have different start times but same/similar end times
-    // Use a 20-minute window for same-day sessions to catch overlapping/continuous play sessions
-    const sessionEndMap = new Map<string, typeof deduplicatedGameSessions[0]>();
+    // Pass 2: Sort + Peek deduplication to catch sessions that are close in time
+    // Group by (userId, appId), sort by sessionEnd, then merge adjacent sessions if they overlap or are close
+    const FORTY_FIVE_MINUTES_MS = 45 * 60 * 1000; // 45 minute threshold for continuous sessions
+    const ONE_HOUR_MS = 60 * 60 * 1000; // 1 hour - if sessions start more than 1 hour apart, they're separate
     const duplicateByEndTime: typeof deduplicatedGameSessions[0][] = [];
-    const TWENTY_MINUTES_MS = 20 * 60 * 1000; // 20 minute window for sessionEnd matching
     
+    // Group sessions by (userId, appId)
+    const sessionsByUserAndGame = new Map<string, typeof deduplicatedGameSessions[0][]>();
     deduplicatedGameSessions.forEach(gameSession => {
-      // Round sessionEnd to nearest 20 minutes to catch near-duplicates and overlapping sessions
-      // This handles cases where sessions end within 20 minutes of each other (likely same play session)
-      const sessionEndTime = Math.floor(gameSession.sessionEnd.getTime() / TWENTY_MINUTES_MS) * TWENTY_MINUTES_MS;
-      const dedupKey = `${gameSession.userId}-${gameSession.appId}-${sessionEndTime}`;
+      const groupKey = `${gameSession.userId}-${gameSession.appId}`;
+      if (!sessionsByUserAndGame.has(groupKey)) {
+        sessionsByUserAndGame.set(groupKey, []);
+      }
+      sessionsByUserAndGame.get(groupKey)!.push(gameSession);
+    });
+    
+    // Process each group: sort by sessionEnd, then merge adjacent sessions
+    const mergedSessions: typeof deduplicatedGameSessions[0][] = [];
+    sessionsByUserAndGame.forEach((sessions, groupKey) => {
+      // Sort by sessionEnd (ascending)
+      const sortedSessions = [...sessions].sort((a, b) => 
+        a.sessionEnd.getTime() - b.sessionEnd.getTime()
+      );
       
-      if (!sessionEndMap.has(dedupKey)) {
-        sessionEndMap.set(dedupKey, gameSession);
-      } else {
-        // Found duplicate by end time - keep the one with larger playtimeDelta
-        const existing = sessionEndMap.get(dedupKey)!;
-        if (gameSession.playtimeDelta > existing.playtimeDelta) {
-          duplicateByEndTime.push(existing);
-          sessionEndMap.set(dedupKey, gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${gameSession.playtimeDelta}min, discarding ${existing.playtimeDelta}min, end times: ${gameSession.sessionEnd.toISOString()} vs ${existing.sessionEnd.toISOString()}, GameSession IDs: ${gameSession.id} vs ${existing.id})`);
+      // Iterate through sorted sessions and merge adjacent ones
+      let currentMerged: typeof deduplicatedGameSessions[0] | null = null;
+      
+      for (const session of sortedSessions) {
+        if (currentMerged === null) {
+          // First session in group - start with this one
+          currentMerged = { ...session };
         } else {
-          duplicateByEndTime.push(gameSession);
-          console.log(`[Feed] ⚠️ Duplicate GameSession detected (by sessionEnd): ${dedupKey} (keeping delta ${existing.playtimeDelta}min, discarding ${gameSession.playtimeDelta}min, end times: ${existing.sessionEnd.toISOString()} vs ${gameSession.sessionEnd.toISOString()}, GameSession IDs: ${existing.id} vs ${gameSession.id})`);
+          // Check if we should merge with currentMerged
+          // Strict Overlap: If sessions overlap in time, always merge
+          const hasOverlap = session.sessionStart < currentMerged.sessionEnd && 
+                           session.sessionEnd > currentMerged.sessionStart;
+          
+          // Gap-based: If no overlap, check if gap is small enough and start times are close
+          const gap = session.sessionStart.getTime() - currentMerged.sessionEnd.getTime();
+          const startTimeDiff = Math.abs(session.sessionStart.getTime() - currentMerged.sessionStart.getTime());
+          const isContinuousSession = gap >= 0 && gap < FORTY_FIVE_MINUTES_MS && startTimeDiff < ONE_HOUR_MS;
+          
+          if (hasOverlap || isContinuousSession) {
+            // Merge: combine playtimeDelta, take earliest start, take latest end
+            // TypeScript: currentMerged is guaranteed to be non-null here (we're in the else block)
+            const merged: typeof deduplicatedGameSessions[0] = currentMerged!;
+            currentMerged = {
+              ...merged,
+              playtimeDelta: merged.playtimeDelta + session.playtimeDelta,
+              sessionStart: merged.sessionStart < session.sessionStart 
+                ? merged.sessionStart 
+                : session.sessionStart,
+              sessionEnd: merged.sessionEnd > session.sessionEnd 
+                ? merged.sessionEnd 
+                : session.sessionEnd,
+            };
+            duplicateByEndTime.push(session);
+            console.log(`[Feed] ⚠️ Merged GameSession (Pass 2): ${groupKey} (combined delta: ${currentMerged.playtimeDelta}min, merged session IDs: ${currentMerged.id} + ${session.id})`);
+          } else {
+            // No merge - save currentMerged and start new one
+            // TypeScript: currentMerged is guaranteed to be non-null here (we're in the else block)
+            mergedSessions.push(currentMerged!);
+            currentMerged = { ...session };
+          }
         }
+      }
+      
+      // Don't forget the last merged session
+      if (currentMerged !== null) {
+        mergedSessions.push(currentMerged);
       }
     });
     
-    deduplicatedGameSessions = Array.from(sessionEndMap.values());
-    console.log(`[Feed] Pass 2 deduplication (by sessionEnd): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates removed)`);
+    deduplicatedGameSessions = mergedSessions;
+    console.log(`[Feed] Pass 2 deduplication (sort + peek): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates merged)`);
     console.log(`[Feed] Final deduplicated GameSessions: ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length + duplicateByEndTime.length} total duplicates removed)`);
     
     // Convert GameSession to FeedSession and check for overlapping achievement sessions
@@ -690,6 +684,55 @@ export async function GET(request: NextRequest) {
           continue; // Skip playtime session if achievement session exists
         }
         
+        // Also check for overlapping playtime sessions (same user/game)
+        // This catches cases where deduplication missed sessions that are close but not within the 20-minute window
+        // BUT: Only merge if sessions actually overlap or are part of the same continuous play session
+        let overlappingSession: FeedSession | null = null;
+        let overlapType: 'exact' | 'continuous' | null = null;
+        
+        const hasOverlappingPlaytimeSession = playtimeSessions.some(existingPlaytimeSession => {
+          if (existingPlaytimeSession.user.steamId !== userId || existingPlaytimeSession.game.appId !== appId) {
+            return false;
+          }
+          
+          // Check for actual time overlap (strict overlap check)
+          // Two intervals [a1, a2] and [b1, b2] overlap if: a1 < b2 AND b1 < a2
+          const isExactOverlap = existingPlaytimeSession.sessionStart < gameSession.sessionEnd && 
+                                 existingPlaytimeSession.sessionEnd > gameSession.sessionStart;
+          
+          // Check if they're part of the same continuous session:
+          // - End within 30 minutes of each other
+          // - AND start within 1 hour of each other (prevents merging separate play sessions)
+          const startTimeDiff = Math.abs(existingPlaytimeSession.sessionStart.getTime() - gameSession.sessionStart.getTime());
+          const endTimeDiff = Math.min(
+            Math.abs(existingPlaytimeSession.sessionStart.getTime() - gameSession.sessionEnd.getTime()),
+            Math.abs(gameSession.sessionStart.getTime() - existingPlaytimeSession.sessionEnd.getTime())
+          );
+          const ONE_HOUR_MS = 60 * 60 * 1000;
+          const isContinuousSession = endTimeDiff <= THIRTY_MINUTES_MS && startTimeDiff <= ONE_HOUR_MS;
+          
+          if (isExactOverlap || isContinuousSession) {
+            overlappingSession = existingPlaytimeSession;
+            overlapType = isExactOverlap ? 'exact' : 'continuous';
+            return true;
+          }
+          
+          return false;
+        });
+        
+        if (hasOverlappingPlaytimeSession && overlappingSession) {
+          // TypeScript: overlappingSession is guaranteed to be non-null here
+          const existingSession: FeedSession = overlappingSession;
+          console.log(`[Feed] ⏭️ Skipping playtime session for ${gameName} (${appId}): overlapping playtime session already exists`);
+          console.log(`[Feed] 🔍 Overlap Details: user=${userId}, game=${gameName} (${appId}), type=${overlapType}`);
+          console.log(`[Feed] 🔍   - Existing session: start=${existingSession.sessionStart.toISOString()}, end=${existingSession.sessionEnd.toISOString()}, sessionId=${existingSession.sessionId}`);
+          console.log(`[Feed] 🔍   - New session: start=${gameSession.sessionStart.toISOString()}, end=${gameSession.sessionEnd.toISOString()}, id=${gameSession.id}`);
+          if (userId === TARGET_USER_ID) {
+            console.log(`[Feed] 🔍 DEBUG: Skipped ${gameName} (${appId}) for ${TARGET_USER_ID} due to overlapping playtime session`);
+          }
+          continue; // Skip if another playtime session already exists for this time window
+        }
+        
         const user = playtimeUsersMap.get(userId);
         const game = playtimeGamesMap.get(sessionKey);
         
@@ -725,10 +768,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Merge playtime sessions with achievement sessions
-      console.log(`[Feed] Merging ${playtimeSessions.length} playtime sessions with achievement sessions`);
       sessions = [...sessions, ...playtimeSessions];
-    } else {
-      console.log('[Feed] No playtime sessions found in game_sessions table');
     }
 
     // Deduplicate sessions by sessionId (in case of duplicates from multiple queries or processing)
@@ -743,24 +783,10 @@ export async function GET(request: NextRequest) {
       }
     });
     sessions = Array.from(sessionMap.values());
-    console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique sessions (${duplicateSessionIds.length} duplicates removed)`);
     
-    // Debug: Log breakdown of final sessions by user
-    const finalSessionBreakdown = new Map<string, number>();
-    sessions.forEach(s => {
-      const userId = s.user.steamId;
-      finalSessionBreakdown.set(userId, (finalSessionBreakdown.get(userId) || 0) + 1);
-    });
-    console.log(`[Feed] Final session breakdown by user:`, Array.from(finalSessionBreakdown.entries()).map(([userId, count]) => {
-      const isOwnSession = userId === steamId;
-      return `${userId.substring(0, 8)}...${isOwnSession ? ' (YOU)' : ''}: ${count} sessions`;
-    }).join(', '));
-    
-    // Debug: Log recent sessions (last 5) to see what's appearing
-    const recentSessions = sessions.slice(0, 5);
-    console.log(`[Feed] Most recent 5 sessions:`, recentSessions.map(s => 
-      `${s.sessionId} - ${s.user.steamId === steamId ? 'YOU' : 'FRIEND'} - ${s.game.name} - ${s.sessionEnd.toISOString()}`
-    ).join(', '));
+    if (duplicateSessionIds.length > 0) {
+      console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique (${duplicateSessionIds.length} duplicates removed)`);
+    }
 
     // Note: Friend sync now happens BEFORE querying sessions (see syncFriendsForFeed above)
     // This ensures sessions are available when building the feed, fixing empty feed for new users
@@ -833,8 +859,6 @@ export async function GET(request: NextRequest) {
     const isUserStale = !user?.lastSyncAt || user.lastSyncAt < oneHourAgo;
 
     if (isUserStale) {
-      console.log(`[Feed] User's own data is stale (lastSyncAt: ${user?.lastSyncAt?.toISOString() || 'never'}), triggering background sync`);
-      
       // Trigger background sync of user's games and achievements (fire-and-forget)
       // This will create new playtime and achievement sessions automatically
       const syncUserData = async () => {
@@ -876,8 +900,6 @@ export async function GET(request: NextRequest) {
               // Silently fail individual game syncs - not critical
             }
           }
-          
-          console.log(`[Feed] Background sync of user's own data completed`);
         } catch (error) {
           console.error('[Feed] Background user sync failed:', error);
           // Don't throw - this is non-critical
@@ -897,8 +919,6 @@ export async function GET(request: NextRequest) {
           // Don't throw - this is non-critical
         });
       }
-    } else {
-      console.log(`[Feed] User's own data is fresh (lastSyncAt: ${user?.lastSyncAt?.toISOString()})`);
     }
 
     return NextResponse.json(

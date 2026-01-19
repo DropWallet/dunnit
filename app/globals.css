@@ -698,3 +698,43 @@
   animation: rotate 40s linear infinite;
   transform-origin: center center;
 }
+
+/* Sync Loading Modal Loader */
+.loader {
+  width: 200px;
+  height: 16px;
+  background-color: hsl(var(--color-surface-mid));
+  position: relative;
+  border-radius: 50px;
+  /* Use overflow-hidden to ensure the inner bar never peaks out */
+  overflow: hidden; 
+  /* Inner shadow via border-weak */
+  box-shadow: inset 0 0 0 2px hsl(var(--color-border-weak));
+}
+
+.loader:after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 60px; /* Fixed width for the sliding bar */
+  background-color: hsl(var(--color-primary));
+  border-radius: 50px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  /* Use transform for smooth, non-overflowing animation */
+  animation: slide-smooth 2s ease-in-out infinite;
+}
+
+@keyframes slide-smooth {
+  0% {
+    transform: translateX(2px);
+  }
+  50% {
+    /* (Container Width 200) - (Bar Width 60) - (Padding 2) = 138 */
+    transform: translateX(138px);
+  }
+  100% {
+    transform: translateX(2px);
+  }
+}

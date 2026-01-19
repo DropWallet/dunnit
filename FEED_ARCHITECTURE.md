@@ -129,11 +129,13 @@ export async function writeAchievementSessions(
 1. Calculate playtime delta: `currentPlaytime - previousPlaytime`
 2. Determine `lastPlayed` timestamp:
    - Use Steam's `rtime_last_played` if available
-   - Fall back to existing `lastPlayed` from database
-   - If missing, calculate from sync time (see Edge Cases)
-3. Calculate session timestamps:
-   - If `lastPlayed` exists: `sessionEnd = lastPlayed`, `sessionStart = lastPlayed`
-   - If `lastPlayed` missing: `sessionEnd = syncTime - playtimeDelta`, `sessionStart = sessionEnd - playtimeDelta`
+   - Fall back to existing `lastPlayed` from database (for game record, not session creation)
+   - If missing, skip session creation and wait for Steam to update
+3. Calculate session timestamps (SIMPLIFIED):
+   - Requires `lastPlayed` to exist AND be different from existing
+   - `sessionEnd = lastPlayed` (Steam's source of truth)
+   - `sessionStart = lastPlayed - playtimeDelta`
+   - If `lastPlayed` missing or unchanged, skip session creation
 4. Check for existing session with same `(userId, appId, sessionStart)` rounded to nearest second
 5. If exists: Merge (add delta, update end time if newer)
 6. If not exists: Check for recent session within 30 minutes
@@ -508,23 +510,31 @@ if (!existingGame) {
 }
 ```
 
-### Fix 2: Missing `lastPlayed` Timestamp
+### Fix 2: Simplified Timestamp Logic (Deterministic Approach)
 
-**Problem**: When `lastPlayed` is missing, sessions were created with `sessionEnd = syncTime`, making them appear to have happened "just now" and causing incorrect sorting in the feed.
+**Problem**: Complex fallback logic using `syncTime` when `lastPlayed` was missing or stale led to inaccurate timestamps and potential duplicates.
 
-**Solution**: When `lastPlayed` is missing, calculate `sessionEnd` by subtracting playtime delta from `syncTime`, so sessions appear in the past rather than at sync time.
+**Solution**: Simplified to always use `lastPlayed` as `sessionEnd` (Steam's source of truth). If `lastPlayed` is missing or unchanged, skip session creation and wait for Steam to update. This ensures accurate timestamps and zero duplicates, but sessions may appear 15-45 minutes late due to Steam API lag.
 
 **Code Reference:**
-```373:393:lib/utils/friend-sync.ts
-if (lastPlayed) {
-  sessionEnd = lastPlayed;
-  calculatedSessionStart = lastPlayed;
-} else {
-  // Calculate end by subtracting playtime from syncTime (so it's in the past)
-  sessionEnd = new Date(syncTime.getTime() - sessionMinutes * 60 * 1000);
-  // Calculate start by subtracting playtime from end (to create proper duration)
-  calculatedSessionStart = new Date(sessionEnd.getTime() - sessionMinutes * 60 * 1000);
+```typescript
+// Require lastPlayed to exist and be different from existing
+if (!lastPlayed) {
+  console.log(`Skipping: playtime increased but lastPlayed missing - waiting for Steam`);
+  return; // Skip session creation
 }
+
+const isTimestampStale = existingGame?.lastPlayed && 
+  lastPlayed.getTime() === existingGame.lastPlayed.getTime();
+
+if (isTimestampStale) {
+  console.log(`Skipping: playtime increased but lastPlayed unchanged - Steam is lagging`);
+  return; // Skip session creation
+}
+
+// We have new playtime AND new timestamp - create session
+sessionEnd = lastPlayed; // Always use Steam's source of truth
+calculatedSessionStart = new Date(lastPlayed.getTime() - sessionMinutes * 60 * 1000);
 ```
 
 ### Fix 3: Games Not Appearing in "Recently Played"

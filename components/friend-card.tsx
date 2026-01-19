@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { getCountryFlag } from "@/lib/utils/country";
 import { DotSeparator } from "@/components/dot-separator";
 import { PrivateIcon } from "@/components/ui/private-icon";
@@ -28,12 +29,14 @@ interface FriendCardProps {
   onClick: () => void;
 }
 
-export function FriendCard({ friend, isLoadingStats, onClick }: FriendCardProps) {
+export const FriendCard = forwardRef<HTMLDivElement, FriendCardProps>(
+  ({ friend, isLoadingStats, onClick }, ref) => {
   const hasStats = friend.statsLoaded && friend.statistics;
   const isPrivate = friend.communityVisibilityState === 1 || friend.communityVisibilityState === 2;
 
   return (
     <div
+      ref={ref}
       onClick={onClick}
       className="flex flex-col md:flex-col lg:flex-row justify-start items-start md:items-start lg:items-center gap-4 pl-3 pr-8 pt-3 pb-3 md:pb-3 rounded-lg bg-surface-low border border-border-weak cursor-pointer hover:bg-surface-mid transition-colors"
     >
@@ -125,4 +128,6 @@ export function FriendCard({ friend, isLoadingStats, onClick }: FriendCardProps)
       )}
     </div>
   );
-}
+});
+
+FriendCard.displayName = "FriendCard";

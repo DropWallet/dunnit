@@ -29,6 +29,7 @@ import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import { PrivacyMessage } from "@/components/privacy-message";
+import { SyncLoadingModal } from "@/components/sync-loading-modal";
 import { detectPrivacyState } from "@/lib/utils/privacy";
 import type { Game } from "@/lib/data/types";
 import { 
@@ -45,11 +46,22 @@ export default function UserDashboardPage() {
   const router = useRouter();
   const steamId = params.steamId as string;
 
+  // Track when user explicitly clicks Achievements tab (captured via onChange handler)
+  const [achievementsTabClicked, setAchievementsTabClicked] = useState(false);
+
+  // Track initial mount to prevent TabGroup onChange from triggering during initialization
+  const isInitialMountRef = useRef(true);
+
+  // Tab state - always start on games tab (index 0)
+  const [selectedTabIndex, setSelectedTabIndex] = useState<number>(0);
+
   // Use hooks for data fetching
   const { user, isLoading: isLoadingUser, error: userError } = useUserData(steamId, false);
   const { statistics, isLoading: isLoadingStats, refetch: refetchStatistics } = useUserStatistics(steamId);
   const { games: allGames, isLoading: isLoadingGames } = useUserGames(steamId);
-  const { achievements: allAchievementsList, isLoading: isLoadingAllAchievements } = useUserAchievements(steamId);
+  // Lazy load achievements - only fetch when Achievements tab is explicitly clicked
+  const shouldLoadAchievements = achievementsTabClicked && selectedTabIndex === 1;
+  const { achievements: allAchievementsList, isLoading: isLoadingAllAchievements, refetch: refetchAchievements } = useUserAchievements(steamId, shouldLoadAchievements);
   const { friends: allFriends, isLoading: isLoadingFriends, error: friendsError } = useUserFriends(steamId);
 
   // Local state
@@ -64,6 +76,10 @@ export default function UserDashboardPage() {
   const hasRefetchedForThisCycleRef = useRef<boolean>(false);
   // Ref to track loaded achievement appIds to prevent re-fetching
   const loadedAchievementAppIds = useRef<Set<number>>(new Set());
+  
+  // Sync loading modal state with 300ms delay
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const syncModalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
@@ -74,15 +90,6 @@ export default function UserDashboardPage() {
   const [friends, setFriends] = useState<typeof allFriends>([]);
   const [loadingFriendStats, setLoadingFriendStats] = useState<Set<string>>(new Set());
   const friendsStatsLoadingRef = useRef<Set<string>>(new Set());
-
-  // Tab state - remember last selected tab (per user)
-  const [selectedTabIndex, setSelectedTabIndex] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem(`user-dashboard-selected-tab-${steamId}`);
-      return saved !== null ? parseInt(saved, 10) : 0;
-    }
-    return 0;
-  });
 
   // Detect current breakpoint to calculate columns per row
   const [columnsPerRow, setColumnsPerRow] = useState(2);
@@ -115,12 +122,63 @@ export default function UserDashboardPage() {
     }
   }, [selectedTabIndex, steamId]);
 
+  // Handle tab changes - capture user intent directly via onChange event
+  const handleTabChange = (index: number) => {
+    setSelectedTabIndex(index);
+    
+    // Since we always start at index 0, any onChange means user clicked a tab
+    // Set achievementsTabClicked when user clicks Achievements tab
+    if (index === 1) {
+      setAchievementsTabClicked(true);
+    }
+  };
+
+  // Mark initial mount as complete after first render
+  useEffect(() => {
+    // Use setTimeout to ensure this runs after TabGroup's initialization onChange
+    const timer = setTimeout(() => {
+      isInitialMountRef.current = false;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Reset refs when steamId changes
   useEffect(() => {
     previousLoadingSizeRef.current = 0;
     hasRefetchedForThisCycleRef.current = false;
     loadedAchievementAppIds.current.clear();
+    setAchievementsTabClicked(false); // Reset achievements tab clicked state
+    isInitialMountRef.current = true; // Reset initial mount flag when steamId changes
   }, [steamId]);
+
+  // Sync loading modal with 300ms delay - hide when data is ready to render
+  // Modal should stay visible until games and statistics are loaded (skeleton is ready)
+  const isDataReady = allGames.length > 0 && statistics !== null;
+  const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
+  
+  useEffect(() => {
+    // Show modal if loading critical path OR data not ready yet
+    if (isCriticalPathLoading || !isDataReady) {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+      }
+      syncModalTimeoutRef.current = setTimeout(() => {
+        setShowSyncModal(true);
+      }, 300);
+    } else {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+        syncModalTimeoutRef.current = null;
+      }
+      setShowSyncModal(false);
+    }
+    
+    return () => {
+      if (syncModalTimeoutRef.current) {
+        clearTimeout(syncModalTimeoutRef.current);
+      }
+    };
+  }, [isCriticalPathLoading, isDataReady, allGames.length, statistics]);
 
   // Detect privacy state
   const privacyState = detectPrivacyState(
@@ -147,10 +205,10 @@ export default function UserDashboardPage() {
   useEffect(() => {
     if (allGames.length === 0) return;
 
-    // If sorting by achievement progress OR last-played, load achievements for ALL games
-    // (last-played needs achievements to find latest unlock time as fallback)
-    // Otherwise, load only for displayed games
-    const needsAllGames = sortBy === 'achievement-progress' || sortBy === 'last-played';
+    // Only load achievements for ALL games if sorting by achievement-progress
+    // For last-played sorting, we use derivedLastPlayed from the database (no achievement fetch needed)
+    // Games with missing lastPlayed will be sorted to the bottom using playtime fallback
+    const needsAllGames = sortBy === 'achievement-progress';
     const targetGames = needsAllGames ? allGames : gamesToDisplay;
     
     // Use ref to check what's already loaded (prevents re-fetching)
@@ -183,12 +241,14 @@ export default function UserDashboardPage() {
       });
 
       Promise.all(achievementPromises).then((achievementsData) => {
-        const newMap = new Map(gameAchievements);
-        achievementsData.forEach(({ appId, achievements }) => {
-          newMap.set(appId, achievements);
-          loadedAchievementAppIds.current.add(appId);
+        setGameAchievements(prev => {
+          const newMap = new Map(prev);
+          achievementsData.forEach(({ appId, achievements }) => {
+            newMap.set(appId, achievements);
+            loadedAchievementAppIds.current.add(appId);
+          });
+          return newMap;
         });
-        setGameAchievements(newMap);
         
         setLoadingAchievements(prev => {
           const newSet = new Set(prev);
@@ -197,7 +257,7 @@ export default function UserDashboardPage() {
         });
       });
     }
-  }, [allGames, gamesToDisplay, steamId, sortBy]);
+  }, [allGames.length, gamesToDisplay, steamId, sortBy]); // Removed gameAchievements from deps to prevent flickering
 
   // Refetch statistics when achievements finish loading
   useEffect(() => {
@@ -339,102 +399,75 @@ export default function UserDashboardPage() {
     }
   }, [allFriends]);
 
-  // Progressive loading: Load statistics for friends in batches
-  useEffect(() => {
-    if (friends.length === 0) return;
+  // Viewport-based loading: Load statistics only for visible friends
+  // Only load when Friends tab is active (index 2)
+  const handleFriendVisible = useCallback((steamId: string) => {
+    // Only load if Friends tab is active
+    if (selectedTabIndex !== 2) return;
 
-    // Find friends that need statistics loaded
-    const friendsNeedingStats = friends.filter(
-      (friend) =>
-        !friend.statsLoaded &&
-        !friendsStatsLoadingRef.current.has(friend.steamId)
-    );
+    // Find the friend
+    const friend = friends.find((f) => f.steamId === steamId);
+    if (!friend) return;
 
-    if (friendsNeedingStats.length === 0) return;
+    // Skip if already loaded or loading
+    if (friend.statsLoaded || friendsStatsLoadingRef.current.has(steamId)) return;
 
-    // Load stats in batches of 5 with delays
-    const batchSize = 5;
-    const batches: typeof friendsNeedingStats[] = [];
-    for (let i = 0; i < friendsNeedingStats.length; i += batchSize) {
-      batches.push(friendsNeedingStats.slice(i, i + batchSize));
-    }
+    // Mark as loading
+    friendsStatsLoadingRef.current.add(steamId);
+    setLoadingFriendStats((prev) => new Set(prev).add(steamId));
 
-    batches.forEach((batch, batchIndex) => {
-      const delay = batchIndex * 1000; // 1 second delay between batches
-
-      setTimeout(() => {
-        batch.forEach((friend) => {
-          // Skip if already loading
-          if (friendsStatsLoadingRef.current.has(friend.steamId)) return;
-
-          // Mark as loading
-          friendsStatsLoadingRef.current.add(friend.steamId);
-          setLoadingFriendStats((prev) => new Set(prev).add(friend.steamId));
-
-          // Fetch statistics
-          fetch(`/api/friends/${friend.steamId}/statistics?t=${Date.now()}`)
-            .then((res) => {
-              if (res.ok) {
-                return res.json();
-              }
-              return null;
-            })
-            .then((data) => {
-              if (data && data.statistics) {
-                setFriends((prevFriends) =>
-                  prevFriends.map((f) =>
-                    f.steamId === friend.steamId
-                      ? {
-                          ...f,
-                          statistics: {
-                            totalGames: data.statistics.totalGames || 0,
-                            totalAchievements: data.statistics.totalAchievements || 0,
-                            unlockedAchievements: data.statistics.unlockedAchievements || 0,
-                            friendsCount: data.statistics.friendsCount || 0,
-                          },
-                          statsLoaded: true,
-                        }
-                      : f
-                  )
-                );
-              } else {
-                // Mark as loaded even if fetch failed (to avoid retrying)
-                setFriends((prevFriends) =>
-                  prevFriends.map((f) =>
-                    f.steamId === friend.steamId
-                      ? { ...f, statsLoaded: true }
-                      : f
-                  )
-                );
-              }
-            })
-            .catch(() => {
-              // Mark as loaded even on error
-              setFriends((prevFriends) =>
-                prevFriends.map((f) =>
-                  f.steamId === friend.steamId
-                    ? { ...f, statsLoaded: true }
-                    : f
-                )
-              );
-            })
-            .finally(() => {
-              friendsStatsLoadingRef.current.delete(friend.steamId);
-              setLoadingFriendStats((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(friend.steamId);
-                return newSet;
-              });
-            });
+    // Fetch statistics
+    fetch(`/api/friends/${steamId}/statistics?t=${Date.now()}`)
+      .then((res) => {
+        if (res.ok) {
+          return res.json();
+        }
+        return null;
+      })
+      .then((data) => {
+        if (data && data.statistics) {
+          setFriends((prevFriends) =>
+            prevFriends.map((f) =>
+              f.steamId === steamId
+                ? {
+                    ...f,
+                    statistics: {
+                      totalGames: data.statistics.totalGames || 0,
+                      totalAchievements: data.statistics.totalAchievements || 0,
+                      unlockedAchievements: data.statistics.unlockedAchievements || 0,
+                      friendsCount: data.statistics.friendsCount || 0,
+                    },
+                    statsLoaded: true,
+                  }
+                : f
+            )
+          );
+        } else {
+          // Mark as loaded even if fetch failed (to avoid retrying)
+          setFriends((prevFriends) =>
+            prevFriends.map((f) =>
+              f.steamId === steamId ? { ...f, statsLoaded: true } : f
+            )
+          );
+        }
+      })
+      .catch(() => {
+        // Mark as loaded even on error
+        setFriends((prevFriends) =>
+          prevFriends.map((f) =>
+            f.steamId === steamId ? { ...f, statsLoaded: true } : f
+          )
+        );
+      })
+      .finally(() => {
+        friendsStatsLoadingRef.current.delete(steamId);
+        setLoadingFriendStats((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(steamId);
+          return newSet;
         });
-      }, delay);
-    });
-
-    // Cleanup timeouts on unmount or when friends change
-    return () => {
-      // Note: We can't easily cancel setTimeout, but this prevents state updates after unmount
-    };
-  }, [friends.length]); // Only depend on length to avoid re-running when stats update
+      });
+  }, [friends, selectedTabIndex]);
 
   // Handle errors
   if (userError) {
@@ -505,7 +538,7 @@ export default function UserDashboardPage() {
           <TabGroup 
             className="mt-10"
             selectedIndex={selectedTabIndex}
-            onChange={setSelectedTabIndex}
+            onChange={handleTabChange}
           >
             <TabList className="flex gap-1.5">
               <Tab className="px-3 py-1.5 text-sm rounded-full font-medium text-text-subdued data-[hover]:text-text-strong data-[hover]:bg-surface-low data-[selected]:bg-primary data-[selected]:text-text-inverted-strong transition-colors">
@@ -598,8 +631,23 @@ export default function UserDashboardPage() {
                   />
 
                   {isLoadingAllAchievements ? (
-                    <div className="flex justify-center items-center py-12">
-                      <p className="text-text-subdued">Loading achievements...</p>
+                    <div className="flex flex-col gap-4 mt-4">
+                      {/* Breakdown skeleton */}
+                      <div className="flex flex-col gap-4 px-4 md:px-8">
+                        <div className="h-8 w-32 bg-surface-mid rounded animate-pulse" />
+                        <div className="flex flex-wrap gap-6">
+                          {[1, 2, 3, 4, 5].map((i) => (
+                            <div key={i} className="h-6 w-24 bg-surface-mid rounded animate-pulse" />
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Achievements grid skeleton */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 md:gap-x-6 lg:gap-x-10 gap-y-8 w-full px-4 md:px-8">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <div key={i} className="w-16 h-16 bg-surface-mid rounded-full animate-pulse" />
+                        ))}
+                      </div>
                     </div>
                   ) : achievementsToDisplay.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg bg-surface-mid border border-border-strong">
@@ -656,12 +704,14 @@ export default function UserDashboardPage() {
                   friends={friends}
                   isLoading={isLoadingFriends}
                   loadingFriendStats={loadingFriendStats}
+                  onFriendVisible={handleFriendVisible}
                 />
               </TabPanel>
             </TabPanels>
           </TabGroup>
         </div>
       </div>
+      <SyncLoadingModal isVisible={showSyncModal} />
     </div>
   );
 }

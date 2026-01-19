@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { UserAchievement } from '@/lib/utils/sorting';
 
 interface UseUserAchievementsResult {
@@ -11,13 +11,14 @@ interface UseUserAchievementsResult {
 /**
  * Hook to fetch all achievements for a user
  * @param steamId - Optional steamId. If not provided, fetches logged-in user's achievements
+ * @param enabled - Whether to fetch achievements immediately (default: true). Set to false for lazy loading.
  */
-export function useUserAchievements(steamId?: string): UseUserAchievementsResult {
+export function useUserAchievements(steamId?: string, enabled: boolean = true): UseUserAchievementsResult {
   const [achievements, setAchievements] = useState<UserAchievement[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled); // Only show loading if enabled
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchAchievements = async () => {
+  const fetchAchievements = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -50,11 +51,13 @@ export function useUserAchievements(steamId?: string): UseUserAchievementsResult
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [steamId]);
 
   useEffect(() => {
-    fetchAchievements();
-  }, [steamId]);
+    if (enabled) {
+      fetchAchievements();
+    }
+  }, [enabled, fetchAchievements]);
 
   return {
     achievements,

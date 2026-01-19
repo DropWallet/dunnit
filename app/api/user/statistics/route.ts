@@ -31,53 +31,28 @@ export async function GET(request: NextRequest) {
     // Get games early (needed for cache check)
     const games = await dataAccess.getUserGames(steamId);
     
-    // Check for cached statistics
+    // Check for cached statistics - trust cache if less than 1 hour old (1-hour rule)
     if (!forceRefresh) {
       const cachedStats = await dataAccess.getUserStatistics(steamId);
       
       if (cachedStats) {
         const now = new Date();
         const cacheAge = now.getTime() - cachedStats.calculatedAt.getTime();
+        const ONE_HOUR_MS = 60 * 60 * 1000;
         
-        // Safety net: Always recalculate if cache is older than 24 hours
-        if (cacheAge < MAX_CACHE_AGE_MS) {
-          // Check if data has changed since statistics were calculated
-          const dataChanged = user.lastSyncAt && 
-            user.lastSyncAt.getTime() > cachedStats.calculatedAt.getTime();
-          
-          // Also check if any achievements were synced after stats were calculated
-          // This is more accurate than just checking user.lastSyncAt
-          // We sample a few games to avoid performance issues
-          let achievementsSyncedAfter = false;
-          if (!dataChanged) {
-            // Sample games with playtime, as they're more likely to have achievements
-            const gamesToCheck = games
-              .filter(g => g.playtimeMinutes > 0)
-              .slice(0, 10); // Sample first 10 games with playtime
-            
-            // Check if any of these games had achievements synced after stats were calculated
-            for (const game of gamesToCheck) {
-              const lastSynced = await dataAccess.getAchievementLastSyncedAt(steamId, game.appId);
-              if (lastSynced && lastSynced.getTime() > cachedStats.calculatedAt.getTime()) {
-                achievementsSyncedAfter = true;
-                break;
-              }
+        // Trust cache if less than 1 hour old - stats don't need to be real-time
+        // If user earns one achievement, it's okay if global average doesn't move for 45 minutes
+        if (cacheAge < ONE_HOUR_MS) {
+          return NextResponse.json(
+            { statistics: cachedStats.statistics },
+            {
+              headers: {
+                'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
+                'CDN-Cache-Control': 'no-store',
+                'Vercel-CDN-Cache-Control': 'no-store',
+              },
             }
-          }
-          
-          // If data hasn't changed and no achievements were synced, return cached statistics
-          if (!dataChanged && !achievementsSyncedAfter) {
-            return NextResponse.json(
-              { statistics: cachedStats.statistics },
-              {
-                headers: {
-                  'Cache-Control': 'private, max-age=300', // Browser cache for 5 minutes
-                  'CDN-Cache-Control': 'no-store',
-                  'Vercel-CDN-Cache-Control': 'no-store',
-                },
-              }
-            );
-          }
+          );
         }
       }
     }
