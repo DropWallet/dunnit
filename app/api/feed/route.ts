@@ -572,21 +572,24 @@ export async function GET(request: NextRequest) {
           
           if (hasOverlap || isContinuousSession) {
             // Merge: combine playtimeDelta, take earliest start, take latest end
+            // TypeScript: currentMerged is guaranteed to be non-null here (we're in the else block)
+            const merged = currentMerged!;
             currentMerged = {
-              ...currentMerged,
-              playtimeDelta: currentMerged.playtimeDelta + session.playtimeDelta,
-              sessionStart: currentMerged.sessionStart < session.sessionStart 
-                ? currentMerged.sessionStart 
+              ...merged,
+              playtimeDelta: merged.playtimeDelta + session.playtimeDelta,
+              sessionStart: merged.sessionStart < session.sessionStart 
+                ? merged.sessionStart 
                 : session.sessionStart,
-              sessionEnd: currentMerged.sessionEnd > session.sessionEnd 
-                ? currentMerged.sessionEnd 
+              sessionEnd: merged.sessionEnd > session.sessionEnd 
+                ? merged.sessionEnd 
                 : session.sessionEnd,
             };
             duplicateByEndTime.push(session);
             console.log(`[Feed] ⚠️ Merged GameSession (Pass 2): ${groupKey} (combined delta: ${currentMerged.playtimeDelta}min, merged session IDs: ${currentMerged.id} + ${session.id})`);
           } else {
             // No merge - save currentMerged and start new one
-            mergedSessions.push(currentMerged);
+            // TypeScript: currentMerged is guaranteed to be non-null here (we're in the else block)
+            mergedSessions.push(currentMerged!);
             currentMerged = { ...session };
           }
         }
