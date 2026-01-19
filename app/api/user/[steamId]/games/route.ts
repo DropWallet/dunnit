@@ -51,6 +51,30 @@ export async function GET(
         }),
       ]);
 
+      // Log raw API responses to confirm what Steam returns for friend dashboards
+      const recentlyPlayedGames = recentlyPlayedResponse.response?.games || [];
+      const allOwnedGames = fullLibraryResponse.response?.games || [];
+      const recentlyPlayedWithRtime = recentlyPlayedGames.filter((g: any) => g.rtime_last_played);
+      const ownedGamesWithRtime = allOwnedGames.filter((g: any) => g.rtime_last_played);
+      
+      console.log(`[Friend Dashboard] 🔍 Steam API raw responses for ${targetSteamId}:`);
+      console.log(`[Friend Dashboard] 🔍   GetRecentlyPlayedGames: ${recentlyPlayedGames.length} games, ${recentlyPlayedWithRtime.length} with rtime_last_played (${recentlyPlayedGames.length > 0 ? ((recentlyPlayedWithRtime.length / recentlyPlayedGames.length) * 100).toFixed(1) : '0'}%)`);
+      console.log(`[Friend Dashboard] 🔍   GetOwnedGames: ${allOwnedGames.length} games, ${ownedGamesWithRtime.length} with rtime_last_played (${allOwnedGames.length > 0 ? ((ownedGamesWithRtime.length / allOwnedGames.length) * 100).toFixed(1) : '0'}%)`);
+      
+      if (recentlyPlayedGames.length > 0) {
+        console.log(`[Friend Dashboard] 🔍   Sample GetRecentlyPlayedGames (first 5):`);
+        recentlyPlayedGames.slice(0, 5).forEach((g: any) => {
+          console.log(`[Friend Dashboard] 🔍     - ${g.name || 'Unknown'} (${g.appid}): rtime_last_played=${g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : 'MISSING'}`);
+        });
+      }
+      
+      if (allOwnedGames.length > 0 && ownedGamesWithRtime.length > 0) {
+        console.log(`[Friend Dashboard] 🔍   Sample GetOwnedGames WITH rtime_last_played (first 5):`);
+        ownedGamesWithRtime.slice(0, 5).forEach((g: any) => {
+          console.log(`[Friend Dashboard] 🔍     - ${g.name || 'Unknown'} (${g.appid}): rtime_last_played=${new Date(g.rtime_last_played * 1000).toISOString()}`);
+        });
+      }
+
       // Create a map of recently played games for quick lookup
       const recentlyPlayedMap = new Map<number, { rtime_last_played?: number; playtime_2weeks?: number }>();
       if (recentlyPlayedResponse.response?.games && recentlyPlayedResponse.response.games.length > 0) {

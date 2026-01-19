@@ -267,6 +267,22 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     try {
       const response = await steamClient.getRecentlyPlayedGames(friendId);
       recentlyPlayedGames = response.response?.games || [];
+      
+      // Log raw API response to confirm what Steam returns
+      const gamesWithRtime = recentlyPlayedGames.filter(g => g.rtime_last_played);
+      const gamesWithoutRtime = recentlyPlayedGames.filter(g => !g.rtime_last_played);
+      
+      console.log(`[Friend Sync] 🔍 GetRecentlyPlayedGames raw response for ${friendId}:`);
+      console.log(`[Friend Sync] 🔍   Total games: ${recentlyPlayedGames.length}`);
+      console.log(`[Friend Sync] 🔍   Games WITH rtime_last_played: ${gamesWithRtime.length} (${recentlyPlayedGames.length > 0 ? ((gamesWithRtime.length / recentlyPlayedGames.length) * 100).toFixed(1) : '0'}%)`);
+      console.log(`[Friend Sync] 🔍   Games WITHOUT rtime_last_played: ${gamesWithoutRtime.length} (${recentlyPlayedGames.length > 0 ? ((gamesWithoutRtime.length / recentlyPlayedGames.length) * 100).toFixed(1) : '0'}%)`);
+      
+      if (recentlyPlayedGames.length > 0) {
+        console.log(`[Friend Sync] 🔍   Sample games (first 5):`);
+        recentlyPlayedGames.slice(0, 5).forEach((g: any) => {
+          console.log(`[Friend Sync] 🔍     - ${g.name || 'Unknown'} (${g.appid}): rtime_last_played=${g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : 'MISSING'}, playtime_2weeks=${g.playtime_2weeks || 0}min`);
+        });
+      }
     } catch (error) {
       // PRIVACY FIX: Check if error is 401 (private profile)
       const isPrivateError = error instanceof Error && error.message.includes('401');
@@ -292,12 +308,31 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         const ownedGamesResponse = await steamClient.getOwnedGames(friendId, true);
         const allGames = ownedGamesResponse.response?.games || [];
         
-        // Filter to games played in last 14 days (similar to GetRecentlyPlayedGames scope)
+        // Log raw GetOwnedGames response to confirm what Steam returns
+        const gamesWithRtime = allGames.filter((g: any) => g.rtime_last_played);
+        const gamesWithoutRtime = allGames.filter((g: any) => !g.rtime_last_played);
         const fourteenDaysAgo = Math.floor(Date.now() / 1000) - (14 * 24 * 60 * 60);
-        recentlyPlayedGames = allGames.filter((game: any) => {
-          // Include if has rtime_last_played within 14 days
+        const gamesIn14Days = allGames.filter((game: any) => {
           return game.rtime_last_played && game.rtime_last_played > fourteenDaysAgo;
         });
+        
+        console.log(`[Friend Sync] 🔍 GetOwnedGames raw response for ${friendId}:`);
+        console.log(`[Friend Sync] 🔍   Total games in library: ${allGames.length}`);
+        console.log(`[Friend Sync] 🔍   Games WITH rtime_last_played: ${gamesWithRtime.length} (${allGames.length > 0 ? ((gamesWithRtime.length / allGames.length) * 100).toFixed(1) : '0'}%)`);
+        console.log(`[Friend Sync] 🔍   Games WITHOUT rtime_last_played: ${gamesWithoutRtime.length} (${allGames.length > 0 ? ((gamesWithoutRtime.length / allGames.length) * 100).toFixed(1) : '0'}%)`);
+        console.log(`[Friend Sync] 🔍   Games with rtime_last_played within 14 days: ${gamesIn14Days.length}`);
+        
+        if (allGames.length > 0) {
+          console.log(`[Friend Sync] 🔍   Sample games from GetOwnedGames (first 10):`);
+          allGames.slice(0, 10).forEach((g: any) => {
+            const rtimeDate = g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : 'MISSING';
+            const isRecent = g.rtime_last_played && g.rtime_last_played > fourteenDaysAgo;
+            console.log(`[Friend Sync] 🔍     - ${g.name || 'Unknown'} (${g.appid}): rtime_last_played=${rtimeDate}${isRecent ? ' (RECENT)' : g.rtime_last_played ? ' (OLD)' : ''}, playtime_2weeks=${g.playtime_2weeks || 0}min`);
+          });
+        }
+        
+        // Filter to games played in last 14 days (similar to GetRecentlyPlayedGames scope)
+        recentlyPlayedGames = gamesIn14Days;
         
         if (recentlyPlayedGames.length > 0) {
           usedGetOwnedGames = true;
