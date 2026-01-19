@@ -573,7 +573,7 @@ export async function GET(request: NextRequest) {
           if (hasOverlap || isContinuousSession) {
             // Merge: combine playtimeDelta, take earliest start, take latest end
             // TypeScript: currentMerged is guaranteed to be non-null here (we're in the else block)
-            const merged = currentMerged!;
+            const merged: typeof deduplicatedGameSessions[0] = currentMerged!;
             currentMerged = {
               ...merged,
               playtimeDelta: merged.playtimeDelta + session.playtimeDelta,
