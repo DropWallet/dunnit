@@ -356,11 +356,25 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
     const syncTime = new Date();
     const gamesToUpsert: Game[] = [];
     const gamesWithPlaytimeIncreases: Array<{ appId: number; playtimeDelta: number }> = [];
+    
+    // Track Steam API reliability metrics
+    const apiReliabilityStats = {
+      totalGames: 0,
+      withRtimeLastPlayed: 0,
+      missingRtimeLastPlayed: 0,
+      usingDbFallback: 0,
+      staleLastPlayed: 0,
+      skippedMissingLastPlayed: 0,
+      skippedStaleLastPlayed: 0,
+      gamesWithMissingRtime: [] as Array<{ appId: number; name: string }>,
+      gamesWithStaleLastPlayed: [] as Array<{ appId: number; name: string; playtimeDelta: number }>,
+    };
 
     // Create a set of recently played game appIds for quick lookup
     const recentlyPlayedAppIds = new Set(recentlyPlayedGames.map(g => g.appid));
 
     for (const steamGame of recentlyPlayedGames) {
+      apiReliabilityStats.totalGames++;
       const existingGame = existingGamesMap.get(steamGame.appid);
       
       // REFINED FIX: On first sync, only skip if game is NOT in recently played list
@@ -482,9 +496,18 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       if (steamGame.rtime_last_played) {
         // Steam provided timestamp - use it (this is our source of truth)
         lastPlayed = new Date(steamGame.rtime_last_played * 1000);
-      } else if (existingGame?.lastPlayed) {
-        // Preserve existing lastPlayed if Steam didn't provide one (for game record, not session creation)
-        lastPlayed = existingGame.lastPlayed;
+        apiReliabilityStats.withRtimeLastPlayed++;
+      } else {
+        apiReliabilityStats.missingRtimeLastPlayed++;
+        apiReliabilityStats.gamesWithMissingRtime.push({
+          appId: steamGame.appid,
+          name: steamGame.name || 'unknown',
+        });
+        if (existingGame?.lastPlayed) {
+          // Preserve existing lastPlayed if Steam didn't provide one (for game record, not session creation)
+          lastPlayed = existingGame.lastPlayed;
+          apiReliabilityStats.usingDbFallback++;
+        }
       }
       // If lastPlayed is missing, we don't create a session - wait for Steam to update
 
@@ -508,6 +531,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         // SIMPLIFIED: Require lastPlayed to exist and be different from existing
         // If Steam hasn't updated the timestamp yet, skip this sync and wait
         if (!lastPlayed) {
+          apiReliabilityStats.skippedMissingLastPlayed++;
           console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): playtime increased (${playtimeDelta}min) but lastPlayed missing - waiting for Steam to update`);
           // Still update baseline to track the playtime increase
           await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
@@ -520,6 +544,13 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           lastPlayed.getTime() === existingGame.lastPlayed.getTime();
         
         if (isTimestampStale) {
+          apiReliabilityStats.staleLastPlayed++;
+          apiReliabilityStats.skippedStaleLastPlayed++;
+          apiReliabilityStats.gamesWithStaleLastPlayed.push({
+            appId: steamGame.appid,
+            name: steamGame.name || 'unknown',
+            playtimeDelta,
+          });
           console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): playtime increased (${playtimeDelta}min) but lastPlayed unchanged - Steam is lagging, waiting for next sync`);
           // Still update baseline to track the playtime increase
           await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
@@ -732,6 +763,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         if (hasRecentActivity && playtime2Weeks >= 3) {
           // SIMPLIFIED: Require lastPlayed to exist for this fallback too
           if (!lastPlayed) {
+            apiReliabilityStats.skippedMissingLastPlayed++;
             console.log(`[Friend Sync] ⏭️ Skipping ${steamGame.appid} (${steamGame.name || 'unknown'}): delta=0, playtime_2weeks=${playtime2Weeks}min but lastPlayed missing - waiting for Steam`);
             // Still update baseline
             await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
@@ -890,6 +922,32 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       console.log(`[Friend Sync] ⚠️ Skyrim (489830) was in recently played list but not synced - check filtering logic`);
     } else if (!skyrimInRecentlyPlayed) {
       console.log(`[Friend Sync] ℹ️ Skyrim (489830) not in recently played list (played >14 days ago or not in Steam API response)`);
+    }
+
+    // Log Steam API reliability statistics
+    if (apiReliabilityStats.totalGames > 0) {
+      const rtimeProvidedPercent = ((apiReliabilityStats.withRtimeLastPlayed / apiReliabilityStats.totalGames) * 100).toFixed(1);
+      const missingPercent = ((apiReliabilityStats.missingRtimeLastPlayed / apiReliabilityStats.totalGames) * 100).toFixed(1);
+      const stalePercent = apiReliabilityStats.totalGames > 0 
+        ? ((apiReliabilityStats.staleLastPlayed / apiReliabilityStats.totalGames) * 100).toFixed(1)
+        : '0.0';
+      
+      console.log(`[Friend Sync] 📊 Steam API Reliability Stats for ${friendId}:`);
+      console.log(`[Friend Sync] 📊   Total games processed: ${apiReliabilityStats.totalGames}`);
+      console.log(`[Friend Sync] 📊   rtime_last_played provided: ${apiReliabilityStats.withRtimeLastPlayed} (${rtimeProvidedPercent}%)`);
+      console.log(`[Friend Sync] 📊   rtime_last_played missing: ${apiReliabilityStats.missingRtimeLastPlayed} (${missingPercent}%)`);
+      console.log(`[Friend Sync] 📊   Using DB fallback: ${apiReliabilityStats.usingDbFallback}`);
+      console.log(`[Friend Sync] 📊   Stale lastPlayed (unchanged): ${apiReliabilityStats.staleLastPlayed} (${stalePercent}%)`);
+      console.log(`[Friend Sync] 📊   Skipped (missing lastPlayed): ${apiReliabilityStats.skippedMissingLastPlayed}`);
+      console.log(`[Friend Sync] 📊   Skipped (stale lastPlayed): ${apiReliabilityStats.skippedStaleLastPlayed}`);
+      
+      if (apiReliabilityStats.gamesWithMissingRtime.length > 0) {
+        console.log(`[Friend Sync] 📊   Games missing rtime_last_played: ${apiReliabilityStats.gamesWithMissingRtime.map(g => `${g.name} (${g.appId})`).join(', ')}`);
+      }
+      
+      if (apiReliabilityStats.gamesWithStaleLastPlayed.length > 0) {
+        console.log(`[Friend Sync] 📊   Games with stale lastPlayed: ${apiReliabilityStats.gamesWithStaleLastPlayed.map(g => `${g.name} (${g.appId}, +${g.playtimeDelta}min)`).join(', ')}`);
+      }
     }
 
     // Phase 2: Sync achievements for games with playtime increases

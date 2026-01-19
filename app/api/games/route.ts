@@ -179,6 +179,21 @@ export async function GET(request: NextRequest) {
         };
       });
       
+      // Enhanced Steam API reliability tracking
+      const totalWithRtime = gamesWithRecentLastPlayed + gamesWithLibraryLastPlayed;
+      const totalMissingRtime = gamesWithWatermarkFallback + gamesWithNoLastPlayed;
+      const rtimeProvidedPercent = games.length > 0 ? ((totalWithRtime / games.length) * 100).toFixed(1) : '0.0';
+      const missingPercent = games.length > 0 ? ((totalMissingRtime / games.length) * 100).toFixed(1) : '0.0';
+      
+      console.log('[Games API] 📊 Steam API Reliability Stats:');
+      console.log(`[Games API] 📊   Total games processed: ${games.length}`);
+      console.log(`[Games API] 📊   rtime_last_played provided: ${totalWithRtime} (${rtimeProvidedPercent}%)`);
+      console.log(`[Games API] 📊     - From GetRecentlyPlayedGames: ${gamesWithRecentLastPlayed}`);
+      console.log(`[Games API] 📊     - From GetOwnedGames: ${gamesWithLibraryLastPlayed}`);
+      console.log(`[Games API] 📊   rtime_last_played missing: ${totalMissingRtime} (${missingPercent}%)`);
+      console.log(`[Games API] 📊     - Using watermark fallback: ${gamesWithWatermarkFallback}`);
+      console.log(`[Games API] 📊     - No lastPlayed: ${gamesWithNoLastPlayed}`);
+      
       console.log('[Games API] Processed games with lastPlayed:', {
         total: games.length,
         fromRecentlyPlayed: gamesWithRecentLastPlayed,
@@ -261,6 +276,15 @@ export async function GET(request: NextRequest) {
       existingGamesBeforeSave.forEach(game => {
         existingGamesMapForPlaytime.set(game.appId, game);
       });
+      
+      // Track Steam API reliability metrics for session creation
+      const sessionCreationStats = {
+        totalGamesWithDelta: 0,
+        skippedMissingLastPlayed: 0,
+        skippedStaleLastPlayed: 0,
+        gamesWithMissingLastPlayed: [] as Array<{ appId: number; name: string; playtimeDelta: number }>,
+        gamesWithStaleLastPlayed: [] as Array<{ appId: number; name: string; playtimeDelta: number }>,
+      };
 
       // Prepare games for saving with playtime tracking
       const gamesToSave = gamesWithDerivedLastPlayed.map((game) => {
@@ -424,9 +448,16 @@ export async function GET(request: NextRequest) {
         // SIMPLIFIED: Only create sessions for games with meaningful playtime increases (>= 3 minutes)
         // Only create session if we have a valid lastPlayed timestamp from Steam
         if (playtimeDelta >= 3) {
+          sessionCreationStats.totalGamesWithDelta++;
           // SIMPLIFIED: Require lastPlayed to exist and be different from existing
           // If Steam hasn't updated the timestamp yet, skip this sync and wait
           if (!game.lastPlayed) {
+            sessionCreationStats.skippedMissingLastPlayed++;
+            sessionCreationStats.gamesWithMissingLastPlayed.push({
+              appId: game.appId,
+              name: game.name,
+              playtimeDelta,
+            });
             console.log(`[Games API] ⏭️ Skipping ${game.appId} (${game.name}): playtime increased (${playtimeDelta}min) but lastPlayed missing - waiting for Steam to update`);
             // Still update baseline to track the playtime increase
             await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
@@ -439,6 +470,12 @@ export async function GET(request: NextRequest) {
             game.lastPlayed.getTime() === existingGame.lastPlayed.getTime();
           
           if (isTimestampStale) {
+            sessionCreationStats.skippedStaleLastPlayed++;
+            sessionCreationStats.gamesWithStaleLastPlayed.push({
+              appId: game.appId,
+              name: game.name,
+              playtimeDelta,
+            });
             console.log(`[Games API] ⏭️ Skipping ${game.appId} (${game.name}): playtime increased (${playtimeDelta}min) but lastPlayed unchanged - Steam is lagging, waiting for next sync`);
             // Still update baseline to track the playtime increase
             await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
@@ -619,6 +656,12 @@ export async function GET(request: NextRequest) {
             if (newPlaytime >= 3) {
               // SIMPLIFIED: Require lastPlayed to exist for this fallback too
               if (!game.lastPlayed) {
+                sessionCreationStats.skippedMissingLastPlayed++;
+                sessionCreationStats.gamesWithMissingLastPlayed.push({
+                  appId: game.appId,
+                  name: game.name,
+                  playtimeDelta: 0,
+                });
                 console.log(`[Games API] ⏭️ Skipping ${game.appId} (${game.name}): delta=0, playtime_2weeks=${playtime2Weeks}min but lastPlayed missing - waiting for Steam`);
                 // Still update baseline
                 await dataAccess.updateGameBaseline(steamId, game.appId, game.playtimeMinutes);
@@ -709,6 +752,25 @@ export async function GET(request: NextRequest) {
       }
       if (gamesWithSmallDelta > 0) {
         console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithSmallDelta} game(s) with small delta (<3min) - baseline updated to prevent future phantoms`);
+      }
+      
+      // Log session creation reliability stats
+      if (sessionCreationStats.totalGamesWithDelta > 0) {
+        const skippedTotal = sessionCreationStats.skippedMissingLastPlayed + sessionCreationStats.skippedStaleLastPlayed;
+        const skippedPercent = ((skippedTotal / sessionCreationStats.totalGamesWithDelta) * 100).toFixed(1);
+        console.log(`[Games API] 📊 Session Creation Reliability Stats:`);
+        console.log(`[Games API] 📊   Games with playtimeDelta >= 3min: ${sessionCreationStats.totalGamesWithDelta}`);
+        console.log(`[Games API] 📊   Skipped (missing lastPlayed): ${sessionCreationStats.skippedMissingLastPlayed}`);
+        console.log(`[Games API] 📊   Skipped (stale lastPlayed): ${sessionCreationStats.skippedStaleLastPlayed}`);
+        console.log(`[Games API] 📊   Total skipped: ${skippedTotal} (${skippedPercent}%)`);
+        
+        if (sessionCreationStats.gamesWithMissingLastPlayed.length > 0) {
+          console.log(`[Games API] 📊   Games missing lastPlayed: ${sessionCreationStats.gamesWithMissingLastPlayed.map(g => `${g.name} (${g.appId}, +${g.playtimeDelta}min)`).join(', ')}`);
+        }
+        
+        if (sessionCreationStats.gamesWithStaleLastPlayed.length > 0) {
+          console.log(`[Games API] 📊   Games with stale lastPlayed: ${sessionCreationStats.gamesWithStaleLastPlayed.map(g => `${g.name} (${g.appId}, +${g.playtimeDelta}min)`).join(', ')}`);
+        }
       }
       
       // Update user's last sync time
