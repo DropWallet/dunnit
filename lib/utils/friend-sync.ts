@@ -431,9 +431,24 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           const playtime2Weeks = steamGame.playtime_2weeks ?? 0;
           const currentPlaytimeMinutes = steamGame.playtime_forever ?? 0;
           
-          // Use playtime_2weeks for delta, but fallback to playtime_forever (capped) if 2weeks is 0 or missing
-          // SYNC WINDOW APPROACH: Skip playtime sessions on first-time sync
-          // Update baseline but don't create session (no playtimeLastSyncedAt available)
+          // FIRST-LOAD FEED POPULATION: Only create session if playtime_2weeks exists and >= 3 minutes
+          // No fallback - if playtime_2weeks is missing/zero, don't create session
+          if (playtime2Weeks >= 3) {
+            // Create session with 2-week window (uncapped duration - can be days)
+            const twoWeeksAgo = new Date(syncTime.getTime() - (14 * 24 * 60 * 60 * 1000));
+            const session: GameSession = {
+              userId: friendId,
+              appId: steamGame.appid,
+              playtimeDelta: playtime2Weeks, // Use full 2-week playtime (no cap)
+              sessionStart: twoWeeksAgo,     // 2 weeks ago
+              sessionEnd: syncTime,          // Now
+              type: 'playtime',
+            };
+            await dataAccess.saveGameSession(session);
+            console.log(`[Friend Sync] ✅ Created first-time sync session for ${friendId}-${steamGame.appid} (${steamGame.name}): delta=${playtime2Weeks}min (2-week window)`);
+          }
+          
+          // Update baseline for future syncs
           await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
           
           // Save the game record
