@@ -6,13 +6,13 @@ This document contains all session labels organized by category for both playtim
 
 ### Category: Ultra Marathon (> 8 hours)
 - Absolute Legend
-- No Life Mode
-- Unstoppable
-- The Commitment
+- RSI King
+- Ultra marathon
+- Total commitment
 
 ### Category: Marathon (> 5 hours in single day)
 - Marathon Session
-- Epic Run
+- Staying power
 - Built Different
 - No Cap Session
 
