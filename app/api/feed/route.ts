@@ -642,7 +642,9 @@ export async function GET(request: NextRequest) {
         
         if (hasOverlappingPlaytimeSession && overlappingSession) {
           // Check if existing session is zero-duration (legacy session)
-          const existingDuration = overlappingSession.sessionEnd.getTime() - overlappingSession.sessionStart.getTime();
+          // TypeScript: overlappingSession is guaranteed to be non-null here due to the condition check
+          const existingSession: FeedSession = overlappingSession;
+          const existingDuration = existingSession.sessionEnd.getTime() - existingSession.sessionStart.getTime();
           const isZeroDuration = existingDuration < 60 * 1000; // Less than 1 minute
           const newDuration = gameSession.sessionEnd.getTime() - gameSession.sessionStart.getTime();
           
@@ -652,7 +654,7 @@ export async function GET(request: NextRequest) {
           if (isZeroDuration && newDuration >= 60 * 1000) {
             console.log(`[Feed] ✅ Replacing zero-duration session with new session for ${userId}-${appId}`);
             // Remove the zero-duration session and continue with the new one
-            const index = playtimeSessions.indexOf(overlappingSession);
+            const index = playtimeSessions.indexOf(existingSession);
             if (index !== -1) {
               playtimeSessions.splice(index, 1);
             }
