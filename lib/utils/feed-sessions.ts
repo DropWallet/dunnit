@@ -40,6 +40,7 @@ export interface SessionMetadata {
 export interface Narrative {
   type: 'multiple-unlocks' | 'rare-achievement' | 'first-time' | 'standard' | 'playtime-only';
   label: string;
+  badgePath: string; // Path to badge SVG (e.g., '/bg-marathon.svg')
 }
 
 /**
@@ -228,7 +229,7 @@ function createSessionFromAchievements(
     achievements: achievementDetails,
     minRarity: metadata.minRarity,
     minRarityPercentage: metadata.minRarityPercentage,
-    narrative: calculateNarrative(metadata, achievements.length),
+    narrative: calculateNarrative(metadata, achievements.length, sessionId),
     relativeTime: getRelativeTime(sessionEnd),
     timestamp: sessionEnd.toISOString(),
     // Default values - will be populated by API
@@ -331,57 +332,284 @@ export function getRelativeTime(date: Date | string): string {
 }
 
 /**
- * Calculate narrative label for a session
+ * Seeded random number generator for consistent label selection
+ * Uses sessionId as seed so the same session always gets the same label
+ */
+function seededRandom(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash) / 2147483647; // Normalize to 0-1
+}
+
+/**
+ * Select a random label from an array using seeded random
+ */
+function selectRandomLabel(labels: string[], seed: string): string {
+  const random = seededRandom(seed);
+  return labels[Math.floor(random * labels.length)];
+}
+
+/**
+ * Calculate narrative label for an achievement session
+ * Based on SESSION_LABEL_MATRIX.md decision logic
  */
 function calculateNarrative(
   metadata: SessionMetadata,
-  achievementCount: number
+  achievementCount: number,
+  sessionId: string
 ): Narrative {
-  // Multiple unlocks narrative
-  if (achievementCount > 3) {
-    return {
-      type: 'multiple-unlocks',
-      label: `Unlocked ${achievementCount} achievements`,
-    };
-  }
+  // Rare = legendary, very-rare, or < 5% global percentage
+  const isRare = metadata.minRarity === 'legendary' || 
+                 metadata.minRarity === 'very-rare' || 
+                 (metadata.minRarityPercentage !== undefined && metadata.minRarityPercentage < 5);
 
-  // Rare achievement narrative
-  if (metadata.minRarityPercentage !== undefined && metadata.minRarityPercentage < 5) {
+  // Decision logic in priority order (from SESSION_LABEL_MATRIX.md)
+  
+  // 1. Multiple Rare Achievements
+  if (isRare && achievementCount > 1) {
+    const labels = [
+      'Rare collection',
+      'Legendary streak',
+      'Epic run',
+      'Rare haul',
+    ];
     return {
       type: 'rare-achievement',
-      label: 'Rare achievement unlocked',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-achievements.svg',
     };
   }
 
-  // Standard narrative (no special label)
+  // 2. Rare Achievement (single)
+  if (isRare && achievementCount === 1) {
+    const labels = [
+      'Rare find',
+      'Legendary unlock',
+      'Epic achievement',
+      'Rare trophy',
+      'Legendary moment',
+    ];
+    return {
+      type: 'rare-achievement',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-achievements.svg',
+    };
+  }
+
+  // 3. Many Achievements (5+)
+  if (achievementCount >= 5) {
+    const labels = [
+      'Achievement hunt',
+      'Unlock marathon',
+      'Trophy haul',
+      'Achievement rush',
+      'Unlock spree',
+    ];
+    return {
+      type: 'multiple-unlocks',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-achievements.svg',
+    };
+  }
+
+  // 4. Multiple Achievements (2-4)
+  if (achievementCount > 1 && achievementCount < 5) {
+    const labels = [
+      'Achievement spree',
+      'Unlock streak',
+      'Trophy run',
+      'Collection session',
+      'Unlock binge',
+    ];
+    return {
+      type: 'multiple-unlocks',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-achievements.svg',
+    };
+  }
+
+  // 5. Single Achievement (fallback)
+  const labels = [
+    'Achievement unlocked',
+    'Got one',
+    'New trophy',
+    'Nailed it',
+  ];
   return {
     type: 'standard',
-    label: `Unlocked ${achievementCount} ${achievementCount === 1 ? 'achievement' : 'achievements'}`,
+    label: selectRandomLabel(labels, sessionId),
+    badgePath: '/bg-achievements.svg',
   };
 }
 
 /**
  * Calculate narrative label for a playtime-only session
+ * Based on SESSION_LABEL_MATRIX.md decision logic
  */
-function calculatePlaytimeNarrative(playtimeMinutes: number): Narrative {
-  if (playtimeMinutes >= 180) {
-    // 3+ hours
+function calculatePlaytimeNarrative(
+  playtimeDeltaMinutes: number,
+  syncWindowStart: Date,
+  syncWindowEnd: Date,
+  sessionId: string
+): Narrative {
+  // Calculate window duration
+  const windowMs = syncWindowEnd.getTime() - syncWindowStart.getTime();
+  const windowMinutes = windowMs / (1000 * 60);
+  const windowHours = windowMinutes / 60;
+  const windowDays = windowHours / 24;
+
+  // Calculate intensity (playtime / window duration)
+  const intensity = windowMinutes > 0 ? playtimeDeltaMinutes / windowMinutes : 0;
+
+  // Decision logic in priority order (from SESSION_LABEL_MATRIX.md)
+  
+  // 1. Ultra Marathon (>= 8 hours)
+  if (playtimeDeltaMinutes >= 480) {
+    const labels = [
+      'Absolute legend',
+      'RSI king',
+      'Ultra marathon',
+      'Total commitment',
+    ];
     return {
       type: 'playtime-only',
-      label: 'Deep dive',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-ultra-marathon.svg',
     };
   }
-  if (playtimeMinutes >= 60) {
-    // 1-3 hours
+
+  // 2. Marathon (> 5 hours in single day)
+  if (playtimeDeltaMinutes >= 300 && windowDays < 1) {
+    const labels = [
+      'Marathon Session',
+      'Staying power',
+      "Retina's singed",
+      'Iron bladder',
+    ];
     return {
       type: 'playtime-only',
-      label: 'Put in the hours',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-marathon.svg',
     };
   }
-  // < 1 hour
+
+  // 3. Zero Life Mode (>= 80% intensity)
+  if (intensity >= 0.8) {
+    const labels = [
+      'Zero Life Mode',
+      'No Distractions',
+      'Fully Locked In',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-zero-life-mode.svg',
+    };
+  }
+
+  // 4. High Intensity (>= 70% intensity, < 80%)
+  if (intensity >= 0.7 && intensity < 0.8) {
+    const labels = [
+      'Grindset mindset',
+      'In the zone',
+      'Locked in',
+      'Fully committed',
+      'All in',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-high-intensity.svg',
+    };
+  }
+
+  // 5. Long Window (7+ days)
+  if (windowDays >= 7) {
+    const labels = [
+      'Slow burn',
+      'The comeback',
+      'Back at it',
+      'The return',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-long-window.svg',
+    };
+  }
+
+  // 6. Steady Progress (2-4 hours in 24h window)
+  if (playtimeDeltaMinutes >= 120 && playtimeDeltaMinutes <= 240 && windowDays < 1.5) {
+    const labels = [
+      'Putting the hours in',
+      'The usual',
+      'Daily dose',
+      'Regular grind',
+      'The routine',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-steady-progress.svg',
+    };
+  }
+
+  // 7. Casual (< 30% intensity, but >= 1 hour played)
+  if (intensity < 0.3 && playtimeDeltaMinutes >= 60) {
+    const labels = [
+      'Casual vibes',
+      'Taking it slow',
+      'Chill session',
+      'Easy does it',
+      'Relaxed mode',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-casual.svg',
+    };
+  }
+
+  // 8. Micro Session (< 15 min, high intensity >= 50%)
+  if (playtimeDeltaMinutes < 15 && intensity >= 0.5) {
+    const labels = [
+      'Quick fix',
+      'Speedrun',
+      'Blink and miss',
+      'Lightning round',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-zero-life-micro-session.svg',
+    };
+  }
+
+  // 9. Short & Punchy (< 30 min) - fallback
+  if (playtimeDeltaMinutes < 30) {
+    const labels = [
+      'Quick sesh',
+      'Pop in',
+      'Quick run',
+      'Warm up',
+      'Touch base',
+      'Quick check',
+    ];
+    return {
+      type: 'playtime-only',
+      label: selectRandomLabel(labels, sessionId),
+      badgePath: '/bg-short-and-punchy.svg',
+    };
+  }
+
+  // Default fallback (shouldn't reach here, but just in case)
   return {
     type: 'playtime-only',
-    label: 'Quick session',
+    label: 'Quick sesh',
+    badgePath: '/bg-short-and-punchy.svg',
   };
 }
 
@@ -443,7 +671,7 @@ export function createSessionFromPlaytime(
     achievementCount: 0,
     achievements: [],
     // minRarity and minRarityPercentage are undefined for playtime-only sessions
-    narrative: calculatePlaytimeNarrative(playtimeDeltaMinutes),
+    narrative: calculatePlaytimeNarrative(playtimeDeltaMinutes, syncWindowStart, syncWindowEnd, sessionId),
     relativeTime: getRelativeTime(sessionEnd),
     timestamp: sessionEnd.toISOString(),
     // Default values - will be populated by API

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { type FeedSession } from "@/lib/utils/feed-sessions";
 import { getRarityBorderClass } from "@/lib/utils/achievements";
 import { FeedLikeButton } from "@/components/feed-like-button";
@@ -161,12 +162,12 @@ export function FeedSessionCard({
   unlockedGameAchievements,
 }: FeedSessionCardProps) {
   // Calculate completion rate for progress bar
-  const completionRate = totalGameAchievements > 0 
+  const completionRate = totalGameAchievements > 0
     ? Math.round((unlockedGameAchievements / totalGameAchievements) * 100)
     : 0;
 
-  // Badge color - will be swapped for custom badges later
-  const badgeColor = '#00BBA7'; // Placeholder teal color
+  // Badge path from narrative, with fallback
+  const badgePath = session.narrative?.badgePath || '/bg-short-and-punchy.svg';
 
   // Show all achievements from the session (up to 5 visible)
   const displayAchievements = session.achievements.slice(0, 5);
@@ -352,17 +353,13 @@ export function FeedSessionCard({
         <div className="flex flex-col justify-start items-start self-stretch flex-grow-0 flex-shrink-0 gap-4">
           {/* Badge and Achievement Summary */}
           <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
-            <svg
-              width="40"
-              height="35"
-              viewBox="0 0 40 35"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+            <Image
+              src={badgePath}
+              alt={session.narrative?.label || 'Session badge'}
+              width={40}
+              height={35}
               className="flex-grow-0 flex-shrink-0"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <path d="M10 35L0 17.5L10 0H30L40 17.5L30 35H10Z" fill={badgeColor}></path>
-            </svg>
+            />
             <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative gap-0.5">
               <p className="flex-grow-0 flex-shrink-0 text-xl font-medium text-left text-text-strong">
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
@@ -478,17 +475,13 @@ export function FeedSessionCard({
         <div className="flex flex-col justify-start items-start flex-grow gap-4">
           {/* Badge and Achievement Summary */}
           <div className="flex justify-start items-center self-stretch flex-grow-0 flex-shrink-0 relative gap-3">
-            <svg
-              width="40"
-              height="35"
-              viewBox="0 0 40 35"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+            <Image
+              src={badgePath}
+              alt={session.narrative?.label || 'Session badge'}
+              width={40}
+              height={35}
               className="flex-grow-0 flex-shrink-0"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <path d="M10 35L0 17.5L10 0H30L40 17.5L30 35H10Z" fill={badgeColor}></path>
-            </svg>
+            />
             <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 relative">
               <p className="flex-grow-0 flex-shrink-0 text-xl font-medium text-left text-text-strong">
                 {session.narrative?.label || `Unlocked ${session.achievementCount} achievement${session.achievementCount !== 1 ? 's' : ''}`}
