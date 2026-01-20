@@ -8,6 +8,45 @@ import { getRarityBorderClass } from "@/lib/utils/achievements";
 import { FeedLikeButton } from "@/components/feed-like-button";
 
 /**
+ * Format sync window time span for playtime sessions
+ * Based on Gemini's matrix:
+ * - < 24 hours: "Played X in the last Y hours" or "Played X today"
+ * - 1-7 days: "Played X in the last Y days"
+ * - > 7 days: "Played X since [Date]" or "Played X in the last Y days"
+ */
+function formatSyncWindow(
+  playtimeFormatted: string,
+  syncWindowStart: Date,
+  syncWindowEnd: Date
+): string {
+  const windowMs = syncWindowEnd.getTime() - syncWindowStart.getTime();
+  const windowHours = windowMs / (1000 * 60 * 60);
+  const windowDays = windowMs / (1000 * 60 * 60 * 24);
+
+  if (windowHours < 24) {
+    const hours = Math.floor(windowHours);
+    if (hours === 0) {
+      return `${playtimeFormatted} played in the last hour`;
+    } else if (hours === 1) {
+      return `${playtimeFormatted} played in the last hour`;
+    } else {
+      return `${playtimeFormatted} played in the last ${hours} hours`;
+    }
+  } else if (windowDays < 7) {
+    const days = Math.floor(windowDays);
+    if (days === 1) {
+      return `${playtimeFormatted} played in the last day`;
+    } else {
+      return `${playtimeFormatted} played in the last ${days} days`;
+    }
+  } else {
+    // For longer windows, show the date range
+    const days = Math.floor(windowDays);
+    return `${playtimeFormatted} played in the last ${days} days`;
+  }
+}
+
+/**
  * Skeleton loading state for FeedSessionCard
  */
 export function FeedSessionCardSkeleton() {
@@ -134,6 +173,52 @@ export function FeedSessionCard({
   const remainingCount = session.achievements.length - displayAchievements.length;
   const hasAchievements = session.achievements.length > 0;
   const isPlaytimeOnly = session.achievementCount === 0;
+  const isPlaytimeSession = session.isPlaytimeSession ?? false;
+  
+  // Format sync window for playtime sessions (new sessions only)
+  // Legacy sessions fall back to showing "Session: X hours" format
+  // Convert string dates to Date objects if needed (API serialization)
+  let syncWindowStart: Date | null = null;
+  let syncWindowEnd: Date | null = null;
+  
+  if (session.syncWindowStart) {
+    try {
+      syncWindowStart = session.syncWindowStart instanceof Date 
+        ? session.syncWindowStart 
+        : new Date(session.syncWindowStart);
+      // Validate date
+      if (isNaN(syncWindowStart.getTime())) {
+        syncWindowStart = null;
+      }
+    } catch {
+      syncWindowStart = null;
+    }
+  }
+  
+  if (session.syncWindowEnd) {
+    try {
+      syncWindowEnd = session.syncWindowEnd instanceof Date 
+        ? session.syncWindowEnd 
+        : new Date(session.syncWindowEnd);
+      // Validate date
+      if (isNaN(syncWindowEnd.getTime())) {
+        syncWindowEnd = null;
+      }
+    } catch {
+      syncWindowEnd = null;
+    }
+  }
+  
+  const syncWindowText = isPlaytimeSession && syncWindowStart && syncWindowEnd
+    ? formatSyncWindow(session.durationFormatted, syncWindowStart, syncWindowEnd)
+    : null;
+  
+  // Legacy playtime sessions: show old "Session: X hours" format
+  const isLegacyPlaytimeSession = isPlaytimeSession && !syncWindowText;
+  
+  // Use the relativeTime from the session (calculated from original sessionEnd when first synced)
+  // This reflects when the session was first created in the database, not when the feed is loaded
+  const displayRelativeTime = session.relativeTime;
 
   // State for image fallbacks
   const [desktopImageError, setDesktopImageError] = useState(false);
@@ -235,7 +320,7 @@ export function FeedSessionCard({
             </p>
           </Link>
           <p className="flex-grow-0 flex-shrink-0 text-xs text-left text-text-subdued">
-            {session.relativeTime}
+            {displayRelativeTime}
           </p>
         </div>
       </div>
@@ -290,24 +375,42 @@ export function FeedSessionCard({
 
           {/* Session Details */}
           <div className="flex flex-col justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
-            <div className="flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
-                Session:
-              </p>
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                {session.durationFormatted}
-              </p>
-            </div>
-            {/* Only show "Unlocks" for achievement sessions */}
-            {!isPlaytimeOnly && (
+            {/* For playtime sessions: show sync window format (new) or fallback to old format (legacy) */}
+            {isPlaytimeSession ? (
+              syncWindowText ? (
+                <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
+                  <span className="text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </span>
+                  <span className="text-lg font-semibold text-left text-text-weak">
+                    {syncWindowText.replace(session.durationFormatted, '').trim()}
+                  </span>
+                </div>
+              ) : (
+                // Legacy playtime sessions: show old "Session: X hours" format
+                <div className="flex justify-start items-start self-stretch flex-grow-0 flex-shrink-0 relative gap-1">
+                  <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
+                    Session:
+                  </p>
+                  <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </p>
+                </div>
+              )
+            ) : (
+              <>
+                {/* For achievement sessions: show unlocks only (no session time) */}
+                {!isPlaytimeOnly && (
               <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
-                  Unlocks:
-                </p>
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                  {session.achievementCount}
-                </p>
-              </div>
+                    <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-subdued">
+                      Unlocks:
+                    </p>
+                    <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                      {session.achievementCount}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -398,24 +501,42 @@ export function FeedSessionCard({
 
           {/* Session Details */}
           <div className="flex flex-row justify-start items-start flex-grow-0 flex-shrink-0 gap-3">
-            <div className="flex justify-start items-start self-stretch flex-grow-0 relative gap-1">
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
-                Session:
-              </p>
-              <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                {session.durationFormatted}
-              </p>
-            </div>
-            {/* Only show "Unlocks" for achievement sessions */}
-            {!isPlaytimeOnly && (
-              <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
-                  Unlocks:
-                </p>
-                <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
-                  {session.achievementCount}
-                </p>
-              </div>
+            {/* For playtime sessions: show sync window format (new) or fallback to old format (legacy) */}
+            {isPlaytimeSession ? (
+              syncWindowText ? (
+                <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 gap-1">
+                  <span className="text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </span>
+                  <span className="text-lg font-semibold text-left text-text-weak">
+                    {syncWindowText.replace(session.durationFormatted, '').trim()}
+                  </span>
+                </div>
+              ) : (
+                // Legacy playtime sessions: show old "Session: X hours" format
+                <div className="flex justify-start items-start flex-grow-0 relative gap-1">
+                  <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
+                    Session:
+                  </p>
+                  <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                    {session.durationFormatted}
+                  </p>
+                </div>
+              )
+            ) : (
+              <>
+                {/* For achievement sessions: show unlocks only (no session time) */}
+                {!isPlaytimeOnly && (
+                  <div className="flex justify-start items-start flex-grow-0 flex-shrink-0 relative gap-1">
+                    <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-weak">
+                      Unlocks:
+                    </p>
+                    <p className="flex-grow-0 flex-shrink-0 text-lg font-semibold text-left text-text-moderate">
+                      {session.achievementCount}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
