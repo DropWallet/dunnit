@@ -108,12 +108,28 @@ async function syncFriendsForFeed(
   const friendsInDb = new Set((allFriendsUsers || []).map((u: any) => u.steam_id));
   const friendsNotInDb = friendSteamIds.filter(id => !friendsInDb.has(id));
   
-  // Add friends not in DB to sync queue
-  // Limit to first 20 to prevent API overload on first sync (users with many friends)
-  const MAX_FIRST_SYNC_FRIENDS = 20;
-  const friendsNotInDbToSync = friendsNotInDb.slice(0, MAX_FIRST_SYNC_FRIENDS);
+  // PRIORITIZATION: Sort friends before limiting to get best results first
+  // 1. Friends with games in DB (faster sync - already have data)
+  // 2. Friends with recent playtime (likely to have new sessions)
+  // 3. Then by original array order
+  const friendsNotInDbSorted = friendsNotInDb.sort((a, b) => {
+    const aInDb = friendsWithGamesInDb.has(a);
+    const bInDb = friendsWithGamesInDb.has(b);
+    const aRecent = friendsWithRecentPlaytime.has(a);
+    const bRecent = friendsWithRecentPlaytime.has(b);
+    
+    // Friends with games in DB first (faster sync)
+    if (aInDb !== bInDb) return aInDb ? -1 : 1;
+    // Friends with recent playtime next (likely to have new sessions)
+    if (aRecent !== bRecent) return aRecent ? -1 : 1;
+    // Then by original order
+    return 0;
+  });
   
-  // Limit first-sync friends to prevent API overload
+  // Add friends not in DB to sync queue
+  // Limit to first 30 to prevent API overload on first sync (users with many friends)
+  const MAX_FIRST_SYNC_FRIENDS = 30;
+  const friendsNotInDbToSync = friendsNotInDbSorted.slice(0, MAX_FIRST_SYNC_FRIENDS);
   
   friendsNotInDbToSync.forEach(friendId => {
     friendsNeedingSync.add(friendId);
@@ -721,6 +737,8 @@ export async function GET(request: NextRequest) {
     // The staleness and cooldown logic is already implemented in syncFriendsForFeed function
 
     // Sort by sessionEnd descending (newest first)
+    // This interleaves achievement and playtime sessions chronologically
+    // Achievement sessions use last unlock time as sessionEnd, so they're already ordered correctly
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
 
     // Fetch achievement counts for each unique (user_id, app_id) combination
