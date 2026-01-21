@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
@@ -36,17 +37,13 @@ export function Navbar() {
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - Link to Dashboard */}
           <Link href="/dashboard" className="flex-shrink-0">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+            <Image
+              src="/logo-nav.svg"
+              alt="Playd Logo"
+              width={32}
+              height={32}
               className="flex-shrink-0"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <circle cx="16" cy="16" r="16" fill="#FB64B6" />
-            </svg>
+            />
           </Link>
 
           {/* Feed Link */}
