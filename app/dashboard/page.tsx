@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
@@ -372,13 +372,16 @@ export default function DashboardPage() {
           achievementsMap.set(appId, achievements);
           loadedAchievementAppIds.current.add(appId);
         });
-        setGameAchievements(achievementsMap);
-        
-        // Remove from loading set
-        setLoadingAchievements(prev => {
-          const newSet = new Set(prev);
-          appIdsToLoad.forEach((id: number) => newSet.delete(id));
-          return newSet;
+
+        // PERFORMANCE FIX: Batch state updates using startTransition to prevent double-render flash
+        // This ensures React batches both updates into a single render
+        startTransition(() => {
+          setLoadingAchievements(prev => {
+            const newSet = new Set(prev);
+            appIdsToLoad.forEach((id: number) => newSet.delete(id));
+            return newSet;
+          });
+          setGameAchievements(achievementsMap);
         });
         
         setIsLoadingGames(false);
@@ -776,13 +779,15 @@ export default function DashboardPage() {
           achievementsData.forEach(({ appId, achievements }) => {
             newMap.set(appId, achievements);
           });
-          setGameAchievements(newMap);
-          
-          // Remove from loading set
-          setLoadingAchievements(prev => {
-            const newSet = new Set(prev);
-            appIdsToLoad.forEach((id: number) => newSet.delete(id));
-            return newSet;
+
+          // PERFORMANCE FIX: Batch state updates to prevent double-render flash
+          startTransition(() => {
+            setLoadingAchievements(prev => {
+              const newSet = new Set(prev);
+              appIdsToLoad.forEach((id: number) => newSet.delete(id));
+              return newSet;
+            });
+            setGameAchievements(newMap);
           });
         });
       }
@@ -950,13 +955,15 @@ export default function DashboardPage() {
       achievementsData.forEach(({ appId, achievements }) => {
         newMap.set(appId, achievements);
       });
-      setGameAchievements(newMap);
-      
-      // Remove from loading set
-      setLoadingAchievements(prev => {
-        const newSet = new Set(prev);
-        appIdsToLoad.forEach((id: number) => newSet.delete(id));
-        return newSet;
+
+      // PERFORMANCE FIX: Batch state updates to prevent double-render flash
+      startTransition(() => {
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.delete(id));
+          return newSet;
+        });
+        setGameAchievements(newMap);
       });
     }
 
