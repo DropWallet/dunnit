@@ -392,7 +392,7 @@ export default function DashboardPage() {
     }
     
     loadGames();
-  }, [sortBy, gameAchievements]);
+  }, []); // PERFORMANCE FIX: Empty array - run only on mount. sortBy handled by separate effect (line 695)
 
   // Handle tab changes - capture user intent directly via onChange event
   const handleTabChange = (index: number) => {
