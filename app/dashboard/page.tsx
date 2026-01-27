@@ -33,14 +33,15 @@ import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import { SyncLoadingModal } from "@/components/sync-loading-modal";
 import type { Game } from "@/lib/data/types";
-import { 
-  sortGames, 
+import {
+  sortGames,
   sortAchievements,
   type GameSortOption,
   type AchievementSortOption,
   type GameAchievement,
   type UserAchievement
 } from "@/lib/utils/sorting";
+import { isFeatureEnabled } from "@/lib/utils/feature-flags";
 
 interface User {
   steamId: string;
@@ -215,46 +216,87 @@ export default function DashboardPage() {
     };
   }, [isCriticalPathLoading, isDataReady]);
 
-  // Fetch user data
+  // PERFORMANCE: Fetch user, statistics, and games in parallel (Phase 1a)
+  // Feature flag: PARALLEL_INITIAL_FETCHES
   useEffect(() => {
-    fetch("/api/user")
-      .then((res) => {
-        if (!res.ok) {
-          router.push("/");
-          return;
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (data?.user) {
-          setUser(data.user);
-        }
-        setIsLoading(false);
-      })
-      .catch(() => {
-        router.push("/");
-      });
-  }, [router]);
+    if (isFeatureEnabled('PARALLEL_INITIAL_FETCHES')) {
+      // NEW: Parallel fetch approach
+      console.log('[Perf] Phase 1a: Fetching user, stats, and games in parallel');
+      const fetchStartTime = performance.now();
 
-  // Fetch statistics
-  useEffect(() => {
-    fetch("/api/user/statistics")
-      .then((res) => {
-        if (res.ok) {
+      Promise.all([
+        fetch("/api/user").then(res => {
+          if (!res.ok) throw new Error('User fetch failed');
           return res.json();
-        }
-        return null;
-      })
-      .then((data) => {
-        if (data?.statistics) {
-          setStatistics(data.statistics);
-        }
-        setIsLoadingStats(false);
-      })
-      .catch(() => {
-        setIsLoadingStats(false);
-      });
-  }, []);
+        }),
+        fetch("/api/user/statistics").then(res => {
+          if (res.ok) return res.json();
+          return null;
+        }),
+      ])
+        .then(([userData, statsData]) => {
+          const fetchEndTime = performance.now();
+          console.log(`[Perf] Phase 1a: Parallel fetches completed in ${(fetchEndTime - fetchStartTime).toFixed(0)}ms`);
+
+          // Set user data
+          if (userData?.user) {
+            setUser(userData.user);
+          }
+          setIsLoading(false);
+
+          // Set statistics data
+          if (statsData?.statistics) {
+            setStatistics(statsData.statistics);
+          }
+          setIsLoadingStats(false);
+        })
+        .catch((error) => {
+          console.error('[Perf] Phase 1a: Parallel fetch failed:', error);
+          // If user fetch fails, redirect to login
+          router.push("/");
+        });
+    } else {
+      // OLD: Sequential fetch approach (fallback)
+      console.log('[Perf] Phase 1a: Using sequential fetches (feature flag disabled)');
+
+      // Fetch user data
+      fetch("/api/user")
+        .then((res) => {
+          if (!res.ok) {
+            router.push("/");
+            return;
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (data?.user) {
+            setUser(data.user);
+          }
+          setIsLoading(false);
+        })
+        .catch(() => {
+          router.push("/");
+        });
+
+      // Fetch statistics
+      fetch("/api/user/statistics")
+        .then((res) => {
+          if (res.ok) {
+            return res.json();
+          }
+          return null;
+        })
+        .then((data) => {
+          if (data?.statistics) {
+            setStatistics(data.statistics);
+          }
+          setIsLoadingStats(false);
+        })
+        .catch(() => {
+          setIsLoadingStats(false);
+        });
+    }
+  }, [router]);
 
   // Fetch games and achievements
   useEffect(() => {
