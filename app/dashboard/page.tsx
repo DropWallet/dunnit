@@ -305,7 +305,7 @@ export default function DashboardPage() {
           setIsLoadingStats(false);
         });
     }
-  }, [router]);
+  }, []); // Empty deps - router.push is stable, doesn't need to be in dependencies
 
   // Fetch games and achievements
   useEffect(() => {
