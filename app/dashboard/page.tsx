@@ -187,20 +187,29 @@ export default function DashboardPage() {
     }
   }, [selectedTabIndex]);
 
-  // Sync loading modal with 300ms delay - hide when data is ready to render
+  // PERFORMANCE: Sync loading modal (Phase 1c)
   // Modal should stay visible until games and statistics are loaded (skeleton is ready)
   const isDataReady = allGames.length > 0 && statistics !== null;
   const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
-  
+  const removeSyncModalDelay = isFeatureEnabled('REMOVE_SYNC_MODAL_DELAY');
+
   useEffect(() => {
     // Show modal if loading critical path OR data not ready yet
     if (isCriticalPathLoading || !isDataReady) {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
       }
-      syncModalTimeoutRef.current = setTimeout(() => {
+
+      if (removeSyncModalDelay) {
+        // NEW: Show modal immediately (no delay)
+        console.log('[Perf] Phase 1c: Showing sync modal immediately (no 300ms delay)');
         setShowSyncModal(true);
-      }, 300);
+      } else {
+        // OLD: 300ms delay before showing modal
+        syncModalTimeoutRef.current = setTimeout(() => {
+          setShowSyncModal(true);
+        }, 300);
+      }
     } else {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
@@ -208,13 +217,13 @@ export default function DashboardPage() {
       }
       setShowSyncModal(false);
     }
-    
+
     return () => {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
       }
     };
-  }, [isCriticalPathLoading, isDataReady]);
+  }, [isCriticalPathLoading, isDataReady, removeSyncModalDelay]);
 
   // PERFORMANCE: Fetch user, statistics, and games in parallel (Phase 1a)
   // Feature flag: PARALLEL_INITIAL_FETCHES
