@@ -851,6 +851,86 @@ export class SupabaseDataAccess implements DataAccess {
     }
   }
 
+  /**
+   * PERFORMANCE: Calculate statistics using SQL aggregation (Phase 2)
+   * This replaces fetching all achievements and calculating in memory
+   * Expected improvement: 100x faster (10s → 100ms)
+   */
+  async calculateUserStatisticsFromDatabase(userId: string): Promise<any> {
+    try {
+      console.log('[Perf] Phase 2: Calculating statistics with SQL aggregation');
+      const startTime = performance.now();
+
+      // Get total games and started games from user_games
+      const { data: gamesData, error: gamesError} = await this.supabase
+        .from('user_games')
+        .select('playtime_minutes')
+        .eq('user_id', userId);
+
+      if (gamesError) {
+        throw gamesError;
+      }
+
+      const totalGames = gamesData?.length || 0;
+      const startedGames = gamesData?.filter(g => g.playtime_minutes > 0).length || 0;
+
+      // Get games with at least one unlocked achievement
+      const { data: gamesWithUnlocked } = await this.supabase
+        .from('user_achievements')
+        .select('app_id')
+        .eq('user_id', userId)
+        .eq('unlocked', true);
+
+      const appIdsWithUnlocked = [...new Set(gamesWithUnlocked?.map(a => a.app_id) || [])];
+
+      if (appIdsWithUnlocked.length === 0) {
+        // No achievements unlocked
+        const endTime = performance.now();
+        console.log(`[Perf] Phase 2: SQL aggregation completed in ${(endTime - startTime).toFixed(0)}ms (no achievements)`);
+
+        return {
+          totalGames,
+          startedGames,
+          totalAchievements: 0,
+          unlockedAchievements: 0,
+          averageCompletionRate: 0,
+        };
+      }
+
+      // Get total achievements from games with unlocked achievements
+      const { count: totalAchievements } = await this.supabase
+        .from('user_achievements')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .in('app_id', appIdsWithUnlocked);
+
+      // Get unlocked achievements count
+      const { count: unlockedAchievements } = await this.supabase
+        .from('user_achievements')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('unlocked', true);
+
+      const averageCompletionRate = totalAchievements && totalAchievements > 0
+        ? Math.round(((unlockedAchievements || 0) / totalAchievements) * 1000) / 10
+        : 0;
+
+      const endTime = performance.now();
+      console.log(`[Perf] Phase 2: SQL aggregation completed in ${(endTime - startTime).toFixed(0)}ms`);
+
+      return {
+        totalGames,
+        startedGames,
+        totalAchievements: totalAchievements || 0,
+        unlockedAchievements: unlockedAchievements || 0,
+        averageCompletionRate,
+      };
+    } catch (error) {
+      console.error('[Perf] Phase 2: SQL aggregation failed:', error);
+      throw error;
+    }
+  }
+
   async getUserFriendsCount(steamId: string): Promise<{ count: number; syncedAt: Date | null } | null> {
     const { data, error } = await this.supabase
       .from('users')

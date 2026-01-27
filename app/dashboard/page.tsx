@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
@@ -305,7 +305,7 @@ export default function DashboardPage() {
           setIsLoadingStats(false);
         });
     }
-  }, [router]);
+  }, []); // Empty deps - router.push is stable, doesn't need to be in dependencies
 
   // Fetch games and achievements
   useEffect(() => {
@@ -372,13 +372,16 @@ export default function DashboardPage() {
           achievementsMap.set(appId, achievements);
           loadedAchievementAppIds.current.add(appId);
         });
-        setGameAchievements(achievementsMap);
-        
-        // Remove from loading set
-        setLoadingAchievements(prev => {
-          const newSet = new Set(prev);
-          appIdsToLoad.forEach((id: number) => newSet.delete(id));
-          return newSet;
+
+        // PERFORMANCE FIX: Batch state updates using startTransition to prevent double-render flash
+        // This ensures React batches both updates into a single render
+        startTransition(() => {
+          setLoadingAchievements(prev => {
+            const newSet = new Set(prev);
+            appIdsToLoad.forEach((id: number) => newSet.delete(id));
+            return newSet;
+          });
+          setGameAchievements(achievementsMap);
         });
         
         setIsLoadingGames(false);
@@ -389,7 +392,7 @@ export default function DashboardPage() {
     }
     
     loadGames();
-  }, [sortBy, gameAchievements]);
+  }, []); // PERFORMANCE FIX: Empty array - run only on mount. sortBy handled by separate effect (line 695)
 
   // Handle tab changes - capture user intent directly via onChange event
   const handleTabChange = (index: number) => {
@@ -691,7 +694,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (gamesToDisplay.length > 0) {
       const gamesNeedingAchievements = gamesToDisplay.filter(
-        (game) => !gameAchievements.has(game.appId)
+        (game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId)
       );
       
       if (gamesNeedingAchievements.length > 0) {
@@ -742,10 +745,10 @@ export default function DashboardPage() {
   // Lazy-load achievements for all games when sorting by achievement progress
   useEffect(() => {
     if (sortBy === 'achievement-progress' && allGames.length > 0) {
-      const needsLoading = allGames.some((game) => !gameAchievements.has(game.appId));
-      
+      const needsLoading = allGames.some((game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId));
+
       if (needsLoading) {
-        const gamesToLoad = allGames.filter((game) => !gameAchievements.has(game.appId));
+        const gamesToLoad = allGames.filter((game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId));
         
         // Mark games as loading
         const appIdsToLoad = gamesToLoad.map((g) => g.appId);
@@ -776,13 +779,15 @@ export default function DashboardPage() {
           achievementsData.forEach(({ appId, achievements }) => {
             newMap.set(appId, achievements);
           });
-          setGameAchievements(newMap);
-          
-          // Remove from loading set
-          setLoadingAchievements(prev => {
-            const newSet = new Set(prev);
-            appIdsToLoad.forEach((id: number) => newSet.delete(id));
-            return newSet;
+
+          // PERFORMANCE FIX: Batch state updates to prevent double-render flash
+          startTransition(() => {
+            setLoadingAchievements(prev => {
+              const newSet = new Set(prev);
+              appIdsToLoad.forEach((id: number) => newSet.delete(id));
+              return newSet;
+            });
+            setGameAchievements(newMap);
           });
         });
       }
@@ -950,13 +955,15 @@ export default function DashboardPage() {
       achievementsData.forEach(({ appId, achievements }) => {
         newMap.set(appId, achievements);
       });
-      setGameAchievements(newMap);
-      
-      // Remove from loading set
-      setLoadingAchievements(prev => {
-        const newSet = new Set(prev);
-        appIdsToLoad.forEach((id: number) => newSet.delete(id));
-        return newSet;
+
+      // PERFORMANCE FIX: Batch state updates to prevent double-render flash
+      startTransition(() => {
+        setLoadingAchievements(prev => {
+          const newSet = new Set(prev);
+          appIdsToLoad.forEach((id: number) => newSet.delete(id));
+          return newSet;
+        });
+        setGameAchievements(newMap);
       });
     }
 
