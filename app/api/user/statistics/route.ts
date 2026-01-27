@@ -3,6 +3,7 @@ import { getDataAccess } from '@/lib/data/access';
 import { calculateStatistics } from '@/lib/utils/statistics';
 import { ApiErrors } from '@/lib/utils/api-errors';
 import type { UserAchievement } from '@/lib/data/types';
+import { isFeatureEnabled } from '@/lib/utils/feature-flags';
 
 // Maximum age for cached statistics (24 hours in milliseconds)
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -58,7 +59,38 @@ export async function GET(request: NextRequest) {
     }
     
     // Need to recalculate statistics
-    
+
+    // PERFORMANCE: Phase 2 - Use SQL aggregation if feature flag enabled
+    const useSQLAggregation = isFeatureEnabled('SQL_AGGREGATION_STATS');
+
+    if (useSQLAggregation) {
+      console.log('[Perf] Phase 2: Using SQL aggregation for statistics');
+      try {
+        // NEW: Calculate statistics with SQL aggregation (100x faster)
+        const statistics = await dataAccess.calculateUserStatisticsFromDatabase(steamId);
+
+        // Save to cache
+        await dataAccess.saveUserStatistics(steamId, statistics);
+
+        return NextResponse.json(
+          { statistics },
+          {
+            headers: {
+              'Cache-Control': 'private, max-age=300',
+              'CDN-Cache-Control': 'no-store',
+              'Vercel-CDN-Cache-Control': 'no-store',
+            },
+          }
+        );
+      } catch (error) {
+        console.error('[Perf] Phase 2: SQL aggregation failed, falling back to old method:', error);
+        // Fall through to old method below
+      }
+    }
+
+    // OLD METHOD: Fetch all achievements and calculate in memory
+    console.log('[Perf] Using old statistics calculation method (fetching all achievements)');
+
     // If no games, return empty statistics
     if (games.length === 0) {
       const emptyStats = {
@@ -68,13 +100,13 @@ export async function GET(request: NextRequest) {
         unlockedAchievements: 0,
         averageCompletionRate: 0,
       };
-      
+
       // Save empty stats to cache
       await dataAccess.saveUserStatistics(steamId, emptyStats);
-      
+
       return NextResponse.json({ statistics: emptyStats });
     }
-    
+
     // Fetch achievements for all games IN PARALLEL (not sequential)
     const achievementPromises = games.map(async (game) => {
       try {
@@ -85,10 +117,10 @@ export async function GET(request: NextRequest) {
         return { appId: game.appId, achievements: [] };
       }
     });
-    
+
     // Wait for all achievement fetches to complete in parallel
     const achievementResults = await Promise.all(achievementPromises);
-    
+
     // Build the map and track games without achievements
     const allAchievements = new Map<number, UserAchievement[]>();
     const gamesWithoutAchievements: number[] = [];
@@ -104,16 +136,16 @@ export async function GET(request: NextRequest) {
         }
       }
     });
-    
+
     // Log games that might be missing achievements (for debugging)
     if (gamesWithoutAchievements.length > 0 && process.env.NODE_ENV === 'development') {
-      console.log(`[Stats] ${gamesWithoutAchievements.length} games with playtime but no achievements synced:`, 
+      console.log(`[Stats] ${gamesWithoutAchievements.length} games with playtime but no achievements synced:`,
         gamesWithoutAchievements.slice(0, 10)); // Log first 10 to avoid spam
     }
-    
+
     // Calculate statistics
     const statistics = calculateStatistics(games, allAchievements);
-    
+
     // Save to cache
     await dataAccess.saveUserStatistics(steamId, statistics);
 

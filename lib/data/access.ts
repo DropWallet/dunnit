@@ -100,6 +100,7 @@ export interface DataAccess {
   clearUserAchievements(userId: string, appId: number): Promise<void>;
   getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null>;
   saveUserStatistics(userId: string, statistics: any): Promise<void>;
+  calculateUserStatisticsFromDatabase(userId: string): Promise<any>; // Phase 2: SQL aggregation
   getUserFriendsCount(steamId: string): Promise<{ count: number; syncedAt: Date | null } | null>;
   saveUserFriendsCount(steamId: string, count: number): Promise<void>;
   // Like methods
