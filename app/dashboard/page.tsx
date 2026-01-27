@@ -1121,10 +1121,46 @@ export default function DashboardPage() {
   };
 
 
-  if (isLoading) {
+  // PERFORMANCE: Progressive UI rendering (Phase 1b)
+  // Show UI skeleton immediately, don't wait for all data
+  const showProgressiveUI = isFeatureEnabled('PROGRESSIVE_UI');
+
+  // Only show full-screen loading on initial mount
+  if (!showProgressiveUI && isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // OLD behavior: block render until user loads
+  if (!showProgressiveUI && !user) {
+    return null;
+  }
+
+  // NEW behavior: show skeleton even if user not loaded yet
+  if (showProgressiveUI && isLoading && !user) {
+    console.log('[Perf] Phase 1b: Showing progressive UI skeleton');
+    return (
+      <div className="min-h-screen bg-background pt-16">
+        <Navbar />
+        <div className="p-4 md:p-8">
+          <div className="max-w-6xl mx-auto">
+            {/* User Profile Skeleton */}
+            <div className="flex items-center gap-4 mb-10">
+              <div className="w-24 h-24 rounded-full bg-surface-mid animate-pulse" />
+              <div className="flex-1">
+                <div className="h-8 w-48 bg-surface-mid rounded animate-pulse mb-2" />
+                <div className="h-4 w-32 bg-surface-mid rounded animate-pulse" />
+              </div>
+            </div>
+            {/* Loading message */}
+            <div className="text-center py-12 text-muted-foreground">
+              Loading your dashboard...
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
