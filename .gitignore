@@ -35,3 +35,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# local docs / audits (not committed)
+DASHBOARD_PERFORMANCE_AUDIT.md
+RATE_LIMIT_ANALYSIS.md
+

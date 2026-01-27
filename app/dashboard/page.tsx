@@ -33,14 +33,15 @@ import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import { SyncLoadingModal } from "@/components/sync-loading-modal";
 import type { Game } from "@/lib/data/types";
-import { 
-  sortGames, 
+import {
+  sortGames,
   sortAchievements,
   type GameSortOption,
   type AchievementSortOption,
   type GameAchievement,
   type UserAchievement
 } from "@/lib/utils/sorting";
+import { isFeatureEnabled } from "@/lib/utils/feature-flags";
 
 interface User {
   steamId: string;
@@ -186,20 +187,29 @@ export default function DashboardPage() {
     }
   }, [selectedTabIndex]);
 
-  // Sync loading modal with 300ms delay - hide when data is ready to render
+  // PERFORMANCE: Sync loading modal (Phase 1c)
   // Modal should stay visible until games and statistics are loaded (skeleton is ready)
   const isDataReady = allGames.length > 0 && statistics !== null;
   const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
-  
+  const removeSyncModalDelay = isFeatureEnabled('REMOVE_SYNC_MODAL_DELAY');
+
   useEffect(() => {
     // Show modal if loading critical path OR data not ready yet
     if (isCriticalPathLoading || !isDataReady) {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
       }
-      syncModalTimeoutRef.current = setTimeout(() => {
+
+      if (removeSyncModalDelay) {
+        // NEW: Show modal immediately (no delay)
+        console.log('[Perf] Phase 1c: Showing sync modal immediately (no 300ms delay)');
         setShowSyncModal(true);
-      }, 300);
+      } else {
+        // OLD: 300ms delay before showing modal
+        syncModalTimeoutRef.current = setTimeout(() => {
+          setShowSyncModal(true);
+        }, 300);
+      }
     } else {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
@@ -207,54 +217,95 @@ export default function DashboardPage() {
       }
       setShowSyncModal(false);
     }
-    
+
     return () => {
       if (syncModalTimeoutRef.current) {
         clearTimeout(syncModalTimeoutRef.current);
       }
     };
-  }, [isCriticalPathLoading, isDataReady]);
+  }, [isCriticalPathLoading, isDataReady, removeSyncModalDelay]);
 
-  // Fetch user data
+  // PERFORMANCE: Fetch user, statistics, and games in parallel (Phase 1a)
+  // Feature flag: PARALLEL_INITIAL_FETCHES
   useEffect(() => {
-    fetch("/api/user")
-      .then((res) => {
-        if (!res.ok) {
-          router.push("/");
-          return;
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (data?.user) {
-          setUser(data.user);
-        }
-        setIsLoading(false);
-      })
-      .catch(() => {
-        router.push("/");
-      });
-  }, [router]);
+    if (isFeatureEnabled('PARALLEL_INITIAL_FETCHES')) {
+      // NEW: Parallel fetch approach
+      console.log('[Perf] Phase 1a: Fetching user, stats, and games in parallel');
+      const fetchStartTime = performance.now();
 
-  // Fetch statistics
-  useEffect(() => {
-    fetch("/api/user/statistics")
-      .then((res) => {
-        if (res.ok) {
+      Promise.all([
+        fetch("/api/user").then(res => {
+          if (!res.ok) throw new Error('User fetch failed');
           return res.json();
-        }
-        return null;
-      })
-      .then((data) => {
-        if (data?.statistics) {
-          setStatistics(data.statistics);
-        }
-        setIsLoadingStats(false);
-      })
-      .catch(() => {
-        setIsLoadingStats(false);
-      });
-  }, []);
+        }),
+        fetch("/api/user/statistics").then(res => {
+          if (res.ok) return res.json();
+          return null;
+        }),
+      ])
+        .then(([userData, statsData]) => {
+          const fetchEndTime = performance.now();
+          console.log(`[Perf] Phase 1a: Parallel fetches completed in ${(fetchEndTime - fetchStartTime).toFixed(0)}ms`);
+
+          // Set user data
+          if (userData?.user) {
+            setUser(userData.user);
+          }
+          setIsLoading(false);
+
+          // Set statistics data
+          if (statsData?.statistics) {
+            setStatistics(statsData.statistics);
+          }
+          setIsLoadingStats(false);
+        })
+        .catch((error) => {
+          console.error('[Perf] Phase 1a: Parallel fetch failed:', error);
+          // If user fetch fails, redirect to login
+          router.push("/");
+        });
+    } else {
+      // OLD: Sequential fetch approach (fallback)
+      console.log('[Perf] Phase 1a: Using sequential fetches (feature flag disabled)');
+
+      // Fetch user data
+      fetch("/api/user")
+        .then((res) => {
+          if (!res.ok) {
+            router.push("/");
+            return;
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (data?.user) {
+            setUser(data.user);
+          }
+          setIsLoading(false);
+        })
+        .catch(() => {
+          router.push("/");
+        });
+
+      // Fetch statistics
+      fetch("/api/user/statistics")
+        .then((res) => {
+          if (res.ok) {
+            return res.json();
+          }
+          return null;
+        })
+        .then((data) => {
+          if (data?.statistics) {
+            setStatistics(data.statistics);
+          }
+          setIsLoadingStats(false);
+        })
+        .catch(() => {
+          setIsLoadingStats(false);
+        });
+    }
+  }, [router]);
 
   // Fetch games and achievements
   useEffect(() => {
@@ -1079,10 +1130,46 @@ export default function DashboardPage() {
   };
 
 
-  if (isLoading) {
+  // PERFORMANCE: Progressive UI rendering (Phase 1b)
+  // Show UI skeleton immediately, don't wait for all data
+  const showProgressiveUI = isFeatureEnabled('PROGRESSIVE_UI');
+
+  // Only show full-screen loading on initial mount
+  if (!showProgressiveUI && isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // OLD behavior: block render until user loads
+  if (!showProgressiveUI && !user) {
+    return null;
+  }
+
+  // NEW behavior: show skeleton even if user not loaded yet
+  if (showProgressiveUI && isLoading && !user) {
+    console.log('[Perf] Phase 1b: Showing progressive UI skeleton');
+    return (
+      <div className="min-h-screen bg-background pt-16">
+        <Navbar />
+        <div className="p-4 md:p-8">
+          <div className="max-w-6xl mx-auto">
+            {/* User Profile Skeleton */}
+            <div className="flex items-center gap-4 mb-10">
+              <div className="w-24 h-24 rounded-full bg-surface-mid animate-pulse" />
+              <div className="flex-1">
+                <div className="h-8 w-48 bg-surface-mid rounded animate-pulse mb-2" />
+                <div className="h-4 w-32 bg-surface-mid rounded animate-pulse" />
+              </div>
+            </div>
+            {/* Loading message */}
+            <div className="text-center py-12 text-muted-foreground">
+              Loading your dashboard...
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
