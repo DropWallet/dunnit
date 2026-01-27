@@ -11,7 +11,7 @@ export const FEATURE_FLAGS = {
   REMOVE_SYNC_MODAL_DELAY: true,  // Remove 300ms delay before showing sync modal
 
   // Phase 2: Database Optimization
-  SQL_AGGREGATION_STATS: false,   // Use SQL COUNT queries for statistics (not implemented yet)
+  SQL_AGGREGATION_STATS: true,    // Use SQL COUNT queries for statistics
 
   // Phase 3: Rate Limiting
   BATCH_ACHIEVEMENTS: false,       // Use batch endpoint for achievements (not implemented yet)
