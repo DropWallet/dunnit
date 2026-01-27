@@ -694,7 +694,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (gamesToDisplay.length > 0) {
       const gamesNeedingAchievements = gamesToDisplay.filter(
-        (game) => !gameAchievements.has(game.appId)
+        (game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId)
       );
       
       if (gamesNeedingAchievements.length > 0) {
@@ -745,10 +745,10 @@ export default function DashboardPage() {
   // Lazy-load achievements for all games when sorting by achievement progress
   useEffect(() => {
     if (sortBy === 'achievement-progress' && allGames.length > 0) {
-      const needsLoading = allGames.some((game) => !gameAchievements.has(game.appId));
-      
+      const needsLoading = allGames.some((game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId));
+
       if (needsLoading) {
-        const gamesToLoad = allGames.filter((game) => !gameAchievements.has(game.appId));
+        const gamesToLoad = allGames.filter((game) => !gameAchievements.has(game.appId) && !loadingAchievements.has(game.appId));
         
         // Mark games as loading
         const appIdsToLoad = gamesToLoad.map((g) => g.appId);
