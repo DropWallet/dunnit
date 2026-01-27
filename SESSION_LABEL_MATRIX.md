@@ -5,23 +5,23 @@ This document contains all session labels organized by category for both playtim
 ## Playtime Session Labels
 
 ### Category: Ultra Marathon (> 8 hours)
-- Absolute Legend
-- RSI King
+- Absolute legend
+- RSI king
 - Ultra marathon
 - Total commitment
 
 ### Category: Marathon (> 5 hours in single day)
 - Marathon Session
 - Staying power
-- Built Different
-- No Cap Session
+- Retina's singed
+- Iron bladder
 
 ### Category: High Intensity (> 70% of window, < 80%)
-- Total Grindset
-- In the Zone
-- Locked In
-- Fully Committed
-- All In
+- Grindset mindset
+- In the zone
+- Locked in
+- Fully committed
+- All in
 
 ### Category: Zero Life Mode (> 80% intensity)
 - Zero Life Mode
@@ -29,76 +29,75 @@ This document contains all session labels organized by category for both playtim
 - Fully Locked In
 
 ### Category: Long Window (7+ days)
-- The Recap
-- Slow Burn
-- The Comeback
-- Back at It
-- The Return
+- Slow burn
+- The comeback
+- Back at it
+- The return
 
 ### Category: Steady Progress (2-4 hours in 24h window)
-- Putting the Hours In
-- The Usual
-- Daily Dose
-- Regular Grind
-- The Routine
+- Putting the hours in
+- The usual
+- Daily dose
+- Regular grind
+- The routine
 
 ### Category: Casual (< 30% intensity, but > 1 hour played)
-- Casual Vibes
-- Taking It Slow
-- Chill Session
-- Easy Does It
-- Relaxed Mode
+- Casual vibes
+- Taking it slow
+- Chill session
+- Easy does it
+- Relaxed mode
 
 ### Category: Micro Session (< 15 min, high intensity)
-- Quick Fix
-- Speedrun Attempt
-- Blink and Miss
-- Lightning Round
+- Quick fix
+- Speedrun
+- Blink and miss
+- Lightning round
 
 ### Category: Short & Punchy (< 30 min)
-- Quick Sesh
-- Pop In
-- Quick Run
-- Warm Up
-- Touch Base
-- Quick Check
+- Quick sesh
+- Pop in
+- Quick run
+- Warm up
+- Touch base
+- Quick check
 
 ---
 
 ## Achievement Session Labels
 
 ### Category: Single Achievement
-- Achievement Unlocked
-- Got One
-- New Trophy
-- Unlocked
+- Achievement unlocked
+- Got one
+- New trophy
+- Nailed it
 
 ### Category: Multiple Achievements (2-4)
-- Achievement Spree
-- Unlock Streak
-- Trophy Run
-- Collection Session
-- Unlock Binge
+- Achievement spree
+- Unlock streak
+- Trophy run
+- Collection session
+- Unlock binge
 
 ### Category: Many Achievements (5+)
-- Achievement Hunt
-- Unlock Marathon
-- Trophy Haul
-- Achievement Rush
-- Unlock Spree
+- Achievement hunt
+- Unlock marathon
+- Trophy haul
+- Achievement rush
+- Unlock spree
 
 ### Category: Rare Achievement (Legendary/Epic, single)
-- Rare Find
-- Legendary Unlock
-- Epic Achievement
-- Rare Trophy
-- Legendary Moment
+- Rare find
+- Legendary unlock
+- Epic achievement
+- Rare trophy
+- Legendary moment
 
 ### Category: Multiple Rare Achievements (Legendary/Epic, 2+)
-- Rare Collection
-- Legendary Streak
-- Epic Run
-- Rare Haul
+- Rare collection
+- Legendary streak
+- Epic run
+- Rare haul
 
 ---
 
