@@ -511,24 +511,28 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         // Check for existing session with same (userId, appId, sessionStart rounded to nearest second)
         const existingSession = await dataAccess.getGameSessionByStartTime(friendId, steamGame.appid, sessionStartRounded);
         
-        if (existingSession) {
+        // Only merge when new sync is after existing session end; otherwise we'd add playtime without
+        // extending the window, causing "X played in the last hour" with X > 1h (playtime > window).
+        if (existingSession && syncWindowEnd > existingSession.sessionEnd) {
           console.log(`[Friend Sync] Merging with existing session for ${friendId}-${steamGame.appid}: existingDelta=${existingSession.playtimeDelta}min, newDelta=${playtimeDelta}min`);
-          // Merge with existing session: add delta and update session_end
-          const shouldUpdateEnd = syncWindowEnd > existingSession.sessionEnd;
           const mergedSession: GameSession = {
             id: existingSession.id,
             userId: friendId,
             appId: steamGame.appid,
             playtimeDelta: existingSession.playtimeDelta + playtimeDelta,
             sessionStart: existingSession.sessionStart,
-            sessionEnd: shouldUpdateEnd ? syncWindowEnd : existingSession.sessionEnd,
+            sessionEnd: syncWindowEnd,
             type: 'playtime',
           };
           await dataAccess.saveGameSession(mergedSession);
           
           await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
           baselineUpdated = true;
-        } else {
+        } else if (existingSession) {
+          console.log(`[Friend Sync] Not merging: new sync is before/equal to existing session end, creating new session for ${friendId}-${steamGame.appid}`);
+        }
+
+        if (!baselineUpdated) {
           // Check for proximity merge (45-minute window with 1-hour gap safeguard)
           const PROXIMITY_WINDOW_MINUTES = 45;
           const GAP_SAFEGUARD_MINUTES = 60;
@@ -543,7 +547,9 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             const proximityDiff = Math.abs(syncWindowStart.getTime() - recentSession.sessionEnd.getTime());
             const proximityMinutes = proximityDiff / (60 * 1000);
             
-            if (gapMinutes <= GAP_SAFEGUARD_MINUTES && proximityMinutes <= PROXIMITY_WINDOW_MINUTES) {
+            // Only merge when new sync is after existing session end (avoid playtime > window)
+            const extendsSession = syncWindowEnd > recentSession.sessionEnd;
+            if (extendsSession && gapMinutes <= GAP_SAFEGUARD_MINUTES && proximityMinutes <= PROXIMITY_WINDOW_MINUTES) {
               // Merge: stretch existing session
               const mergedSession: GameSession = {
                 id: recentSession.id,
@@ -551,11 +557,24 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
                 appId: steamGame.appid,
                 playtimeDelta: recentSession.playtimeDelta + playtimeDelta,
                 sessionStart: recentSession.sessionStart,
-                sessionEnd: syncWindowEnd > recentSession.sessionEnd ? syncWindowEnd : recentSession.sessionEnd,
+                sessionEnd: syncWindowEnd,
                 type: 'playtime',
               };
               await dataAccess.saveGameSession(mergedSession);
               
+              await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
+              baselineUpdated = true;
+            } else if (!extendsSession) {
+              console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (proximity merge skipped: new sync not after existing session end)`);
+              const newSession: GameSession = {
+                userId: friendId,
+                appId: steamGame.appid,
+                playtimeDelta,
+                sessionStart: syncWindowStart,
+                sessionEnd: syncWindowEnd,
+                type: 'playtime',
+              };
+              await dataAccess.saveGameSession(newSession);
               await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
               baselineUpdated = true;
             } else {

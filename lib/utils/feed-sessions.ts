@@ -93,6 +93,8 @@ export interface FeedSession {
   // Sync window metadata (for playtime sessions)
   syncWindowStart?: Date; // When the sync window started (playtimeLastSyncedAt)
   syncWindowEnd?: Date; // When the sync window ended (syncTime)
+  /** Playtime in ms (for playtime sessions). Used so we never show "X played in the last hour" when X > 1h. */
+  playtimeMs?: number;
   isPlaytimeSession?: boolean; // Flag to distinguish playtime vs achievement sessions
 }
 
@@ -684,6 +686,7 @@ export function createSessionFromPlaytime(
     // Sync window metadata (only set for new sessions, not legacy)
     syncWindowStart: isLegacySession ? undefined : syncWindowStart,
     syncWindowEnd: isLegacySession ? undefined : syncWindowEnd,
+    playtimeMs: playtimeDeltaMinutes * 60 * 1000,
     isPlaytimeSession: true, // Always true for playtime sessions (legacy or new)
   };
 
