@@ -5,7 +5,7 @@ import type {
   SteamPlayerAchievementsResponse,
   SteamGameSchemaResponse,
 } from './types';
-import { getCircuitBreaker, isServerError } from '@/lib/utils/circuit-breaker';
+import { getCircuitBreaker, isServerError, isRateLimitError } from '@/lib/utils/circuit-breaker';
 
 const STEAM_API_BASE = 'https://api.steampowered.com';
 const STEAM_STORE_API = 'https://store.steampowered.com/api';
@@ -38,9 +38,11 @@ export class SteamAPIClient {
       if (!response.ok) {
         const error = new Error(`Steam API error: ${response.status}`);
         
-        // Record 5xx errors to circuit breaker
+        // Record errors to circuit breaker
         if (response.status >= 500 && response.status < 600) {
           circuitBreaker.recordFailure();
+        } else if (response.status === 429) {
+          circuitBreaker.recordRateLimitError();
         } else {
           circuitBreaker.recordNonServerError();
         }
@@ -59,9 +61,11 @@ export class SteamAPIClient {
       
       return null;
     } catch (error) {
-      // Check if this is a server error we haven't caught yet
+      // Check if this is a server or rate limit error we haven't caught yet
       if (isServerError(error)) {
         circuitBreaker.recordFailure();
+      } else if (isRateLimitError(error)) {
+        circuitBreaker.recordRateLimitError();
       }
       
       console.error('Error fetching player summary:', error);
@@ -110,9 +114,11 @@ export class SteamAPIClient {
       if (!response.ok) {
         const error = new Error(`Steam API error: ${response.status}`);
         
-        // Record 5xx errors to circuit breaker
+        // Record errors to circuit breaker
         if (response.status >= 500 && response.status < 600) {
           circuitBreaker.recordFailure();
+        } else if (response.status === 429) {
+          circuitBreaker.recordRateLimitError();
         } else {
           circuitBreaker.recordNonServerError();
         }
@@ -126,9 +132,11 @@ export class SteamAPIClient {
       const data: SteamOwnedGamesResponse = await response.json();
       return data;
     } catch (error) {
-      // Check if this is a server error we haven't caught yet
+      // Check if this is a server or rate limit error we haven't caught yet
       if (isServerError(error)) {
         circuitBreaker.recordFailure();
+      } else if (isRateLimitError(error)) {
+        circuitBreaker.recordRateLimitError();
       }
       
       console.error('Error fetching recently played games:', error);
@@ -345,9 +353,11 @@ export class SteamAPIClient {
       
       return [];
     } catch (error) {
-      // Check if this is a server error we haven't caught yet
+      // Check if this is a server or rate limit error we haven't caught yet
       if (isServerError(error)) {
         circuitBreaker.recordFailure();
+      } else if (isRateLimitError(error)) {
+        circuitBreaker.recordRateLimitError();
       }
       
       // Only log unexpected errors (not 401 which is expected for private profiles)

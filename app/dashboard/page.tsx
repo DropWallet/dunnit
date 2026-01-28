@@ -307,6 +307,53 @@ export default function DashboardPage() {
     }
   }, []); // Empty deps - router.push is stable, doesn't need to be in dependencies
 
+  // Helper: Fetch achievements for multiple appIds using batch or individual endpoint
+  const fetchAchievementsForAppIds = async (appIds: number[], refresh = false): Promise<Array<{ appId: number; achievements: GameAchievement[] }>> => {
+    if (appIds.length === 0) return [];
+
+    if (isFeatureEnabled('BATCH_ACHIEVEMENTS')) {
+      // Phase 3: Use batch endpoint with concurrency control
+      try {
+        const response = await fetch('/api/achievements/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appIds, refresh }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return (data.results || []).map((result: { appId: number; achievements: GameAchievement[] }) => ({
+            appId: result.appId,
+            achievements: (result.achievements || []).map((ach: GameAchievement) => ({
+              ...ach,
+              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+            })),
+          }));
+        }
+      } catch (error) {
+        console.warn('[Batch] Batch endpoint failed, falling back to individual fetches:', error);
+      }
+    }
+
+    // Fallback: Individual fetches (original behavior)
+    const promises = appIds.map(async (appId) => {
+      try {
+        const achRes = await fetch(`/api/achievements?appId=${appId}`);
+        if (!achRes.ok) return { appId, achievements: [] as GameAchievement[] };
+        const achData = await achRes.json();
+        const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+          ...ach,
+          unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
+        }));
+        return { appId, achievements: parsedAchievements };
+      } catch {
+        return { appId, achievements: [] as GameAchievement[] };
+      }
+    });
+
+    return Promise.all(promises);
+  };
+
   // Fetch games and achievements
   useEffect(() => {
     async function loadGames() {
@@ -350,23 +397,7 @@ export default function DashboardPage() {
           return newSet;
         });
         
-        const achievementPromises = gamesNeedingAchievements.map(async (game: Game) => {
-          try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
-            if (!achRes.ok) return { appId: game.appId, achievements: [] };
-            const achData = await achRes.json();
-            // Parse dates from strings if needed
-            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
-              ...ach,
-              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
-            }));
-            return { appId: game.appId, achievements: parsedAchievements };
-          } catch {
-            return { appId: game.appId, achievements: [] };
-          }
-        });
-        
-        const achievementsData = await Promise.all(achievementPromises);
+        const achievementsData = await fetchAchievementsForAppIds(appIdsToLoad);
         const achievementsMap = new Map(gameAchievements);
         achievementsData.forEach(({ appId, achievements }) => {
           achievementsMap.set(appId, achievements);
@@ -706,23 +737,7 @@ export default function DashboardPage() {
           return newSet;
         });
 
-        const achievementPromises = gamesNeedingAchievements.map(async (game) => {
-          try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
-            if (!achRes.ok) return { appId: game.appId, achievements: [] };
-            const achData = await achRes.json();
-            // Parse dates from strings if needed
-            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
-              ...ach,
-              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
-            }));
-            return { appId: game.appId, achievements: parsedAchievements };
-          } catch {
-            return { appId: game.appId, achievements: [] };
-          }
-        });
-        
-        Promise.all(achievementPromises).then((achievementsData) => {
+        fetchAchievementsForAppIds(appIdsToLoad).then((achievementsData) => {
           setGameAchievements(prev => {
             const newMap = new Map(prev);
             achievementsData.forEach(({ appId, achievements }) => {
@@ -730,7 +745,7 @@ export default function DashboardPage() {
             });
             return newMap;
           });
-          
+
           // Remove from loading set
           setLoadingAchievements(prev => {
             const newSet = new Set(prev);
@@ -758,23 +773,7 @@ export default function DashboardPage() {
           return newSet;
         });
         
-        const achievementPromises = gamesToLoad.map(async (game) => {
-          try {
-            const achRes = await fetch(`/api/achievements?appId=${game.appId}`);
-            if (!achRes.ok) return { appId: game.appId, achievements: [] };
-            const achData = await achRes.json();
-            // Parse dates from strings if needed
-            const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
-              ...ach,
-              unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
-            }));
-            return { appId: game.appId, achievements: parsedAchievements };
-          } catch {
-            return { appId: game.appId, achievements: [] };
-          }
-        });
-        
-        Promise.all(achievementPromises).then((achievementsData) => {
+        fetchAchievementsForAppIds(appIdsToLoad).then((achievementsData) => {
           const newMap = new Map(gameAchievements);
           achievementsData.forEach(({ appId, achievements }) => {
             newMap.set(appId, achievements);

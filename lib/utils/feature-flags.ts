@@ -14,7 +14,7 @@ export const FEATURE_FLAGS = {
   SQL_AGGREGATION_STATS: true,    // Use SQL COUNT queries for statistics
 
   // Phase 3: Rate Limiting
-  BATCH_ACHIEVEMENTS: false,       // Use batch endpoint for achievements (not implemented yet)
+  BATCH_ACHIEVEMENTS: true,        // Use batch endpoint for achievements with concurrency control
 } as const;
 
 /**
