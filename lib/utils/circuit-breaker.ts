@@ -87,6 +87,27 @@ class SteamAPICircuitBreaker {
   }
 
   /**
+   * Record a 429 rate limit error from Steam API.
+   * Trips circuit faster than 5xx (after 3 hits) with shorter cooldown (30s).
+   * This prevents continued hammering when Steam rate limits us.
+   */
+  recordRateLimitError(): void {
+    this.state.failureCount++;
+
+    // Rate limits trip faster (3 hits vs 5 for 5xx)
+    if (this.state.failureCount >= 3) {
+      if (!this.state.isOpen) {
+        console.log(`[Circuit Breaker] 🔴 Circuit OPENED due to Steam rate limit (429) - 30s cooldown`);
+        this.state.isOpen = true;
+        this.state.lastFailureTime = new Date();
+        this.state.cooldownMs = 30 * 1000; // 30 second cooldown for rate limits
+      }
+    } else {
+      console.log(`[Circuit Breaker] ⚠️ Rate limit hit (${this.state.failureCount}/3 before trip)`);
+    }
+  }
+
+  /**
    * Record a non-5xx error (client error, network error, etc.)
    * These don't count toward circuit trip (only 5xx server errors do)
    */
@@ -123,6 +144,20 @@ export function getCircuitBreaker(): SteamAPICircuitBreaker {
     circuitBreaker = new SteamAPICircuitBreaker();
   }
   return circuitBreaker;
+}
+
+/**
+ * Check if error is a 429 rate limit error
+ */
+export function isRateLimitError(error: any): boolean {
+  if (error instanceof Error) {
+    const statusMatch = error.message.match(/Steam API error: (\d+)/);
+    if (statusMatch) {
+      return statusMatch[1] === '429';
+    }
+    return error.message.toLowerCase().includes('rate limit');
+  }
+  return false;
 }
 
 /**
