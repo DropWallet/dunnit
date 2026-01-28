@@ -14,35 +14,36 @@ import { FeedLikeButton } from "@/components/feed-like-button";
  * - < 24 hours: "Played X in the last Y hours" or "Played X today"
  * - 1-7 days: "Played X in the last Y days"
  * - > 7 days: "Played X since [Date]" or "Played X in the last Y days"
+ * If playtimeMs is provided and exceeds the window, we use playtime as the effective window
+ * so we never show "2h 1m played in the last hour" (legacy bad data or merge edge cases).
  */
 function formatSyncWindow(
   playtimeFormatted: string,
   syncWindowStart: Date,
-  syncWindowEnd: Date
+  syncWindowEnd: Date,
+  playtimeMs?: number
 ): string {
   const windowMs = syncWindowEnd.getTime() - syncWindowStart.getTime();
-  const windowHours = windowMs / (1000 * 60 * 60);
-  const windowDays = windowMs / (1000 * 60 * 60 * 24);
+  const effectiveWindowMs = playtimeMs != null && playtimeMs > windowMs ? playtimeMs : windowMs;
+  const windowHours = effectiveWindowMs / (1000 * 60 * 60);
+  const windowDays = effectiveWindowMs / (1000 * 60 * 60 * 24);
 
   if (windowHours < 24) {
-    const hours = Math.floor(windowHours);
-    if (hours === 0) {
-      return `${playtimeFormatted} played in the last hour`;
-    } else if (hours === 1) {
+    const hours = Math.max(1, Math.floor(windowHours));
+    if (hours === 1) {
       return `${playtimeFormatted} played in the last hour`;
     } else {
       return `${playtimeFormatted} played in the last ${hours} hours`;
     }
   } else if (windowDays < 7) {
-    const days = Math.floor(windowDays);
+    const days = Math.max(1, Math.floor(windowDays));
     if (days === 1) {
       return `${playtimeFormatted} played in the last day`;
     } else {
       return `${playtimeFormatted} played in the last ${days} days`;
     }
   } else {
-    // For longer windows, show the date range
-    const days = Math.floor(windowDays);
+    const days = Math.max(1, Math.floor(windowDays));
     return `${playtimeFormatted} played in the last ${days} days`;
   }
 }
@@ -211,7 +212,7 @@ export function FeedSessionCard({
   }
   
   const syncWindowText = isPlaytimeSession && syncWindowStart && syncWindowEnd
-    ? formatSyncWindow(session.durationFormatted, syncWindowStart, syncWindowEnd)
+    ? formatSyncWindow(session.durationFormatted, syncWindowStart, syncWindowEnd, session.playtimeMs)
     : null;
   
   // Legacy playtime sessions: show old "Session: X hours" format
