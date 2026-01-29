@@ -2,11 +2,10 @@
 
 ## ✅ What Was Changed
 
-Three small, safe performance improvements:
+Two small, safe performance improvements:
 
 1. **Phase 1a**: User/stats fetches now happen in parallel (instead of one-by-one)
 2. **Phase 1b**: Skeleton UI shows immediately (instead of blank loading screen)
-3. **Phase 1c**: Sync modal appears immediately (instead of 300ms delay)
 
 ## 🧪 How to Test Locally
 
@@ -27,7 +26,6 @@ Open Chrome DevTools (Cmd+Option+I) and check Console tab for:
 [Perf] Phase 1a: Fetching user, stats, and games in parallel
 [Perf] Phase 1a: Parallel fetches completed in XXXms
 [Perf] Phase 1b: Showing progressive UI skeleton  // (if data loads slowly)
-[Perf] Phase 1c: Showing sync modal immediately (no 300ms delay)
 ```
 
 ### Step 4: Test Performance
@@ -43,8 +41,7 @@ Open Chrome DevTools (Cmd+Option+I) and check Console tab for:
 
 ### Step 5: Test Manual Refresh
 1. Click the refresh button (↻) in Games tab
-2. Should see sync modal immediately
-3. Games should reload without errors
+2. Games should reload without errors
 
 ## 🚨 If Something Goes Wrong
 
@@ -56,7 +53,6 @@ Turn off any broken feature:
 export const FEATURE_FLAGS = {
   PARALLEL_INITIAL_FETCHES: false, // ← Set to false if parallel fetches break
   PROGRESSIVE_UI: false,            // ← Set to false if skeleton UI breaks
-  REMOVE_SYNC_MODAL_DELAY: false,  // ← Set to false if modal breaks
 } as const;
 ```
 
@@ -68,9 +64,8 @@ Save the file → Refresh browser → Old behavior restored instantly!
 git checkout backup-before-perf-improvements-20260127
 
 # Or revert individual commits
-git revert HEAD      # Reverts Phase 1c
-git revert HEAD~1    # Reverts Phase 1b
-git revert HEAD~2    # Reverts Phase 1a
+git revert HEAD      # Reverts Phase 1b
+git revert HEAD~1    # Reverts Phase 1a
 ```
 
 ## 📊 Expected Results

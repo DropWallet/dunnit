@@ -81,18 +81,10 @@ function GamePageContent() {
         ? `/api/games/${appId}?steamId=${steamId}` 
         : `/api/games/${appId}`;
       
-      console.log('[GamePage] Loading game:', { 
-        appId, 
-        steamId, 
-        url,
-        windowLocation: typeof window !== 'undefined' ? window.location.href : 'N/A'
-      });
-      
       const response = await fetch(url);
       
       if (!response.ok) {
         if (response.status === 404) {
-          console.log('[GamePage] 404 - redirecting:', steamId ? `/user/${steamId}` : "/dashboard");
           router.push(steamId ? `/user/${steamId}` : "/dashboard");
           return;
         }

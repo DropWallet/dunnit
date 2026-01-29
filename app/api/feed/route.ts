@@ -206,8 +206,6 @@ async function syncFriendsForFeed(
           )
         );
         
-        console.log(`[Feed] Syncing ${allFriendsToSync.length} friends (${staleFriends.length} stale, ${friendsWithRecentPlaytimeToSync.length} with recent playtime)`);
-        
         // FIX #2: Await sync with timeout instead of fire-and-forget
         // This ensures sessions are available when we query, fixing empty feed for new users
         try {
@@ -223,7 +221,7 @@ async function syncFriendsForFeed(
           // If timeout or error, log but continue - feed will still work with existing sessions
           // Background sync will continue to run
           if (error instanceof Error && error.message === 'Sync timeout') {
-            console.log(`[Feed] ⏱️ Friend sync timed out after ${SYNC_TIMEOUT_MS}ms, continuing with existing sessions`);
+            // Timeout - continue with existing sessions
           } else {
             console.error('[Feed] Friend sync failed:', error);
           }
@@ -341,10 +339,6 @@ export async function GET(request: NextRequest) {
       const publicSessions = achievementSessionsFromDB.filter(
         session => !privateUserIds.has(session.userId)
       );
-      
-      if (privateUserIds.size > 0) {
-        console.log(`[Feed] 🔒 Filtered out ${achievementSessionsFromDB.length - publicSessions.length} sessions from ${privateUserIds.size} private users`);
-      }
       
       // Only fetch data for public users
       const publicUserIds = achievementUserIds.filter(id => !privateUserIds.has(id));
@@ -484,7 +478,6 @@ export async function GET(request: NextRequest) {
     });
     
     let deduplicatedGameSessions = Array.from(gameSessionMap.values());
-    console.log(`[Feed] Pass 1 deduplication (by sessionStart): ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length} duplicates removed)`);
     
     // Pass 2: Sort + Peek deduplication to catch sessions that are close in time
     // Group by (userId, appId), sort by sessionEnd, then merge adjacent sessions if they overlap or are close
@@ -559,8 +552,6 @@ export async function GET(request: NextRequest) {
     });
     
     deduplicatedGameSessions = mergedSessions;
-    console.log(`[Feed] Pass 2 deduplication (sort + peek): ${deduplicatedGameSessions.length} unique (${duplicateByEndTime.length} additional duplicates merged)`);
-    console.log(`[Feed] Final deduplicated GameSessions: ${deduplicatedGameSessions.length} unique (${duplicateGameSessions.length + duplicateByEndTime.length} total duplicates removed)`);
     
     // Convert GameSession to FeedSession and check for overlapping achievement sessions
     if (deduplicatedGameSessions.length > 0) {
@@ -664,11 +655,8 @@ export async function GET(request: NextRequest) {
           const isZeroDuration = existingDuration < 60 * 1000; // Less than 1 minute
           const newDuration = gameSession.sessionEnd.getTime() - gameSession.sessionStart.getTime();
           
-          console.log(`[Feed] Overlap detected for ${userId}-${appId}: existing=${existingDuration}ms (zero=${isZeroDuration}), new=${newDuration}ms, overlapType=${overlapType}`);
-          
           // If existing is zero-duration and new has actual duration, replace it
           if (isZeroDuration && newDuration >= 60 * 1000) {
-            console.log(`[Feed] ✅ Replacing zero-duration session with new session for ${userId}-${appId}`);
             // Remove the zero-duration session and continue with the new one
             const index = playtimeSessions.indexOf(existingSession);
             if (index !== -1) {
@@ -676,7 +664,6 @@ export async function GET(request: NextRequest) {
             }
             // Continue to create the new session below
           } else {
-            console.log(`[Feed] ⚠️ Skipping playtime session ${userId}-${appId} (overlaps with existing session, not zero-duration)`);
             continue; // Skip if another playtime session already exists for this time window
           }
         }
@@ -723,14 +710,9 @@ export async function GET(request: NextRequest) {
         sessionMap.set(session.sessionId, session);
       } else {
         duplicateSessionIds.push(session.sessionId);
-        console.log(`[Feed] ⚠️ Duplicate sessionId detected: ${session.sessionId} (user: ${session.user.steamId}, game: ${session.game.appId}, end: ${session.sessionEnd.toISOString()})`);
       }
     });
     sessions = Array.from(sessionMap.values());
-    
-    if (duplicateSessionIds.length > 0) {
-      console.log(`[Feed] Deduplicated sessions: ${sessions.length} unique (${duplicateSessionIds.length} duplicates removed)`);
-    }
 
     // Note: Friend sync now happens BEFORE querying sessions (see syncFriendsForFeed above)
     // This ensures sessions are available when building the feed, fixing empty feed for new users

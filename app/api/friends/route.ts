@@ -79,7 +79,6 @@ export async function GET(request: NextRequest) {
           const data = await response.json();
           if (data.response?.players) {
             allFriends.push(...data.response.players);
-            console.log(`[Friends API] Batch ${Math.floor(i / batchSize) + 1}: Got ${data.response.players.length} friend summaries`);
           }
         }
       } catch (error) {
@@ -87,8 +86,6 @@ export async function GET(request: NextRequest) {
         // Continue with other batches even if one fails
       }
     }
-
-    console.log(`[Friends API] Total friend summaries fetched: ${allFriends.length} out of ${friendSteamIds.length} friend IDs`);
 
     // Build friend objects with basic info (statistics will be loaded progressively)
     const friendsWithBasicInfo = allFriends.map((friend) => {

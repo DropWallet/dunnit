@@ -93,7 +93,6 @@ export async function GET(request: NextRequest) {
       refreshParam === 'true';
     
     if (shouldRefresh) {
-      console.log('[Games API] Starting refresh - fetching from Steam API');
       const steamClient = getSteamClient();
       
       // Fetch both full library and recently played games
@@ -106,7 +105,13 @@ export async function GET(request: NextRequest) {
           return { response: { games: [] } };
         }),
       ]);
-      
+
+      const steamGames = fullLibraryResponse.response.games || [];
+      if (steamGames.length === 0 && games.length > 0) {
+        console.log(`[Games] Steam returned empty, using ${games.length} cached games`);
+        return NextResponse.json({ games }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+
       // Create a map of recently played games for quick lookup
       const recentlyPlayedMap = new Map<number, { rtime_last_played?: number; playtime_2weeks?: number }>();
       if (recentlyPlayedResponse.response?.games && recentlyPlayedResponse.response.games.length > 0) {
@@ -121,7 +126,6 @@ export async function GET(request: NextRequest) {
       // Transform Steam API response to our Game format
       // Use cached coverImageUrl when available, otherwise use default header.jpg
       // Store API images are fetched on-demand when header.jpg fails to load (see /api/games/[appId]/image)
-      const gamesBatch = fullLibraryResponse.response.games || [];
       const defaultHeaderPattern = /\/steam\/apps\/\d+\/header\.jpg$/;
       
       // Use existing cached games to get coverImageUrl (avoid N+1 queries)
@@ -135,7 +139,7 @@ export async function GET(request: NextRequest) {
       // Simplified: Use rtime_last_played if available, otherwise preserve existing
       const syncTime = new Date();
       
-      games = gamesBatch.map((steamGame) => {
+      games = steamGames.map((steamGame) => {
         // Check if this game is in the recently played list
         const recentGame = recentlyPlayedMap.get(steamGame.appid);
         const existingGame = existingGamesMap.get(steamGame.appid);
@@ -344,7 +348,6 @@ export async function GET(request: NextRequest) {
                       type: 'playtime',
                     };
                     await dataAccess.saveGameSession(mergedSession);
-                    console.log(`[Games API] 🔗 Merged first-sync session (proximity): ${game.appId} (${game.name}), added ${playtimeDelta}min (total: ${mergedSession.playtimeDelta}min), gap: ${gapMinutes.toFixed(1)}min, path: ${path}`);
                   } else {
                     // Gap too large - create new
                     const newSession: GameSession = {
@@ -356,7 +359,6 @@ export async function GET(request: NextRequest) {
                       type: 'playtime',
                     };
                     await dataAccess.saveGameSession(newSession);
-                    console.log(`[Games API] ✨ Created first-sync session: ${game.appId} (${game.name}), ${playtimeDelta}min, gap too large (${gapMinutes.toFixed(1)}min > ${GAP_SAFEGUARD_MINUTES}min), path: ${path}`);
                   }
                 } else {
                   // Check for achievement session before creating
@@ -552,21 +554,8 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      // Summary log
-      if (sessionsCreated > 0 || sessionsMerged > 0) {
-        console.log(`[Games API] 📊 Session writing complete: ${sessionsCreated} created, ${sessionsMerged} merged`);
-      }
-      if (gamesWithZeroDelta > 0) {
-        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithZeroDelta} game(s) with delta=0min (baseline working correctly - no phantom sessions)`);
-      }
-      if (gamesWithSmallDelta > 0) {
-        console.log(`[Games API] ✅ FIX 1 verification: ${gamesWithSmallDelta} game(s) with small delta (<3min) - baseline updated to prevent future phantoms`);
-      }
-      
-      
       // Update user's last sync time
       await dataAccess.updateUser(steamId, { lastSyncAt: new Date() });
-      console.log('[Games API] User lastSyncAt updated');
       
       // Use the games with derived_last_played
       games = gamesWithDerivedLastPlayed;

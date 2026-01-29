@@ -31,7 +31,10 @@ import { AchievementSortingControls } from "@/components/achievement-sorting-con
 import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
-import { SyncLoadingModal } from "@/components/sync-loading-modal";
+import {
+  SteamPrivacyModal,
+  wasPrivacyModalDismissedThisSession,
+} from "@/components/steam-privacy-modal";
 import type { Game } from "@/lib/data/types";
 import {
   sortGames,
@@ -51,6 +54,8 @@ interface User {
   countryCode?: string;
   countryName?: string;
   joinDate?: string;
+  communityVisibilityState?: number;
+  isPrivate?: boolean;
 }
 
 interface Statistics {
@@ -112,9 +117,8 @@ export default function DashboardPage() {
   // Track initial mount to prevent TabGroup onChange from triggering during initialization
   const isInitialMountRef = useRef(true);
   
-  // Sync loading modal state with 300ms delay
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const syncModalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Steam privacy modal: show when profile or game details are private (resets each session)
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
@@ -136,6 +140,8 @@ export default function DashboardPage() {
   // Refs for statistics refetch tracking
   const previousLoadingSizeRef = useRef<number>(0);
   const hasRefetchedForThisCycleRef = useRef<boolean>(false);
+  // Run game-details privacy check at most once per session
+  const hasCheckedGameDetailsPrivacyRef = useRef<boolean>(false);
   
   // Friend statistics queue system with rate limiting
   const friendStatsQueueRef = useRef<Array<{ steamId: string; lightweight: boolean }>>([]);
@@ -187,52 +193,63 @@ export default function DashboardPage() {
     }
   }, [selectedTabIndex]);
 
-  // PERFORMANCE: Sync loading modal (Phase 1c)
-  // Modal should stay visible until games and statistics are loaded (skeleton is ready)
-  const isDataReady = allGames.length > 0 && statistics !== null;
-  const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
-  const removeSyncModalDelay = isFeatureEnabled('REMOVE_SYNC_MODAL_DELAY');
-
+  // Steam privacy modal: show when profile is private/friends-only
+  // (3 = public; 1 = private, 2 = friends-only)
+  // Note: Game-private detection (403 errors) is handled by the batch endpoint's privacyBlocked flag
   useEffect(() => {
-    // Show modal if loading critical path OR data not ready yet
-    if (isCriticalPathLoading || !isDataReady) {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
-      }
+    if (!user || wasPrivacyModalDismissedThisSession()) return;
 
-      if (removeSyncModalDelay) {
-        // NEW: Show modal immediately (no delay)
-        console.log('[Perf] Phase 1c: Showing sync modal immediately (no 300ms delay)');
-        setShowSyncModal(true);
-      } else {
-        // OLD: 300ms delay before showing modal
-        syncModalTimeoutRef.current = setTimeout(() => {
-          setShowSyncModal(true);
-        }, 300);
-      }
-    } else {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
-        syncModalTimeoutRef.current = null;
-      }
-      setShowSyncModal(false);
+    // Check for profile-level privacy (communityVisibilityState from Steam API)
+    const isProfilePrivate = user.isPrivate === true ||
+                             user.communityVisibilityState === 1 ||
+                             user.communityVisibilityState === 2;
+
+    if (isProfilePrivate) {
+      setShowPrivacyModal(true);
     }
+  }, [user]);
 
-    return () => {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
+  // Steam privacy modal: check game-details privacy by forcing a Steam API call
+  // Ensures we detect privacy even when achievements are cached (runs once per session)
+  useEffect(() => {
+    if (!user || wasPrivacyModalDismissedThisSession() || showPrivacyModal) return;
+    if (hasCheckedGameDetailsPrivacyRef.current) return;
+
+    // Only check if profile appears public (profile privacy already handled above)
+    const isProfilePublic = user.communityVisibilityState === 3 && !user.isPrivate;
+    if (!isProfilePublic) return;
+
+    if (allGames.length === 0) return;
+
+    hasCheckedGameDetailsPrivacyRef.current = true;
+
+    const checkGameDetailsPrivacy = async () => {
+      try {
+        const response = await fetch('/api/achievements/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appIds: [allGames[0].appId], refresh: true }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.privacyBlocked && !wasPrivacyModalDismissedThisSession()) {
+            setShowPrivacyModal(true);
+          }
+        }
+      } catch {
+        // Silently fail - privacy check shouldn't break the page
       }
     };
-  }, [isCriticalPathLoading, isDataReady, removeSyncModalDelay]);
+
+    checkGameDetailsPrivacy();
+  }, [user, allGames, showPrivacyModal]);
 
   // PERFORMANCE: Fetch user, statistics, and games in parallel (Phase 1a)
   // Feature flag: PARALLEL_INITIAL_FETCHES
   useEffect(() => {
     if (isFeatureEnabled('PARALLEL_INITIAL_FETCHES')) {
       // NEW: Parallel fetch approach
-      console.log('[Perf] Phase 1a: Fetching user, stats, and games in parallel');
-      const fetchStartTime = performance.now();
-
       Promise.all([
         fetch("/api/user").then(res => {
           if (!res.ok) throw new Error('User fetch failed');
@@ -244,9 +261,6 @@ export default function DashboardPage() {
         }),
       ])
         .then(([userData, statsData]) => {
-          const fetchEndTime = performance.now();
-          console.log(`[Perf] Phase 1a: Parallel fetches completed in ${(fetchEndTime - fetchStartTime).toFixed(0)}ms`);
-
           // Set user data
           if (userData?.user) {
             setUser(userData.user);
@@ -266,8 +280,6 @@ export default function DashboardPage() {
         });
     } else {
       // OLD: Sequential fetch approach (fallback)
-      console.log('[Perf] Phase 1a: Using sequential fetches (feature flag disabled)');
-
       // Fetch user data
       fetch("/api/user")
         .then((res) => {
@@ -322,6 +334,12 @@ export default function DashboardPage() {
 
         if (response.ok) {
           const data = await response.json();
+
+          // Check if any games were blocked due to privacy settings (403 from Steam)
+          if (data.privacyBlocked && !wasPrivacyModalDismissedThisSession()) {
+            setShowPrivacyModal(true);
+          }
+
           return (data.results || []).map((result: { appId: number; achievements: GameAchievement[] }) => ({
             appId: result.appId,
             achievements: (result.achievements || []).map((ach: GameAchievement) => ({
@@ -446,24 +464,26 @@ export default function DashboardPage() {
   }, []);
 
   // Fetch all achievements for Achievements tab - lazy load only when tab is clicked
+  // Use same endpoint as user profile (syncs from Steam when needed) for consistency
   useEffect(() => {
-    // Only fetch when Achievements tab (index 1) is explicitly clicked
-    if (selectedTabIndex !== 1 || !achievementsTabClicked) {
+    const steamId = user?.steamId;
+    if (selectedTabIndex !== 1 || !achievementsTabClicked || !steamId) {
       return;
     }
-    
-    // Don't refetch if already loaded
     if (allAchievementsList.length > 0) {
       return;
     }
-    
+
     async function loadAllAchievements() {
       setIsLoadingAllAchievements(true);
       try {
-        const res = await fetch("/api/achievements/all");
+        const res = await fetch(`/api/user/${steamId}/achievements/all`);
         if (res.ok) {
           const data = await res.json();
           setAllAchievementsList(data.achievements || []);
+          if (data.privacyBlocked && !wasPrivacyModalDismissedThisSession()) {
+            setShowPrivacyModal(true);
+          }
         } else {
           console.error("Failed to fetch achievements:", res.status);
         }
@@ -473,9 +493,9 @@ export default function DashboardPage() {
         setIsLoadingAllAchievements(false);
       }
     }
-    
+
     loadAllAchievements();
-  }, [selectedTabIndex, achievementsTabClicked, allAchievementsList.length]);
+  }, [selectedTabIndex, achievementsTabClicked, allAchievementsList.length, user?.steamId]);
 
   // Refetch statistics when achievements finish loading
   useEffect(() => {
@@ -997,7 +1017,6 @@ export default function DashboardPage() {
 
   // Manual refresh handler
   const handleRefresh = () => {
-    console.log('[Dashboard] Refresh button clicked');
     setIsLoadingGames(true);
     setDisplayedGamesCount(15); // Reset to initial batch
     
@@ -1029,28 +1048,17 @@ export default function DashboardPage() {
       try {
         const cacheBuster = `&t=${Date.now()}`;
         const refreshUrl = `/api/games?refresh=true${cacheBuster}`;
-        console.log('[Dashboard] Fetching games with refresh:', refreshUrl);
         
         // Fetch games with cache-busting
         const gamesRes = await fetch(refreshUrl, {
           cache: 'no-store', // Bypass browser cache
         });
-        console.log('[Dashboard] Games API response status:', gamesRes.status);
         if (!gamesRes.ok) {
           setIsLoadingGames(false);
           return;
         }
         
         const gamesData = await gamesRes.json();
-        console.log('[Dashboard] Received games data:', {
-          totalGames: gamesData.games?.length || 0,
-          sampleGames: gamesData.games?.slice(0, 3).map((g: Game) => ({
-            appId: g.appId,
-            name: g.name,
-            lastPlayed: g.lastPlayed,
-            playtimeMinutes: g.playtimeMinutes,
-          })),
-        });
         setAllGames(gamesData.games);
         
         // Refresh statistics with cache-busting
@@ -1079,8 +1087,6 @@ export default function DashboardPage() {
           return !isNaN(lastPlayedDate.getTime()) && lastPlayedDate > fourteenDaysAgo;
         });
         
-        console.log(`[Dashboard] Recently played games (within 14 days): ${recentlyPlayedGames.length} out of ${gamesData.games.length} total games`);
-        
         // Check if we need a full sync (user hasn't refreshed in >14 days)
         // Get steamId from user state or fetch user data
         const currentUser = user || (await fetch("/api/user").then(r => r.ok ? r.json() : null).then(d => d?.user || null));
@@ -1098,8 +1104,6 @@ export default function DashboardPage() {
         const gamesToSync = needsFullSync 
           ? gamesData.games // Full sync: all games
           : recentlyPlayedGames; // Partial sync: only recently played
-        
-        console.log(`[Dashboard] Syncing achievements: ${gamesToSync.length} games (${needsFullSync ? 'full sync' : 'recently played only'})`);
         
         const achievementPromises = gamesToSync.map(async (game: Game) => {
           try {
@@ -1156,7 +1160,6 @@ export default function DashboardPage() {
 
   // NEW behavior: show skeleton even if user not loaded yet
   if (showProgressiveUI && isLoading && !user) {
-    console.log('[Perf] Phase 1b: Showing progressive UI skeleton');
     return (
       <div className="min-h-screen bg-background pt-16">
         <Navbar />
@@ -1281,11 +1284,6 @@ export default function DashboardPage() {
                     )}
                   </div>
                 )}
-                {displayedGamesCount >= sortedAndFilteredGames.length && sortedAndFilteredGames.length > 0 && (
-                  <div className="mt-8 text-center text-text-subdued text-sm">
-                    All games loaded
-                  </div>
-                )}
               </>
             )}
                 </div>
@@ -1389,7 +1387,13 @@ export default function DashboardPage() {
           </TabGroup>
         </div>
       </div>
-      <SyncLoadingModal isVisible={showSyncModal} />
+      {user && (
+        <SteamPrivacyModal
+          open={showPrivacyModal}
+          onOpenChange={setShowPrivacyModal}
+          steamId={user.steamId}
+        />
+      )}
     </div>
   );
 }

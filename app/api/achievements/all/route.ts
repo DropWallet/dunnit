@@ -15,19 +15,25 @@ export async function GET(request: NextRequest) {
     }
 
     const dataAccess = getDataAccess();
+
+    // Get all games for the user (from user_games)
     const games = await dataAccess.getUserGames(steamId);
+    const appIds = games.map((g) => g.appId);
+    const gameNameMap = new Map<number, string>();
+    games.forEach((g) => gameNameMap.set(g.appId, g.name));
 
     // Fetch achievements for all games in parallel
-    const achievementPromises = games.map(async (game) => {
+    const achievementPromises = appIds.map(async (appId) => {
       try {
-        const achievements = await dataAccess.getUserAchievements(steamId, game.appId);
+        const achievements = await dataAccess.getUserAchievements(steamId, appId);
+        const gameName = gameNameMap.get(appId) || `Game ${appId}`;
         return achievements.map(ach => ({
           ...ach,
-          gameName: game.name,
-          appId: game.appId,
+          gameName,
+          appId,
         }));
       } catch (error) {
-        console.warn(`Failed to load achievements for game ${game.appId}:`, error);
+        console.warn(`Failed to load achievements for game ${appId}:`, error);
         return [];
       }
     });
@@ -39,7 +45,7 @@ export async function GET(request: NextRequest) {
       { achievements: allAchievements },
       {
         headers: {
-          'Cache-Control': 'private, max-age=300', // 5 minutes browser cache
+          'Cache-Control': 'no-store',
         },
       }
     );

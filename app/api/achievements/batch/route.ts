@@ -20,6 +20,7 @@ interface AchievementResult {
   appId: number;
   achievements: UserAchievement[];
   error?: string;
+  privacyBlocked?: boolean;
 }
 
 /**
@@ -34,8 +35,11 @@ async function fetchGameAchievements(
   steamId: string,
   appId: number,
   forceRefresh: boolean
-): Promise<{ achievements: UserAchievement[]; error?: string }> {
+): Promise<{ achievements: UserAchievement[]; error?: string; privacyBlocked?: boolean }> {
   const dataAccess = getDataAccess();
+
+  // Track if we get a 403 (privacy) error from Steam API
+  let privacyBlocked = false;
 
   // 14-day cache check (same logic as individual endpoint)
   const game = await dataAccess.getUserGame(steamId, appId);
@@ -49,7 +53,17 @@ async function fetchGameAchievements(
 
     if (!isRecentlyPlayed && !forceRefresh) {
       const userAchievements = await dataAccess.getUserAchievements(steamId, appId);
-      return { achievements: userAchievements };
+      // Don't use cache if:
+      // 1. No cached achievements (need to fetch from Steam)
+      // 2. Achievements exist but none are unlocked (stale privacy-blocked data)
+      const hasNoAchievements = userAchievements.length === 0;
+      const hasAchievementsButNoneUnlocked = userAchievements.length > 0 &&
+        !userAchievements.some(a => a.unlocked);
+      const unlockedCount = userAchievements.filter(a => a.unlocked).length;
+      if (!hasNoAchievements && !hasAchievementsButNoneUnlocked) {
+        return { achievements: userAchievements };
+      }
+      // Fall through to refresh from Steam
     }
   }
 
@@ -60,7 +74,16 @@ async function fetchGameAchievements(
   const lastSyncedAt = await dataAccess.getAchievementLastSyncedAt(steamId, appId);
   const isStale = !lastSyncedAt || lastSyncedAt < oneHourAgo;
 
-  if (userAchievements.length === 0 || isStale || forceRefresh) {
+  // Check for "suspicious" data: achievements exist but none are unlocked
+  // This can happen when data was synced while profile was private (403 errors)
+  // In this case, force a refresh to get the actual unlock status
+  const hasAchievementsButNoneUnlocked = userAchievements.length > 0 &&
+    !userAchievements.some(a => a.unlocked);
+
+  const unlockedCount = userAchievements.filter(a => a.unlocked).length;
+  const shouldCallSteam = userAchievements.length === 0 || isStale || forceRefresh || hasAchievementsButNoneUnlocked;
+
+  if (shouldCallSteam) {
     const oldAchievements = userAchievements;
     if (forceRefresh) {
       await dataAccess.clearUserAchievements(steamId, appId);
@@ -69,16 +92,21 @@ async function fetchGameAchievements(
     const steamClient = getSteamClient();
 
     const [playerAchievementsResponse, gameSchemaResponse, globalPercentages] = await Promise.all([
-      steamClient.getPlayerAchievements(steamId, appId).catch(() => null),
+      steamClient.getPlayerAchievements(steamId, appId).catch((err) => {
+        if (err.message?.includes('403')) {
+          privacyBlocked = true;
+        }
+        return null;
+      }),
       steamClient.getGameSchema(appId).catch(() => null),
       steamClient.getGlobalAchievementPercentages(appId).catch(() => new Map<string, number>()),
     ]);
 
     if (!playerAchievementsResponse || !gameSchemaResponse) {
       if (userAchievements.length > 0) {
-        return { achievements: userAchievements };
+        return { achievements: userAchievements, privacyBlocked };
       }
-      return { achievements: [] };
+      return { achievements: [], privacyBlocked };
     }
 
     const unlockedAchievements: string[] = [];
@@ -168,7 +196,7 @@ async function fetchGameAchievements(
     userAchievements = await dataAccess.getUserAchievements(steamId, appId);
   }
 
-  return { achievements: userAchievements };
+  return { achievements: userAchievements, privacyBlocked };
 }
 
 /**
@@ -227,8 +255,6 @@ export async function POST(request: NextRequest) {
 
     const steamId = targetSteamId || loggedInSteamId;
 
-    console.log(`[Batch] Processing ${appIds.length} games for ${steamId} (refresh=${refresh})`);
-
     // Process with concurrency control
     const batchResults = await batchWithConcurrency(
       appIds,
@@ -239,23 +265,25 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Transform results
+    // Transform results and track privacy blocks
     const results: AchievementResult[] = batchResults.map(({ item, result, error }) => ({
       appId: item,
       achievements: result?.achievements || [],
       ...(error && { error }),
+      ...(result?.privacyBlocked && { privacyBlocked: true }),
     }));
 
+    // Check if any game was blocked due to privacy settings (403 from Steam)
+    const anyPrivacyBlocked = results.some(r => r.privacyBlocked);
     const failed = results.filter(r => r.error).length;
     const timeMs = Math.round(performance.now() - startTime);
-
-    console.log(`[Batch] Completed: ${results.length} games, ${failed} failed, ${timeMs}ms`);
 
     return NextResponse.json(
       {
         results,
         processed: results.length,
         failed,
+        privacyBlocked: anyPrivacyBlocked,
         timeMs,
       },
       {

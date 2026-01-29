@@ -80,12 +80,14 @@ async function retryOnHeadersOverflow<T>(
 
 /**
  * Sync achievements for a single game from Steam API
+ * @param onPrivacyBlocked - Called when Steam returns 403 (game details private)
  */
 async function syncGameAchievements(
   steamId: string,
   appId: number,
   dataAccess: ReturnType<typeof getDataAccess>,
-  steamClient: ReturnType<typeof getSteamClient>
+  steamClient: ReturnType<typeof getSteamClient>,
+  onPrivacyBlocked?: () => void
 ): Promise<void> {
   try {
     // Check if we have cached achievements
@@ -101,12 +103,22 @@ async function syncGameAchievements(
       return;
     }
 
+    // Fetch player achievements with 403 detection for privacy modal
+    const getPlayerAchWithPrivacy = async () => {
+      try {
+        return await steamClient.getPlayerAchievements(steamId, appId);
+      } catch (err) {
+        if (err instanceof Error && err.message?.includes('403')) {
+          onPrivacyBlocked?.();
+          return null;
+        }
+        throw err;
+      }
+    };
+
     // OPTIMIZATION #4: Removed XML API call - it's slow and rate-limited
-    // XML was only used as fallback for descriptions, but player achievements API
-    // provides descriptions for unlocked achievements, and schema provides them for locked ones
-    // Fetch from Steam API with retry logic for HeadersOverflowError
     const [playerAchievementsResponse, gameSchemaResponse, globalPercentages] = await Promise.all([
-      retryOnHeadersOverflow(() => steamClient.getPlayerAchievements(steamId, appId)),
+      retryOnHeadersOverflow(getPlayerAchWithPrivacy),
       retryOnHeadersOverflow(() => steamClient.getGameSchema(appId)),
       steamClient.getGlobalAchievementPercentages(appId).catch(() => new Map<string, number>()),
     ]);
@@ -272,6 +284,8 @@ export async function GET(
 
     // Track if we actually started syncing (not just detected stale games)
     let actuallySyncing = false;
+    let privacyBlocked = false;
+    const onPrivacyBlocked = () => { privacyBlocked = true; };
 
     // If sync needed, sync first batch immediately, then continue in background
     if (shouldSync && gamesWithPlaytime.length > 0) {
@@ -282,7 +296,7 @@ export async function GET(
       const initialBatch = gamesWithPlaytime.slice(0, INITIAL_SYNC_BATCH_SIZE);
       await Promise.all(
         initialBatch.map(game => 
-          limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+          limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient, onPrivacyBlocked))
         )
       );
 
@@ -295,7 +309,7 @@ export async function GET(
         // Don't await - let this run in background
         Promise.all(
           remainingGames.map(game => 
-            limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient))
+            limiter.limit(() => syncGameAchievements(targetSteamId, game.appId, dataAccess, steamClient, onPrivacyBlocked))
           )
         ).catch(() => {
           // Silently fail - background sync errors are not critical
@@ -326,7 +340,8 @@ export async function GET(
     return NextResponse.json(
       { 
         achievements: allAchievements,
-        isSyncing: actuallySyncing // Only true if we actually started syncing games
+        isSyncing: actuallySyncing,
+        privacyBlocked,
       },
       {
         headers: {

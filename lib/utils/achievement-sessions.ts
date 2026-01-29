@@ -170,7 +170,6 @@ async function deleteOverlappingPlaytimeSessions(
       totalPlaytimeDelta += session.playtimeDelta || 0;
       await dataAccess.deleteGameSession(session.id);
       deletedCount++;
-      console.log(`[Achievement Sessions] Deleted overlapping playtime session ${session.id} for user ${userId}, game ${appId} (playtimeDelta: ${session.playtimeDelta}min)`);
     }
   }
 
@@ -227,7 +226,6 @@ export async function writeAchievementSessions(
       };
       await dataAccess.saveGameSession(mergedSession);
       sessionsMerged++;
-      console.log(`[Achievement Sessions] Merged session for game ${appId}: extended to ${mergedSession.sessionEnd.toISOString()}, playtimeDelta: ${mergedPlaytimeDelta}min`);
     } else {
       // Create new achievement session with captured playtimeDelta
       const newSession: GameSession = {
@@ -240,11 +238,6 @@ export async function writeAchievementSessions(
       };
       await dataAccess.saveGameSession(newSession);
       sessionsCreated++;
-      console.log(`[Achievement Sessions] Created new session for game ${appId}: ${sessionData.achievementCount} achievements, ${sessionData.sessionStart.toISOString()} to ${sessionData.sessionEnd.toISOString()}, playtimeDelta: ${totalPlaytimeDelta}min`);
     }
-  }
-
-  if (sessionsCreated > 0 || sessionsMerged > 0) {
-    console.log(`[Achievement Sessions] Session writing complete: ${sessionsCreated} created, ${sessionsMerged} merged, ${playtimeSessionsDeleted} playtime sessions deleted`);
   }
 }

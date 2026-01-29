@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
     const useSQLAggregation = isFeatureEnabled('SQL_AGGREGATION_STATS');
 
     if (useSQLAggregation) {
-      console.log('[Perf] Phase 2: Using SQL aggregation for statistics');
       try {
         // NEW: Calculate statistics with SQL aggregation (100x faster)
         const statistics = await dataAccess.calculateUserStatisticsFromDatabase(steamId);
@@ -89,8 +88,6 @@ export async function GET(request: NextRequest) {
     }
 
     // OLD METHOD: Fetch all achievements and calculate in memory
-    console.log('[Perf] Using old statistics calculation method (fetching all achievements)');
-
     // If no games, return empty statistics
     if (games.length === 0) {
       const emptyStats = {
@@ -136,12 +133,6 @@ export async function GET(request: NextRequest) {
         }
       }
     });
-
-    // Log games that might be missing achievements (for debugging)
-    if (gamesWithoutAchievements.length > 0 && process.env.NODE_ENV === 'development') {
-      console.log(`[Stats] ${gamesWithoutAchievements.length} games with playtime but no achievements synced:`,
-        gamesWithoutAchievements.slice(0, 10)); // Log first 10 to avoid spam
-    }
 
     // Calculate statistics
     const statistics = calculateStatistics(games, allAchievements);

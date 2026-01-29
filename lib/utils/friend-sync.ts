@@ -262,11 +262,9 @@ async function ensureUserExists(
     const playerSummary = await steamClient.getPlayerSummary(friendId);
     
     if (!playerSummary) {
-      console.log(`[Friend Sync] Could not fetch player summary for ${friendId} (profile may be private or invalid)`);
       // PRIVACY FIX: Mark as private if we can't get player summary (likely 401)
       try {
         await dataAccess.updateUser(friendId, { isPrivate: true });
-        console.log(`[Friend Sync] 🔒 Marked ${friendId} as private (no player summary)`);
       } catch (updateError) {
         // User might not exist yet, that's OK
       }
@@ -294,7 +292,6 @@ async function ensureUserExists(
 
     // Save to database (upsert handles race conditions if multiple syncs create simultaneously)
     await dataAccess.saveUser(newUser);
-    console.log(`[Friend Sync] Created user record for ${friendId} (${newUser.username})`);
     return true;
   } catch (error) {
     // If Steam API fails, log but don't fail the sync
@@ -327,15 +324,12 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         // Mark user as private immediately
         try {
           await dataAccess.updateUser(friendId, { isPrivate: true });
-          console.log(`[Friend Sync] 🔒 Marked ${friendId} as private (401 from GetRecentlyPlayedGames)`);
         } catch (updateError) {
           console.error(`[Friend Sync] Failed to mark user as private:`, updateError);
         }
         // Don't fall back to GetOwnedGames if profile is private - respect privacy
         return;
       }
-      // GetRecentlyPlayedGames failed (likely privacy) - fall back to GetOwnedGames
-      console.log(`[Friend Sync] GetRecentlyPlayedGames failed for ${friendId}, falling back to GetOwnedGames`);
     }
 
     // If GetRecentlyPlayedGames returned empty, try GetOwnedGames as fallback
@@ -363,13 +357,10 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           // Mark user as private immediately
           try {
             await dataAccess.updateUser(friendId, { isPrivate: true });
-            console.log(`[Friend Sync] 🔒 Marked ${friendId} as private (401 from GetOwnedGames)`);
           } catch (updateError) {
             console.error(`[Friend Sync] Failed to mark user as private:`, updateError);
           }
         }
-        // Both APIs failed - profile likely fully private
-        console.log(`[Friend Sync] Both GetRecentlyPlayedGames and GetOwnedGames failed for ${friendId}`);
       }
     }
 
@@ -391,11 +382,8 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         const userExists = await ensureUserExists(friendId, steamClient, dataAccess);
         if (userExists) {
           await dataAccess.updateUser(friendId, { lastSyncAt: new Date() });
-        } else {
-          console.log(`[Friend Sync] Could not update lastSyncAt for ${friendId} (user record creation failed)`);
         }
       }
-      console.log(`[Friend Sync] No recently played games for ${friendId}`);
       return;
     }
 
@@ -445,7 +433,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               type: 'playtime',
             };
             await dataAccess.saveGameSession(session);
-            console.log(`[Friend Sync] ✅ Created first-time sync session for ${friendId}-${steamGame.appid} (${steamGame.name}): delta=${playtime2Weeks}min (2-week window)`);
           }
           
           // Update baseline for future syncs
@@ -503,8 +490,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         const syncWindowStart = playtimeLastSyncedAt;
         const syncWindowEnd = syncTime;
         
-        console.log(`[Friend Sync] Creating session for ${friendId}-${steamGame.appid} (${steamGame.name}): delta=${playtimeDelta}min, window=${syncWindowStart.toISOString()} to ${syncWindowEnd.toISOString()}`);
-        
         // Round to nearest second for deduplication
         const sessionStartRounded = new Date(Math.floor(syncWindowStart.getTime() / 1000) * 1000);
         
@@ -514,7 +499,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
         // Only merge when new sync is after existing session end; otherwise we'd add playtime without
         // extending the window, causing "X played in the last hour" with X > 1h (playtime > window).
         if (existingSession && syncWindowEnd > existingSession.sessionEnd) {
-          console.log(`[Friend Sync] Merging with existing session for ${friendId}-${steamGame.appid}: existingDelta=${existingSession.playtimeDelta}min, newDelta=${playtimeDelta}min`);
           const mergedSession: GameSession = {
             id: existingSession.id,
             userId: friendId,
@@ -529,7 +513,7 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
           baselineUpdated = true;
         } else if (existingSession) {
-          console.log(`[Friend Sync] Not merging: new sync is before/equal to existing session end, creating new session for ${friendId}-${steamGame.appid}`);
+          // Not merging: new sync is before/equal to existing session end
         }
 
         if (!baselineUpdated) {
@@ -565,7 +549,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               await dataAccess.updateGameBaseline(friendId, steamGame.appid, currentPlaytimeMinutes);
               baselineUpdated = true;
             } else if (!extendsSession) {
-              console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (proximity merge skipped: new sync not after existing session end)`);
               const newSession: GameSession = {
                 userId: friendId,
                 appId: steamGame.appid,
@@ -579,7 +562,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
               baselineUpdated = true;
             } else {
               // Gap too large or proximity too far - create new session
-              console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (gap too large: ${gapMinutes.toFixed(1)}min > ${GAP_SAFEGUARD_MINUTES}min or proximity too far: ${proximityMinutes.toFixed(1)}min > ${PROXIMITY_WINDOW_MINUTES}min)`);
               const newSession: GameSession = {
                 userId: friendId,
                 appId: steamGame.appid,
@@ -595,7 +577,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
             }
           } else {
             // No recent session - create new
-            console.log(`[Friend Sync] ✅ Creating new session for ${friendId}-${steamGame.appid} (no recent session found)`);
             const newSession: GameSession = {
               userId: friendId,
               appId: steamGame.appid,
@@ -678,8 +659,6 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
       const userExists = await ensureUserExists(friendId, steamClient, dataAccess);
       if (userExists) {
         await dataAccess.updateUser(friendId, { lastSyncAt: syncTime });
-      } else {
-        console.log(`[Friend Sync] Could not update lastSyncAt for ${friendId} (user record creation failed)`);
       }
     }
 

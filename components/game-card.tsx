@@ -136,24 +136,6 @@ export function GameCard({
     ? Math.round((unlockedAchievements / totalAchievements) * 100)
     : 0;
   
-  // Debug logging for Ball x Pit (remove after fixing)
-  useEffect(() => {
-    if (title === "Ball x Pit") {
-      console.log("Ball x Pit image state:", {
-        coverImageUrl,
-        logoUrl,
-        iconUrl,
-        imageError,
-        fallbackError,
-        iconError,
-        showCoverImage,
-        showLogo,
-        showIcon,
-        showPlaceholder,
-      });
-    }
-  }, [title, coverImageUrl, logoUrl, iconUrl, imageError, fallbackError, iconError, showCoverImage, showLogo, showIcon, showPlaceholder]);
-
   // Get first 4 unlocked achievements (changed from 5)
   const unlocked = achievementIcons.filter(a => a.unlocked).slice(0, 4);
   const remainingUnlocked = unlockedAchievements - unlocked.length;

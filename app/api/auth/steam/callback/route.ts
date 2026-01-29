@@ -104,10 +104,6 @@ export async function GET(request: NextRequest) {
       updatedAt: new Date(),
     });
 
-    // Verify user was saved
-    const savedUser = await dataAccess.getUser(steamId);
-    console.log('User saved:', savedUser ? 'Yes' : 'No', steamId);
-
     // Create session (using cookies for now - can upgrade to proper session management later)
     // Use absolute URL with correct origin to prevent localhost redirects
     const redirectUrl = new URL('/dashboard', url.origin);
@@ -127,7 +123,6 @@ export async function GET(request: NextRequest) {
       path: '/',
     });
 
-    console.log('Cookie set for steam_id:', steamId);
     return response;
   } catch (error) {
     console.error('Steam callback error:', error);

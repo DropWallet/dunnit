@@ -51,6 +51,12 @@ export async function GET(
         }),
       ]);
 
+      const steamGames = fullLibraryResponse.response.games || [];
+      if (steamGames.length === 0 && games.length > 0) {
+        console.log(`[User Games] Steam returned empty for ${targetSteamId}, using ${games.length} cached games`);
+        return NextResponse.json({ games }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+
       // Log raw API responses to confirm what Steam returns for friend dashboards
       const recentlyPlayedGames = recentlyPlayedResponse.response?.games || [];
       const allOwnedGames = fullLibraryResponse.response?.games || [];
@@ -73,7 +79,7 @@ export async function GET(
       // Merge data from GetRecentlyPlayedGames to supplement lastPlayed information
       // Prioritize GetRecentlyPlayedGames data as it's more reliable for "Date Played" sorting
       // Use default header.jpg URLs to ensure correct images (avoids Store API rate limiting)
-      games = (fullLibraryResponse.response.games || []).map((steamGame) => {
+      games = steamGames.map((steamGame) => {
         // Check if this game is in the recently played list (more reliable data)
         const recentGame = recentlyPlayedMap.get(steamGame.appid);
         

@@ -173,12 +173,6 @@ export async function GET(
       }
     });
     
-    // Log games that might be missing achievements (for debugging)
-    if (gamesWithoutAchievements.length > 0 && process.env.NODE_ENV === 'development') {
-      console.log(`[Stats] ${gamesWithoutAchievements.length} games with playtime but no achievements synced:`, 
-        gamesWithoutAchievements.slice(0, 10)); // Log first 10 to avoid spam
-    }
-    
     // Calculate statistics
     const statistics = calculateStatistics(games, allAchievements);
     

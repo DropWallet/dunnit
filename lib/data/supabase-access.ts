@@ -858,9 +858,6 @@ export class SupabaseDataAccess implements DataAccess {
    */
   async calculateUserStatisticsFromDatabase(userId: string): Promise<any> {
     try {
-      console.log('[Perf] Phase 2: Calculating statistics with SQL aggregation');
-      const startTime = performance.now();
-
       // Get total games and started games from user_games
       const { data: gamesData, error: gamesError} = await this.supabase
         .from('user_games')
@@ -885,9 +882,6 @@ export class SupabaseDataAccess implements DataAccess {
 
       if (appIdsWithUnlocked.length === 0) {
         // No achievements unlocked
-        const endTime = performance.now();
-        console.log(`[Perf] Phase 2: SQL aggregation completed in ${(endTime - startTime).toFixed(0)}ms (no achievements)`);
-
         return {
           totalGames,
           startedGames,
@@ -914,9 +908,6 @@ export class SupabaseDataAccess implements DataAccess {
       const averageCompletionRate = totalAchievements && totalAchievements > 0
         ? Math.round(((unlockedAchievements || 0) / totalAchievements) * 1000) / 10
         : 0;
-
-      const endTime = performance.now();
-      console.log(`[Perf] Phase 2: SQL aggregation completed in ${(endTime - startTime).toFixed(0)}ms`);
 
       return {
         totalGames,

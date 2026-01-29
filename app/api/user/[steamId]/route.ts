@@ -89,8 +89,6 @@ export async function GET(
           // Don't throw - this is non-critical
         });
       }
-    } else {
-      console.log(`[User Profile] User ${targetSteamId} data is fresh (lastSyncAt: ${user.lastSyncAt?.toISOString()})`);
     }
 
     return NextResponse.json({ user });

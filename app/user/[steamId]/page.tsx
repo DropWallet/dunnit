@@ -29,7 +29,6 @@ import { AchievementBreakdown } from "@/components/achievement-breakdown";
 import { FriendsList } from "@/components/friends-list";
 import { UserProfileHeader } from "@/components/user-profile-header";
 import { PrivacyMessage } from "@/components/privacy-message";
-import { SyncLoadingModal } from "@/components/sync-loading-modal";
 import { detectPrivacyState } from "@/lib/utils/privacy";
 import type { Game } from "@/lib/data/types";
 import { 
@@ -77,10 +76,6 @@ export default function UserDashboardPage() {
   // Ref to track loaded achievement appIds to prevent re-fetching
   const loadedAchievementAppIds = useRef<Set<number>>(new Set());
   
-  // Sync loading modal state with 300ms delay
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const syncModalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
   const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
@@ -150,35 +145,6 @@ export default function UserDashboardPage() {
     setAchievementsTabClicked(false); // Reset achievements tab clicked state
     isInitialMountRef.current = true; // Reset initial mount flag when steamId changes
   }, [steamId]);
-
-  // Sync loading modal with 300ms delay - hide when data is ready to render
-  // Modal should stay visible until games and statistics are loaded (skeleton is ready)
-  const isDataReady = allGames.length > 0 && statistics !== null;
-  const isCriticalPathLoading = isLoadingGames || isLoadingFriends;
-  
-  useEffect(() => {
-    // Show modal if loading critical path OR data not ready yet
-    if (isCriticalPathLoading || !isDataReady) {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
-      }
-      syncModalTimeoutRef.current = setTimeout(() => {
-        setShowSyncModal(true);
-      }, 300);
-    } else {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
-        syncModalTimeoutRef.current = null;
-      }
-      setShowSyncModal(false);
-    }
-    
-    return () => {
-      if (syncModalTimeoutRef.current) {
-        clearTimeout(syncModalTimeoutRef.current);
-      }
-    };
-  }, [isCriticalPathLoading, isDataReady, allGames.length, statistics]);
 
   // Detect privacy state
   const privacyState = detectPrivacyState(
@@ -711,7 +677,6 @@ export default function UserDashboardPage() {
           </TabGroup>
         </div>
       </div>
-      <SyncLoadingModal isVisible={showSyncModal} />
     </div>
   );
 }
