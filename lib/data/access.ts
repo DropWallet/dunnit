@@ -97,6 +97,8 @@ export interface DataAccess {
   getAchievementLastSyncedAt(userId: string, appId: number): Promise<Date | null>;
   getAllAchievementMetadataForUser(userId: string): Promise<Map<number, { hasAchievements: boolean; lastSyncedAt: Date | null }>>;
   getUserAchievements(userId: string, appId: number): Promise<UserAchievement[]>;
+  /** Batch fetch (total, unlocked) per (userId, appId). Excludes __zero_achievements__ placeholder. Key: `${userId}-${appId}` */
+  getAchievementCountsBatch(keys: Array<{ userId: string; appId: number }>): Promise<Map<string, { total: number; unlocked: number }>>;
   clearUserAchievements(userId: string, appId: number): Promise<void>;
   getUserStatistics(userId: string): Promise<{ statistics: any; calculatedAt: Date } | null>;
   saveUserStatistics(userId: string, statistics: any): Promise<void>;

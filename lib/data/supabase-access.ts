@@ -787,6 +787,35 @@ export class SupabaseDataAccess implements DataAccess {
     });
   }
 
+  async getAchievementCountsBatch(keys: Array<{ userId: string; appId: number }>): Promise<Map<string, { total: number; unlocked: number }>> {
+    const result = new Map<string, { total: number; unlocked: number }>();
+    if (keys.length === 0) return result;
+
+    const userIds = [...new Set(keys.map(k => k.userId))];
+    const appIds = [...new Set(keys.map(k => k.appId))];
+
+    const { data, error } = await this.supabase
+      .from('user_achievements')
+      .select('user_id, app_id, unlocked')
+      .in('user_id', userIds)
+      .in('app_id', appIds)
+      .neq('achievement_api_name', '__zero_achievements__');
+
+    if (error) {
+      console.error('[getAchievementCountsBatch] Error:', error);
+      return result;
+    }
+
+    for (const row of data || []) {
+      const key = `${row.user_id}-${row.app_id}`;
+      const current = result.get(key) ?? { total: 0, unlocked: 0 };
+      current.total += 1;
+      if (row.unlocked) current.unlocked += 1;
+      result.set(key, current);
+    }
+    return result;
+  }
+
   async clearUserAchievements(userId: string, appId: number): Promise<void> {
     const { error } = await this.supabase
       .from('user_achievements')
