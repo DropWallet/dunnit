@@ -21,7 +21,8 @@ import {
 const COOLDOWN_MINUTES = 30;
 const MAX_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 20;
-const SYNC_TIMEOUT_MS = 5000; // 5 second timeout for friend syncs
+// Short timeout so first load gets a sync head start without blocking too long (~1.5s vs ~8s)
+const SYNC_TIMEOUT_MS = 1500;
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0; // Disable ISR caching

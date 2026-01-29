@@ -77,7 +77,7 @@ Displays a chronological feed of recent gaming activity from the logged-in user 
 ```
 
 **Fallback Logic**:
-- If sync times out (5 seconds), continue with cached data
+- If sync times out (1.5 seconds), continue with cached data
 - If friend sync fails, skip that friend but continue with others
 - Background sync continues even if timeout exceeded
 
@@ -549,7 +549,7 @@ All sync operations should:
 - All timestamps are in UTC
 - Session durations are capped at 4 hours to prevent unrealistic sessions
 - First sync is limited to 20 friends to prevent API overload
-- Feed sync has a 5-second timeout to prevent long waits
+- Feed sync has a 1.5-second timeout to prevent long waits while still giving first load a head start
 - Background syncs continue even if timeout exceeded
 - Sessions can exist without corresponding user records (FK constraint removed)
 - **Privacy**: Users marked as `is_private = true` have their sessions filtered from feed immediately
