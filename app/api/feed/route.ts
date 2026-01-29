@@ -369,39 +369,56 @@ export async function GET(request: NextRequest) {
       const achievementsMap = new Map(
         (allAchievementsData.data || []).map((ach: any) => [`${ach.app_id}-${ach.api_name}`, ach])
       );
-      
-      // For each public achievement session, fetch achievements within the time window
+
+      // Phase 2: Single batch query for all achievements in feed window, then group by session in JS
+      const { data: allSessionAchievementsData } = await supabase
+        .from("user_achievements")
+        .select("user_id, app_id, achievement_api_name, unlocked_at")
+        .in("user_id", publicUserIds)
+        .in("app_id", achievementAppIds)
+        .eq("unlocked", true)
+        .not("unlocked_at", "is", null)
+        .gte("unlocked_at", lookbackDate.toISOString())
+        .lte("unlocked_at", cooldownThreshold.toISOString())
+        .order("unlocked_at", { ascending: true });
+
+      const rowsBySession = new Map<string, any[]>();
       for (const gameSession of publicSessions) {
+        rowsBySession.set(`${gameSession.userId}-${gameSession.appId}-${gameSession.sessionStart.getTime()}-${gameSession.sessionEnd.getTime()}`, []);
+      }
+      if (allSessionAchievementsData) {
+        for (const row of allSessionAchievementsData) {
+          const unlockedAt = new Date(row.unlocked_at);
+          for (const gameSession of publicSessions) {
+            if (
+              gameSession.userId !== row.user_id ||
+              gameSession.appId !== row.app_id ||
+              unlockedAt < gameSession.sessionStart ||
+              unlockedAt > gameSession.sessionEnd
+            ) continue;
+            const key = `${gameSession.userId}-${gameSession.appId}-${gameSession.sessionStart.getTime()}-${gameSession.sessionEnd.getTime()}`;
+            rowsBySession.get(key)!.push(row);
+            break; // each row belongs to at most one session
+          }
+        }
+      }
+
+      for (const gameSession of publicSessions) {
+        const key = `${gameSession.userId}-${gameSession.appId}-${gameSession.sessionStart.getTime()}-${gameSession.sessionEnd.getTime()}`;
+        const sessionRows = rowsBySession.get(key) || [];
+        if (sessionRows.length === 0) continue;
+
         const userId = gameSession.userId;
         const appId = gameSession.appId;
-        
-        // Fetch achievements for this user/game within the session time window
-        const { data: sessionAchievementsData } = await supabase
-          .from("user_achievements")
-          .select("user_id, app_id, achievement_api_name, unlocked_at")
-          .eq("user_id", userId)
-          .eq("app_id", appId)
-          .eq("unlocked", true)
-          .not("unlocked_at", "is", null)
-          .gte("unlocked_at", gameSession.sessionStart.toISOString())
-          .lte("unlocked_at", gameSession.sessionEnd.toISOString())
-          .order("unlocked_at", { ascending: true });
-        
-        if (!sessionAchievementsData || sessionAchievementsData.length === 0) {
-          continue;
-        }
-        
-        // Transform to AchievementRow format
         const user = usersMap.get(userId);
         const game = gamesMap.get(`${userId}-${appId}`);
-        
-        if (!user || !game) {
-          continue;
-        }
-        
-        const achievements: AchievementRow[] = sessionAchievementsData.map((row: any) => {
+        if (!user || !game) continue;
+
+        // Sort by unlocked_at (batch query order may not be per-session)
+        sessionRows.sort((a, b) => new Date(a.unlocked_at).getTime() - new Date(b.unlocked_at).getTime());
+
+        const achievements: AchievementRow[] = sessionRows.map((row: any) => {
           const achievement = achievementsMap.get(`${row.app_id}-${row.achievement_api_name}`);
-          
           return {
             user_id: row.user_id,
             app_id: row.app_id,
@@ -421,15 +438,9 @@ export async function GET(request: NextRequest) {
             hidden: achievement?.hidden || false,
           };
         });
-        
-        // Create FeedSession from achievements (reuse existing function)
-        // Pass playtimeDelta from GameSession if available
-        // Note: groupAchievementsIntoSessions might split into multiple sessions if there are gaps > 4 hours
-        // This is fine - we'll create multiple FeedSessions from one GameSession if needed
+
         const playtimeDeltaMinutes = gameSession.playtimeDelta || undefined;
         const achievementSessions = groupAchievementsIntoSessions(achievements, playtimeDeltaMinutes);
-        
-        
         sessions.push(...achievementSessions);
       }
       
