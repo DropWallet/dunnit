@@ -735,32 +735,17 @@ export async function GET(request: NextRequest) {
     // Achievement sessions use last unlock time as sessionEnd, so they're already ordered correctly
     sessions.sort((a, b) => b.sessionEnd.getTime() - a.sessionEnd.getTime());
 
-    // Fetch achievement counts for each unique (user_id, app_id) combination
-    // Reuse dataAccess instance declared above
+    // Phase 3: Batch fetch achievement counts (single query, excludes __zero_achievements__ placeholder)
     const uniqueGameKeys = new Set<string>();
     sessions.forEach(session => {
       uniqueGameKeys.add(`${session.user.steamId}-${session.game.appId}`);
     });
 
-    // Batch fetch achievement counts
-    const achievementCounts = new Map<string, { total: number; unlocked: number }>();
-    
-    await Promise.all(
-      Array.from(uniqueGameKeys).map(async (key) => {
-        const [userId, appIdStr] = key.split('-');
-        const appId = parseInt(appIdStr, 10);
-        
-        try {
-          const userAchievements = await dataAccess.getUserAchievements(userId, appId);
-          const total = userAchievements.length;
-          const unlocked = userAchievements.filter(a => a.unlocked).length;
-          achievementCounts.set(key, { total, unlocked });
-        } catch (error) {
-          console.error(`[Feed] Error fetching achievement counts for ${key}:`, error);
-          achievementCounts.set(key, { total: 0, unlocked: 0 });
-        }
-      })
-    );
+    const countKeys = Array.from(uniqueGameKeys).map((key) => {
+      const [userId, appIdStr] = key.split('-');
+      return { userId, appId: parseInt(appIdStr, 10) };
+    });
+    const achievementCounts = await dataAccess.getAchievementCountsBatch(countKeys);
 
     // Add achievement counts to sessions
     sessions.forEach(session => {
