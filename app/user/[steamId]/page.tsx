@@ -77,7 +77,10 @@ export default function UserDashboardPage() {
   const hasRefetchedForThisCycleRef = useRef<boolean>(false);
   // Ref to track loaded achievement appIds to prevent re-fetching
   const loadedAchievementAppIds = useRef<Set<number>>(new Set());
-  
+  /** One-time full achievement sync on stale first load so stats reflect all games without scrolling */
+  const hasTriggeredAllAchievementsSyncRef = useRef(false);
+  const allAchievementsSyncTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   // Achievement tab state
   const [achievementSortBy, setAchievementSortBy] = useState<AchievementSortOption>("rarity");
   const [displayedAchievementsCount, setDisplayedAchievementsCount] = useState(30);
@@ -144,10 +147,31 @@ export default function UserDashboardPage() {
     previousLoadingSizeRef.current = 0;
     hasRefetchedForThisCycleRef.current = false;
     loadedAchievementAppIds.current.clear();
+    hasTriggeredAllAchievementsSyncRef.current = false;
+    allAchievementsSyncTimeoutsRef.current.forEach(clearTimeout);
+    allAchievementsSyncTimeoutsRef.current = [];
     setAchievementsTabClicked(false); // Reset achievements tab clicked state
     setAchievementEmptyReasons(new Map());
     isInitialMountRef.current = true; // Reset initial mount flag when steamId changes
   }, [steamId]);
+
+  // Stale first load: prime achievement cache so stats reflect all games without scrolling
+  useEffect(() => {
+    if (allGames.length === 0 || isLoadingGames || hasTriggeredAllAchievementsSyncRef.current) return;
+    hasTriggeredAllAchievementsSyncRef.current = true;
+    allAchievementsSyncTimeoutsRef.current = [];
+    fetch(`/api/user/${steamId}/achievements/all`)
+      .then(() => {
+        allAchievementsSyncTimeoutsRef.current.push(
+          setTimeout(() => refetchStatistics().catch(console.error), 3000)
+        );
+        allAchievementsSyncTimeoutsRef.current.push(
+          setTimeout(() => refetchStatistics().catch(console.error), 10000)
+        );
+      })
+      .catch(console.error);
+    return () => allAchievementsSyncTimeoutsRef.current.forEach(clearTimeout);
+  }, [allGames.length, isLoadingGames, steamId, refetchStatistics]);
 
   // Compute unlocked achievements from game cards (Games tab)
   // This is needed because detectPrivacyState doesn't see gameAchievements directly
