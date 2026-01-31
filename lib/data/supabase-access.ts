@@ -31,6 +31,7 @@ export class SupabaseDataAccess implements DataAccess {
         updated_at: user.updatedAt.toISOString(),
         last_sync_at: user.lastSyncAt?.toISOString(),
         last_feed_sync_attempt: user.lastFeedSyncAttempt?.toISOString(),
+        last_activity_probe_at: user.lastActivityProbeAt?.toISOString(),
       });
 
     if (error) {
@@ -71,6 +72,7 @@ export class SupabaseDataAccess implements DataAccess {
       updatedAt: new Date(data.updated_at),
       lastSyncAt: data.last_sync_at ? new Date(data.last_sync_at) : undefined,
       lastFeedSyncAttempt: data.last_feed_sync_attempt ? new Date(data.last_feed_sync_attempt) : undefined,
+      lastActivityProbeAt: data.last_activity_probe_at ? new Date(data.last_activity_probe_at) : undefined,
     };
   }
 
@@ -89,6 +91,7 @@ export class SupabaseDataAccess implements DataAccess {
     if (updates.isPrivate !== undefined) updateData.is_private = updates.isPrivate;
     if (updates.lastSyncAt) updateData.last_sync_at = updates.lastSyncAt.toISOString();
     if (updates.lastFeedSyncAttempt) updateData.last_feed_sync_attempt = updates.lastFeedSyncAttempt.toISOString();
+    if (updates.lastActivityProbeAt !== undefined) updateData.last_activity_probe_at = updates.lastActivityProbeAt?.toISOString() ?? null;
 
     const { error } = await this.supabase
       .from('users')
@@ -99,6 +102,28 @@ export class SupabaseDataAccess implements DataAccess {
       console.error('Error updating user:', error);
       throw error;
     }
+  }
+
+  async getFriendsNeedingProbe(
+    friendIds: string[],
+    limit: number,
+    probeIntervalDays: number = 7
+  ): Promise<string[]> {
+    if (friendIds.length === 0) return [];
+    const cutoff = new Date(Date.now() - probeIntervalDays * 24 * 60 * 60 * 1000);
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('steam_id, last_activity_probe_at')
+      .in('steam_id', friendIds)
+      .or(`last_activity_probe_at.is.null,last_activity_probe_at.lt.${cutoff.toISOString()}`)
+      .order('last_activity_probe_at', { ascending: true, nullsFirst: true })
+      .limit(limit);
+    if (error || !data) return [];
+    return data.map((u: { steam_id: string }) => u.steam_id);
+  }
+
+  async updateUserProbeTime(steamId: string, probeTime: Date): Promise<void> {
+    await this.updateUser(steamId, { lastActivityProbeAt: probeTime });
   }
 
   async saveUserGames(userId: string, games: Game[]): Promise<void> {

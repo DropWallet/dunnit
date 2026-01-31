@@ -301,6 +301,58 @@ async function ensureUserExists(
   }
 }
 
+/** Max friends to probe per feed load for activity discovery */
+const PROBES_PER_LOAD = 10;
+/** How often to re-probe each friend (days) */
+const PROBE_INTERVAL_DAYS = 7;
+
+/**
+ * Discover which friends have recent gaming activity by probing Steam API (GetRecentlyPlayedGames).
+ * Only probes friends already in users table; never-probed and oldest-probed first.
+ *
+ * @param friendIds - All friend Steam IDs (only those in users table are probed)
+ * @param limit - Max friends to probe this call
+ * @returns Array of friend IDs that have confirmed recent activity (games in last 14 days)
+ */
+export async function discoverFriendsWithRecentActivity(
+  friendIds: string[],
+  limit: number = PROBES_PER_LOAD
+): Promise<string[]> {
+  if (friendIds.length === 0) return [];
+  const dataAccess = getDataAccess();
+  const steamClient = getSteamClient();
+  const friendsToProbe = await dataAccess.getFriendsNeedingProbe(friendIds, limit, PROBE_INTERVAL_DAYS);
+  if (friendsToProbe.length === 0) return [];
+
+  const probeTime = new Date();
+  const discoveredActive: string[] = [];
+
+  const results = await Promise.allSettled(
+    friendsToProbe.map(async (friendId) => {
+      try {
+        const response = await steamClient.getRecentlyPlayedGames(friendId);
+        await dataAccess.updateUserProbeTime(friendId, probeTime);
+        const games = response?.response?.games ?? [];
+        return { friendId, active: games.length > 0 };
+      } catch (err) {
+        await dataAccess.updateUserProbeTime(friendId, probeTime).catch(() => {});
+        return { friendId, active: false };
+      }
+    })
+  );
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.active) {
+      discoveredActive.push(result.value.friendId);
+    }
+  }
+
+  if (discoveredActive.length > 0) {
+    console.log(`[Discovery] Found ${discoveredActive.length} active friends (probed ${friendsToProbe.length})`);
+  }
+  return discoveredActive;
+}
+
 export async function syncFriendPlaytime(friendId: string): Promise<void> {
   try {
     const steamClient = getSteamClient();
@@ -422,14 +474,19 @@ export async function syncFriendPlaytime(friendId: string): Promise<void> {
           // FIRST-LOAD FEED POPULATION: Only create session if playtime_2weeks exists and >= 3 minutes
           // No fallback - if playtime_2weeks is missing/zero, don't create session
           if (playtime2Weeks >= 3) {
-            // Create session with 2-week window (uncapped duration - can be days)
-            const twoWeeksAgo = new Date(syncTime.getTime() - (14 * 24 * 60 * 60 * 1000));
+            // Use Steam's rtime_last_played for sessionEnd when available so feed shows "4 days ago"
+            // not "43 minutes ago" (time since we synced). Fall back to syncTime only when Steam
+            // didn't provide a timestamp (e.g. GetOwnedGames fallback without rtime_last_played).
+            const sessionEnd = steamGame.rtime_last_played
+              ? new Date(steamGame.rtime_last_played * 1000)
+              : syncTime;
+            const twoWeeksAgo = new Date(sessionEnd.getTime() - (14 * 24 * 60 * 60 * 1000));
             const session: GameSession = {
               userId: friendId,
               appId: steamGame.appid,
               playtimeDelta: playtime2Weeks, // Use full 2-week playtime (no cap)
-              sessionStart: twoWeeksAgo,     // 2 weeks ago
-              sessionEnd: syncTime,          // Now
+              sessionStart: twoWeeksAgo,    // 2 weeks before session end
+              sessionEnd,                   // When they actually played (or sync time if unknown)
               type: 'playtime',
             };
             await dataAccess.saveGameSession(session);

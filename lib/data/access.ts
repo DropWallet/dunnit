@@ -15,6 +15,7 @@ export interface User {
   updatedAt: Date;
   lastSyncAt?: Date;
   lastFeedSyncAttempt?: Date; // OPTIMIZATION #5: Prevents refresh spamming by tracking last sync attempt
+  lastActivityProbeAt?: Date; // Friend Activity Discovery: when we last probed for recent activity (GetRecentlyPlayedGames)
 }
 
 export interface Game {
@@ -83,6 +84,9 @@ export interface DataAccess {
   saveUser(user: User): Promise<void>;
   getUser(steamId: string): Promise<User | null>;
   updateUser(steamId: string, updates: Partial<User>): Promise<void>;
+  /** Friends who need activity probing (never probed or probe older than probeIntervalDays). Order: oldest first. */
+  getFriendsNeedingProbe(friendIds: string[], limit: number, probeIntervalDays?: number): Promise<string[]>;
+  updateUserProbeTime(steamId: string, probeTime: Date): Promise<void>;
   saveUserGames(userId: string, games: Game[]): Promise<void>;
   getUserGames(userId: string): Promise<Game[]>;
   getUserGame(userId: string, appId: number): Promise<Game | null>;

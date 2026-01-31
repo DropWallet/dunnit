@@ -13,6 +13,7 @@ import {
 import {
   getStaleFriends,
   syncFriendsInBackground,
+  discoverFriendsWithRecentActivity,
 } from "@/lib/utils/friend-sync";
 
 // Cooldown period: sessions only appear 30 minutes after completion
@@ -38,6 +39,9 @@ async function syncFriendsForFeed(
   dataAccess: ReturnType<typeof getDataAccess>,
   now: Date
 ): Promise<void> {
+  // Activity discovery: probe Steam for friends with recent activity (runs in parallel with DB queries)
+  const discoveredActivePromise = discoverFriendsWithRecentActivity(friendSteamIds, 10);
+
   // FIX 2: Sync-on-Read: Sync stale friends who have recently played games (within 14 days)
   // Also sync friends who haven't been synced recently or have no games in user_games
   // This fixes the chicken-and-egg problem where friends with no games in DB aren't synced
@@ -135,6 +139,10 @@ async function syncFriendsForFeed(
   friendsNotInDbToSync.forEach(friendId => {
     friendsNeedingSync.add(friendId);
   });
+
+  // Merge in friends discovered via Steam probe (played in last 14 days; we didn't know from DB)
+  const discoveredActive = await discoveredActivePromise;
+  discoveredActive.forEach(friendId => friendsNeedingSync.add(friendId));
   
   if (friendsNeedingSync.size > 0) {
     // OPTIMIZATION #5: Check last_feed_sync_attempt to prevent refresh spamming
@@ -194,8 +202,8 @@ async function syncFriendsForFeed(
         friendsToSync.includes(friendId)
       );
       
-      // Combine stale friends and friends with recent playtime (deduplicate)
-      const allFriendsToSync = Array.from(new Set([...staleFriends, ...friendsWithRecentPlaytimeToSync]));
+      // Combine stale friends, friends with recent playtime in DB, and discovered active (deduplicate)
+      const allFriendsToSync = Array.from(new Set([...staleFriends, ...friendsWithRecentPlaytimeToSync, ...discoveredActive]));
 
       if (allFriendsToSync.length > 0) {
         // OPTIMIZATION #5: Update last_feed_sync_attempt for all friends we're about to sync
