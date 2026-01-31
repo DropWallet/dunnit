@@ -89,7 +89,8 @@ export async function GET(
               username: playerSummary.personaname ?? user.username,
             });
 
-            user = await dataAccess.getUser(targetSteamId);
+            const refreshed = await dataAccess.getUser(targetSteamId);
+            if (refreshed) user = refreshed;
             didRefresh = true;
             if (prevState !== playerSummary.communityvisibilitystate || prevPrivate !== isPrivate) {
               console.log(`[User ${targetSteamId}] Refreshed from Steam (was stale): communityVisibilityState ${prevState}→${playerSummary.communityvisibilitystate}, isPrivate ${prevPrivate}→${isPrivate}`);
@@ -101,7 +102,9 @@ export async function GET(
       }
 
       // Debug: log what we're returning so we can see why friend shows as semi-private
-      console.log(`[User ${targetSteamId}] Returning user: source=${didRefresh ? 'refreshed' : 'cache'}, communityVisibilityState=${user.communityVisibilityState}, isPrivate=${user.isPrivate}, updatedAt=${user.updatedAt?.toISOString?.() ?? 'n/a'}`);
+      if (user) {
+        console.log(`[User ${targetSteamId}] Returning user: source=${didRefresh ? 'refreshed' : 'cache'}, communityVisibilityState=${user.communityVisibilityState}, isPrivate=${user.isPrivate}, updatedAt=${user.updatedAt?.toISOString?.() ?? 'n/a'}`);
+      }
     }
 
     // FIX 1: Sync-on-Read: Trigger lightweight playtime sync when viewing a profile
