@@ -70,6 +70,8 @@ export default function UserDashboardPage() {
   const [showUnplayed, setShowUnplayed] = useState<boolean>(true);
   const [gameAchievements, setGameAchievements] = useState<Map<number, GameAchievement[]>>(new Map());
   const [loadingAchievements, setLoadingAchievements] = useState<Set<number>>(new Set());
+  /** Diagnostic: why achievements are empty per game (steam-403 = Steam says private, etc.) */
+  const [achievementEmptyReasons, setAchievementEmptyReasons] = useState<Map<number, string>>(new Map());
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousLoadingSizeRef = useRef<number>(0);
   const hasRefetchedForThisCycleRef = useRef<boolean>(false);
@@ -143,10 +145,21 @@ export default function UserDashboardPage() {
     hasRefetchedForThisCycleRef.current = false;
     loadedAchievementAppIds.current.clear();
     setAchievementsTabClicked(false); // Reset achievements tab clicked state
+    setAchievementEmptyReasons(new Map());
     isInitialMountRef.current = true; // Reset initial mount flag when steamId changes
   }, [steamId]);
 
-  // Detect privacy state
+  // Compute unlocked achievements from game cards (Games tab)
+  // This is needed because detectPrivacyState doesn't see gameAchievements directly
+  const unlockedFromGameCards = useMemo(() => {
+    let count = 0;
+    gameAchievements.forEach((achievements) => {
+      count += achievements.filter(a => a.unlocked).length;
+    });
+    return count;
+  }, [gameAchievements]);
+
+  // Detect privacy state - include both sources of achievement data
   const privacyState = detectPrivacyState(
     user,
     statistics,
@@ -154,7 +167,7 @@ export default function UserDashboardPage() {
     isLoadingUser,
     isLoadingGames,
     isLoadingStats,
-    allAchievementsList.filter(a => a.unlocked).length // Only count unlocked achievements
+    allAchievementsList.filter(a => a.unlocked).length + unlockedFromGameCards
   );
 
   // Sort and filter games
@@ -193,20 +206,43 @@ export default function UserDashboardPage() {
       const achievementPromises = gamesNeedingAchievements.map(async (game) => {
         try {
           const achRes = await fetch(`/api/achievements?appId=${game.appId}&steamId=${steamId}`);
-          if (!achRes.ok) return { appId: game.appId, achievements: [] };
-          const achData = await achRes.json();
-          // Parse dates from strings if needed
-          const parsedAchievements = (achData.achievements || []).map((ach: GameAchievement) => ({
+          const achData = await achRes.json().catch(() => ({}));
+          const achievements = achData.achievements ?? [];
+          const emptyReason = achData.emptyReason as string | undefined;
+          const parsedAchievements = (achievements || []).map((ach: GameAchievement) => ({
             ...ach,
             unlockedAt: ach.unlockedAt ? (ach.unlockedAt instanceof Date ? ach.unlockedAt : new Date(ach.unlockedAt)) : undefined,
           }));
-          return { appId: game.appId, achievements: parsedAchievements };
+          return {
+            appId: game.appId,
+            achievements: achRes.ok ? parsedAchievements : [],
+            emptyReason: !achRes.ok || parsedAchievements.length === 0 ? emptyReason : undefined,
+          };
         } catch {
-          return { appId: game.appId, achievements: [] };
+          return { appId: game.appId, achievements: [], emptyReason: 'steam-error' as const };
         }
       });
 
       Promise.all(achievementPromises).then((achievementsData) => {
+        const reasonsByCode = new Map<string, number[]>();
+        achievementsData.forEach(({ appId, achievements, emptyReason }) => {
+          if (emptyReason) {
+            const list = reasonsByCode.get(emptyReason) ?? [];
+            list.push(appId);
+            reasonsByCode.set(emptyReason, list);
+          }
+        });
+        if (reasonsByCode.size > 0) {
+          const summary = Array.from(reasonsByCode.entries())
+            .map(([reason, appIds]) => `${reason}: ${appIds.length} game(s) (e.g. appIds ${appIds.slice(0, 3).join(', ')})`)
+            .join('; ');
+          console.info(
+            '[Achievements] Load diagnostic:',
+            summary,
+            '— steam-403 = Steam says game details private; steam-400 = no achievements; steam-5xx/steam-error = Steam/network issue.'
+          );
+        }
+
         setGameAchievements(prev => {
           const newMap = new Map(prev);
           achievementsData.forEach(({ appId, achievements }) => {
@@ -215,7 +251,14 @@ export default function UserDashboardPage() {
           });
           return newMap;
         });
-        
+        setAchievementEmptyReasons(prev => {
+          const next = new Map(prev);
+          achievementsData.forEach(({ appId, emptyReason }) => {
+            if (emptyReason) next.set(appId, emptyReason);
+          });
+          return next;
+        });
+
         setLoadingAchievements(prev => {
           const newSet = new Set(prev);
           appIdsToLoad.forEach((id) => newSet.delete(id));
@@ -572,6 +615,7 @@ export default function UserDashboardPage() {
                               achievementIcons={achievementIcons}
                               isLoadingAchievements={loadingAchievements.has(game.appId) && achievements.length === 0}
                               steamId={steamId}
+                              achievementEmptyReason={achievementEmptyReasons.get(game.appId)}
                             />
                           );
                         })}

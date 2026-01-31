@@ -21,7 +21,18 @@ interface GameCardProps {
   achievementIcons?: Array<{ iconUrl: string; iconGrayUrl: string; unlocked: boolean }>;
   isLoadingAchievements?: boolean;
   steamId?: string; // Optional: for viewing friend's games
+  /** Why achievements are empty (steam-403 = Steam says private; steam-400 = no achievements; etc.) */
+  achievementEmptyReason?: string;
 }
+
+const EMPTY_REASON_LABELS: Record<string, string> = {
+  'steam-403': 'Steam: game details are set to private.',
+  'steam-400': 'This game has no achievements.',
+  'steam-429': 'Steam rate limited; try again later.',
+  'steam-5xx': 'Steam server error; try again later.',
+  'steam-error': 'Couldn’t load achievements (Steam or network).',
+  'no-schema': 'Couldn’t load achievement data.',
+};
 
 export function GameCard({
   appId,
@@ -35,6 +46,7 @@ export function GameCard({
   achievementIcons = [],
   isLoadingAchievements = false,
   steamId,
+  achievementEmptyReason,
 }: GameCardProps) {
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
@@ -294,18 +306,27 @@ export function GameCard({
             ) : (
               // Existing progress display
               <>
-                {/* Progress Text */}
-                <div className="flex justify-center items-center self-stretch relative gap-2">
-                  <p className="flex-grow text-xs text-left text-text-subdued truncate">
-                    <span className="text-xs font-bold text-left text-text-subdued">
-                      {unlockedAchievements} of {totalAchievements}
-                    </span>
-                    <span className="text-xs text-left text-text-subdued"> achievements</span>
-                  </p>
-                  <p className="flex-shrink-0 text-xs font-bold text-center text-text-subdued">
-                    {completionRate}%
-                  </p>
-                </div>
+                {/* Progress Text — tooltip when we know why achievements are empty */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex justify-center items-center self-stretch relative gap-2 cursor-default">
+                        <p className="flex-grow text-xs text-left text-text-subdued truncate">
+                          <span className="text-xs font-bold text-left text-text-subdued">
+                            {unlockedAchievements} of {totalAchievements}
+                          </span>
+                          <span className="text-xs text-left text-text-subdued"> achievements</span>
+                        </p>
+                        <p className="flex-shrink-0 text-xs font-bold text-center text-text-subdued">
+                          {completionRate}%
+                        </p>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{achievementEmptyReason ? EMPTY_REASON_LABELS[achievementEmptyReason] ?? achievementEmptyReason : 'Achievement progress'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
 
                 {/* Progress Bar */}
                 <div className="flex flex-col justify-start items-start self-stretch relative overflow-hidden gap-2 p-0.5 rounded-full bg-background">

@@ -60,11 +60,48 @@ export async function GET(
         // Save to database for future use
         await dataAccess.saveUser(newUser);
         user = newUser;
+        console.log(`[User ${targetSteamId}] Fetched from Steam (new user): communityVisibilityState=${playerSummary.communityvisibilitystate}, isPrivate=${isPrivate}`);
       } catch (error) {
         // If Steam API fails, return not found
         console.error(`Error fetching user ${targetSteamId} from Steam API:`, error);
         return ApiErrors.userNotFound(targetSteamId);
       }
+    } else {
+      // User exists in DB: refresh privacy from Steam if stale (>5 min) so we detect when friend goes public
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const shouldRefresh = !user.updatedAt || user.updatedAt < fiveMinutesAgo;
+      let didRefresh = false;
+
+      if (shouldRefresh) {
+        try {
+          const steamClient = getSteamClient();
+          const playerSummary = await steamClient.getPlayerSummary(targetSteamId);
+
+          if (playerSummary) {
+            const isPrivate = playerSummary.communityvisibilitystate === 1 || playerSummary.communityvisibilitystate === 2;
+            const prevState = user.communityVisibilityState;
+            const prevPrivate = user.isPrivate;
+
+            await dataAccess.updateUser(targetSteamId, {
+              communityVisibilityState: playerSummary.communityvisibilitystate,
+              isPrivate,
+              avatarUrl: playerSummary.avatarfull ?? user.avatarUrl,
+              username: playerSummary.personaname ?? user.username,
+            });
+
+            user = await dataAccess.getUser(targetSteamId);
+            didRefresh = true;
+            if (prevState !== playerSummary.communityvisibilitystate || prevPrivate !== isPrivate) {
+              console.log(`[User ${targetSteamId}] Refreshed from Steam (was stale): communityVisibilityState ${prevState}→${playerSummary.communityvisibilitystate}, isPrivate ${prevPrivate}→${isPrivate}`);
+            }
+          }
+        } catch (error) {
+          console.warn(`[User ${targetSteamId}] Failed to refresh from Steam (using cached):`, error instanceof Error ? error.message : error);
+        }
+      }
+
+      // Debug: log what we're returning so we can see why friend shows as semi-private
+      console.log(`[User ${targetSteamId}] Returning user: source=${didRefresh ? 'refreshed' : 'cache'}, communityVisibilityState=${user.communityVisibilityState}, isPrivate=${user.isPrivate}, updatedAt=${user.updatedAt?.toISOString?.() ?? 'n/a'}`);
     }
 
     // FIX 1: Sync-on-Read: Trigger lightweight playtime sync when viewing a profile
