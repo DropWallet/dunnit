@@ -9,6 +9,24 @@ import type { UserAchievement } from '@/lib/data/types';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0; // Disable ISR caching
 
+/** Parse HTTP status from Steam client error message e.g. "Steam API error: 403" */
+function steamErrorStatus(err: unknown): number | null {
+  if (err instanceof Error && /Steam API error: (\d+)/.test(err.message)) {
+    const m = err.message.match(/Steam API error: (\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+  return null;
+}
+
+/** Diagnostic reason when achievements are empty - distinguishes Steam vs our side */
+export type AchievementEmptyReason =
+  | 'steam-403'   // Steam: game details private / forbidden
+  | 'steam-400'   // Steam: game has no achievements (expected)
+  | 'steam-429'   // Steam: rate limited
+  | 'steam-5xx'   // Steam: server error
+  | 'steam-error' // Steam: other error (network, timeout, etc.)
+  | 'no-schema';  // Schema fetch failed (our call or Steam)
+
 export async function GET(request: NextRequest) {
   try {
     const loggedInSteamId = request.cookies.get('steam_id')?.value;
@@ -41,30 +59,26 @@ export async function GET(request: NextRequest) {
     const dataAccess = getDataAccess();
     const forceRefresh = searchParams.get('refresh') === 'true';
     
-    // FIX 3: Only sync achievements for games with recent playtime (within 14 days)
-    // Check if this game was played recently before syncing
+    // Only skip Steam for games not played in 14 days when we already have cached data.
+    // When cache is empty, always try Steam so we get data or a diagnostic (e.g. steam-403 for friends).
     const game = await dataAccess.getUserGame(steamId, appIdNum);
-    if (game) {
+    if (game && !forceRefresh) {
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const lastPlayed = game.lastPlayed ? new Date(game.lastPlayed) : null;
       const derivedLastPlayed = game.derivedLastPlayed ? new Date(game.derivedLastPlayed) : null;
-      
-      const isRecentlyPlayed = (lastPlayed && lastPlayed > fourteenDaysAgo) || 
+      const isRecentlyPlayed = (lastPlayed && lastPlayed > fourteenDaysAgo) ||
                                (derivedLastPlayed && derivedLastPlayed > fourteenDaysAgo);
-      
-      // If game is not recently played and not forcing refresh, return cached data only
-      // Don't sync from Steam API for old games
-      if (!isRecentlyPlayed && !forceRefresh) {
+
+      if (!isRecentlyPlayed) {
         const userAchievements = await dataAccess.getUserAchievements(steamId, appIdNum);
-        // Return cached achievements if available, otherwise empty array
-        return NextResponse.json(
-          { achievements: userAchievements },
-          {
-            headers: {
-              'Cache-Control': 'private, max-age=300',
-            },
-          }
-        );
+        // If we have cached data, return it (saves Steam API calls for old games).
+        // If cache is empty, fall through and try Steam so friends get data or emptyReason.
+        if (userAchievements.length > 0) {
+          return NextResponse.json(
+            { achievements: userAchievements },
+            { headers: { 'Cache-Control': 'private, max-age=300' } }
+          );
+        }
       }
     }
     
@@ -85,14 +99,24 @@ export async function GET(request: NextRequest) {
       }
       const steamClient = getSteamClient();
 
-      // OPTIMIZATION #4: Removed XML API call - it's slow and rate-limited
-      // XML was only used as fallback for descriptions, but player achievements API
-      // provides descriptions for unlocked achievements, and schema provides them for locked ones
-      const [playerAchievementsResponse, gameSchemaResponse, globalPercentages] = await Promise.all([
-        steamClient.getPlayerAchievements(steamId, appIdNum).catch(() => null),
-        steamClient.getGameSchema(appIdNum).catch(() => null),
+      // Capture errors so we can return a diagnostic (Steam vs our side)
+      const playerAchPromise = steamClient
+        .getPlayerAchievements(steamId, appIdNum)
+        .then((data) => ({ data, error: null as Error | null }))
+        .catch((err) => ({ data: null, error: err instanceof Error ? err : new Error(String(err)) }));
+      const schemaPromise = steamClient
+        .getGameSchema(appIdNum)
+        .then((data) => ({ data, error: null as Error | null }))
+        .catch((err) => ({ data: null, error: err instanceof Error ? err : new Error(String(err)) }));
+
+      const [playerAchResult, schemaResult, globalPercentages] = await Promise.all([
+        playerAchPromise,
+        schemaPromise,
         steamClient.getGlobalAchievementPercentages(appIdNum).catch(() => new Map<string, number>()),
       ]);
+
+      const playerAchievementsResponse = playerAchResult.data;
+      const gameSchemaResponse = schemaResult.data;
 
       // If Steam API fails, check if we have cached data to return
       if (!playerAchievementsResponse || !gameSchemaResponse) {
@@ -100,8 +124,17 @@ export async function GET(request: NextRequest) {
         if (userAchievements.length > 0) {
           return NextResponse.json({ achievements: userAchievements });
         }
-        // If no cached data and Steam fails, return empty array (game might not have achievements)
-        return NextResponse.json({ achievements: [] });
+        // No cached data: return empty with diagnostic so caller can tell Steam vs our side
+        const playerStatus = steamErrorStatus(playerAchResult.error);
+        const schemaStatus = steamErrorStatus(schemaResult.error);
+        let emptyReason: AchievementEmptyReason | undefined;
+        if (playerStatus === 403 || schemaStatus === 403) emptyReason = 'steam-403';
+        else if (playerStatus === 400) emptyReason = 'steam-400';
+        else if (playerStatus === 429 || schemaStatus === 429) emptyReason = 'steam-429';
+        else if ((playerStatus !== null && playerStatus >= 500) || (schemaStatus !== null && schemaStatus >= 500)) emptyReason = 'steam-5xx';
+        else if (!gameSchemaResponse && schemaResult.error) emptyReason = 'no-schema';
+        else if (playerAchResult.error || schemaResult.error) emptyReason = 'steam-error';
+        return NextResponse.json({ achievements: [], emptyReason });
       }
 
       // Extract unlocked achievement API names, unlock times, and descriptions

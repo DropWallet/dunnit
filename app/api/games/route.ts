@@ -107,7 +107,9 @@ export async function GET(request: NextRequest) {
       ]);
 
       const steamGames = fullLibraryResponse.response.games || [];
-      if (steamGames.length === 0 && games.length > 0) {
+      // When Steam returns empty (e.g. profile private or glitch), never overwrite cache or set lastSyncAt
+      // so we retry on next request when profile goes public
+      if (steamGames.length === 0) {
         console.log(`[Games] Steam returned empty, using ${games.length} cached games`);
         return NextResponse.json({ games }, { headers: { 'Cache-Control': 'no-store' } });
       }
